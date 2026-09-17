@@ -38,17 +38,30 @@ export default function App() {
     setLanguageModalOpen
   } = useApp();
 
-  // 1. Guard: Restrict to official Telegram app only (blocks external web browsers)
+  const [splashFinished, setSplashFinished] = React.useState(false);
+
+  // 1. If opening Admin Panel directly, render Admin without blocking
+  if (activeTab === 'admin' || window.location.search.includes('admin=true')) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0E] text-white selection:bg-yellow-500 selection:text-black relative overflow-x-hidden">
+        <main className="flex-1 relative">
+          <AdminDashboard />
+        </main>
+      </div>
+    );
+  }
+
+  // 2. Guard: Restrict to official Telegram app only (blocks external web browsers)
   if (!isInsideTelegram()) {
     return <TelegramOnlyScreen botUsername="treasure_hunt12_bot" />;
   }
 
-  // 2. Initial 3D Cover Splash Screen with 0%-100% dynamic loading progress
+  // 3. Initial 3D Cover Splash Screen with 0%-100% dynamic loading progress
   if (!splashFinished || loading) {
     return <SplashScreen onFinish={() => setSplashFinished(true)} />;
   }
 
-  // 3. Anti-Cheat: Device Already In Use Detection Screen (matching UI)
+  // 4. Anti-Cheat: Device Already In Use Detection Screen (matching UI)
   if (duplicateLinkedUser) {
     return (
       <DeviceBlockedScreen
@@ -62,7 +75,7 @@ export default function App() {
     );
   }
 
-  // 4. Mandatory 3 Community Channels Gate Screen (if not verified yet)
+  // 5. Mandatory 3 Community Channels Gate Screen (if not verified yet)
   if (!isGatePassed && !user?.is_mandatory_verified) {
     return <MandatoryGateScreen onVerified={() => setIsGatePassed(true)} />;
   }
