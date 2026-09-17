@@ -6,10 +6,12 @@ import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
 import {
+  bot,
   verifyUserChannelMembership,
   verifyBotIsAdminInChat,
   broadcastToUsers
 } from './bot.js';
+import axios from 'axios';
 
 dotenv.config();
 
@@ -25,6 +27,47 @@ app.use(express.json());
 // Public health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Telegram Webhook Handler (for Serverless Vercel & Webhook setups)
+app.post('/api/webhook', async (req, res) => {
+  try {
+    if (bot) {
+      await bot.handleUpdate(req.body, res);
+      if (!res.headersSent) {
+        res.status(200).send('OK');
+      }
+    } else {
+      res.status(200).send('Bot not initialized');
+    }
+  } catch (err) {
+    console.error('Webhook processing error:', err);
+    if (!res.headersSent) {
+      res.status(200).send('Error');
+    }
+  }
+});
+
+// Helper endpoint to connect Telegram Webhook in 1 click
+app.get('/api/set-webhook', async (req, res) => {
+  try {
+    const token = process.env.BOT_TOKEN;
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'BOT_TOKEN is not configured in environment variables.' });
+    }
+    const host = req.get('host');
+    const protocol = (req.protocol === 'https' || host.includes('vercel.app')) ? 'https' : req.protocol;
+    const webhookUrl = `${protocol}://${host}/api/webhook`;
+
+    const tgResponse = await axios.get(`https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`);
+    res.json({
+      success: true,
+      webhookUrl,
+      telegram: tgResponse.data
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, details: err.response?.data });
+  }
 });
 
 // ==========================================
@@ -819,6 +862,10 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`⚔️ Treasure Hunt Backend Server running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`⚔️ Treasure Hunt Backend Server running on port ${PORT}`);
+  });
+}
+
+export default app;

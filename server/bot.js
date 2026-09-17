@@ -105,12 +105,16 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
       ctx.replyWithMarkdown(msg);
     });
 
-    // Launch Bot in long polling mode
-    bot.launch().then(() => {
-      console.log('🤖 Telegram Bot started successfully!');
-    }).catch(err => {
-      console.error('Error starting Telegram Bot:', err.message);
-    });
+    // Launch Bot in long polling mode if not in serverless environment
+    if (!process.env.VERCEL) {
+      bot.launch().then(() => {
+        console.log('🤖 Telegram Bot started successfully (Long Polling)!');
+      }).catch(err => {
+        console.error('Error starting Telegram Bot:', err.message);
+      });
+    } else {
+      console.log('⚡ Running in Vercel Serverless Webhook mode.');
+    }
   } catch (err) {
     console.error('Bot initialization failed:', err);
   }
