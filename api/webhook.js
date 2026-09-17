@@ -15,9 +15,9 @@ export default async function handler(req, res) {
 
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'tresure-hunt-gemini-flash-ai.vercel.app';
       const proto = req.headers['x-forwarded-proto'] || 'https';
-      const webhookUrl = `${proto}://${host}/api/webhook`;
+      const webhookUrl = `${proto}://${host}/api/webhook.js`;
 
-      const tgUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+      const tgUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`;
       const tgRes = await fetch(tgUrl);
       const tgData = await tgRes.json();
 
@@ -41,7 +41,7 @@ export default async function handler(req, res) {
       const text = message.text.trim();
 
       // 1. /admin command - STRICTLY CONFIDENTIAL TO ADMIN_ID
-      if (text === '/admin') {
+      if (text === '/admin' || text.startsWith('/admin')) {
         if (fromId !== adminId) {
           // Stay 100% silent for any other user
           return res.status(200).json({ ok: true, silent: true });

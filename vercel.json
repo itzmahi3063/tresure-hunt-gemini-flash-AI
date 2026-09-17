@@ -1,5 +1,14 @@
 {
+  "cleanUrls": true,
   "rewrites": [
+    {
+      "source": "/api/webhook",
+      "destination": "/api/webhook.js"
+    },
+    {
+      "source": "/api/test",
+      "destination": "/api/test.js"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
