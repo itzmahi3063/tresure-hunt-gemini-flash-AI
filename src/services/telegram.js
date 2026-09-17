@@ -24,6 +24,21 @@ export function initTelegram() {
   }
 }
 
+export function isInsideTelegram() {
+  if (typeof window === 'undefined') return false;
+  const webapp = window.Telegram?.WebApp;
+  if (!webapp) return false;
+
+  const hasInitData = Boolean(webapp.initData && webapp.initData.length > 0);
+  const hasUser = Boolean(webapp.initDataUnsafe?.user?.id);
+  const isTgPlatform = Boolean(webapp.platform && webapp.platform !== 'unknown');
+
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) return true;
+
+  return hasInitData || hasUser || isTgPlatform;
+}
+
 export function getTelegramInitData() {
   return tg ? tg.initData : '';
 }

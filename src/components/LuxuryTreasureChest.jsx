@@ -34,17 +34,23 @@ export default function LuxuryTreasureChest() {
     camera.position.set(0, 1.1, 6.2);
     camera.lookAt(0, 0, 0);
 
-    const renderer = new THREE.WebGLRenderer({
-      alpha: true,
-      antialias: true,
-      powerPreference: 'high-performance',
-      precision: 'mediump'
-    });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    
-    mount.innerHTML = '';
-    mount.appendChild(renderer.domElement);
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: 'high-performance',
+        precision: 'mediump'
+      });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      
+      mount.innerHTML = '';
+      mount.appendChild(renderer.domElement);
+    } catch (glErr) {
+      console.warn('LuxuryTreasureChest WebGL not supported or disabled:', glErr);
+      return;
+    }
 
     // --- ENHANCED GOLD & WARM STUDIO LIGHTING ---
     const ambientLight = new THREE.AmbientLight(0xfff8e7, 1.5);

@@ -1,5 +1,4 @@
 {
-  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/api/webhook",
@@ -8,6 +7,14 @@
     {
       "source": "/api/test",
       "destination": "/api/test.js"
+    },
+    {
+      "source": "/api/mandatory-channels/(.*)",
+      "destination": "/api/mandatory-channels.js"
+    },
+    {
+      "source": "/api/mandatory-channels",
+      "destination": "/api/mandatory-channels.js"
     },
     {
       "source": "/((?!api/).*)",

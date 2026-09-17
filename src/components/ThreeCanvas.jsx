@@ -18,10 +18,16 @@ export default function ThreeCanvas() {
     );
     camera.position.z = 15;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    currentMount.appendChild(renderer.domElement);
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      currentMount.appendChild(renderer.domElement);
+    } catch (glErr) {
+      console.warn('ThreeCanvas WebGL not supported or disabled:', glErr);
+      return;
+    }
 
     // Ambient & Point Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
