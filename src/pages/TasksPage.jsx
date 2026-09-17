@@ -1,0 +1,943 @@
+import React, { useState, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
+import {
+  ExternalLink,
+  CheckCircle2,
+  Check,
+  ChevronRight,
+  Info,
+  Gem,
+  PlusCircle,
+  Clock,
+  Trash2,
+  CreditCard,
+  Sparkles,
+  TrendingUp,
+  AlertCircle,
+  Edit3,
+  Rocket
+} from 'lucide-react';
+import api from '../services/api';
+import { openExternalLink, openTelegramLink, triggerHaptic } from '../services/telegram';
+import CreateExclusiveTaskModal from '../components/CreateExclusiveTaskModal';
+import TaskPaymentModal from '../components/TaskPaymentModal';
+import BoostTaskModal from '../components/BoostTaskModal';
+
+export default function TasksPage() {
+  const { user, setUser, setContactAdminModalOpen } = useApp();
+  const [activeCategory, setActiveCategory] = useState('daily');
+  const [exclusiveSubTab, setExclusiveSubTab] = useState('all'); // 'all' | 'my'
+  const [tasks, setTasks] = useState([]);
+  const [myTasks, setMyTasks] = useState([]);
+  const [visitedTasks, setVisitedTasks] = useState({});
+  const [ads, setAds] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [verifyingTaskId, setVerifyingTaskId] = useState(null);
+  const [statusMessage, setStatusMessage] = useState(null);
+
+  // Modals for Exclusive Task Creation, Editing, Payment & Boosting
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalTask, setEditModalTask] = useState(null);
+  const [paymentModalTask, setPaymentModalTask] = useState(null);
+  const [boostModalTask, setBoostModalTask] = useState(null);
+
+  useEffect(() => {
+    loadTasksAndAds();
+  }, [activeCategory, exclusiveSubTab]);
+
+  const loadTasksAndAds = async () => {
+    try {
+      if (activeCategory === 'daily') {
+        const res = await api.get('/ads');
+        if (res.data.success) setAds(res.data.ads);
+      } else if (activeCategory === 'exclusive') {
+        const [tasksRes, myRes] = await Promise.all([
+          api.get('/tasks?category=exclusive'),
+          api.get('/tasks/my')
+        ]);
+        if (tasksRes.data.success) setTasks(tasksRes.data.tasks);
+        if (myRes.data.success) setMyTasks(myRes.data.tasks);
+      } else {
+        const res = await api.get(`/tasks?category=${activeCategory}`);
+        if (res.data.success) setTasks(res.data.tasks);
+      }
+    } catch (err) {
+      console.error('Error fetching tasks:', err);
+    }
+  };
+
+  const handleWatchAd = async (ad) => {
+    if (ad.is_completed_today) return;
+
+    setLoading(true);
+    triggerHaptic('impact', 'medium');
+    setStatusMessage({ type: 'info', text: `Loading ${ad.name} reward clip... Please watch until the end.` });
+
+    setTimeout(async () => {
+      try {
+        const res = await api.post('/ads/watch', { adId: ad.id });
+        if (res.data.success) {
+          setUser(res.data.user);
+          setStatusMessage({
+            type: 'success',
+            text: `🎉 You earned +${res.data.rewardDiamonds} GEMS for watching ${ad.name}!`
+          });
+          loadTasksAndAds();
+          triggerHaptic('notification', 'success');
+        }
+      } catch (err) {
+        setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Ad verification failed' });
+        triggerHaptic('notification', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }, 3000);
+  };
+
+  const handleTaskAction = async (task) => {
+    if (task.is_completed) return;
+
+    // Step 1: If not visited yet, open link and switch button to Verify
+    if (!visitedTasks[task.id]) {
+      if (task.link.includes('t.me/')) {
+        openTelegramLink(task.link);
+      } else {
+        openExternalLink(task.link);
+      }
+      setVisitedTasks(prev => ({ ...prev, [task.id]: true }));
+      triggerHaptic('impact', 'medium');
+      setStatusMessage({
+        type: 'info',
+        text: `Link opened! Return here and tap "Verify" to claim +${task.reward_diamonds} GEMS.`
+      });
+      return;
+    }
+
+    // Step 2: User tapped Verify
+    setVerifyingTaskId(task.id);
+    setStatusMessage({ type: 'info', text: 'Verifying completion with secure vault...' });
+    triggerHaptic('impact', 'light');
+
+    setTimeout(async () => {
+      try {
+        const res = await api.post('/tasks/complete', { taskId: task.id });
+        if (res.data.success) {
+          setUser(res.data.user);
+          setStatusMessage({
+            type: 'success',
+            text: `🎉 Bounty claimed! +${res.data.reward} GEMS added to your balance!`
+          });
+          loadTasksAndAds();
+          triggerHaptic('notification', 'success');
+        }
+      } catch (err) {
+        setStatusMessage({
+          type: 'error',
+          text: err.response?.data?.error || 'Verification failed. Please ensure you joined or completed the action!'
+        });
+        triggerHaptic('notification', 'error');
+      } finally {
+        setVerifyingTaskId(null);
+      }
+    }, 1500);
+  };
+
+  const handleQuickCancelTask = async (taskId) => {
+    if (!window.confirm('Are you sure you want to reject & delete this unpaid campaign?')) return;
+    try {
+      const res = await api.post('/tasks/exclusive/cancel', { taskId });
+      if (res.data.success) {
+        setStatusMessage({ type: 'info', text: 'Post draft rejected and removed.' });
+        loadTasksAndAds();
+        triggerHaptic('notification', 'success');
+      }
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Failed to cancel post' });
+    }
+  };
+
+  return (
+    <div className="min-h-screen pb-32 pt-2 px-4 max-w-md mx-auto space-y-3.5 font-sans select-none">
+      {/* Top Title & Total Badge with Crisp Diamond SVG Icon */}
+      <div className="flex justify-between items-center pt-1">
+        <div>
+          <h2 className="text-2xl font-black text-white tracking-wide">Tasks & Quests</h2>
+          <p className="text-xs text-[#a89782] mt-0.5">Complete quests & claim your treasure bounties</p>
+        </div>
+
+        {/* 3D Top Diamonds Pill */}
+        <div
+          style={{
+            backgroundColor: '#2b1c10',
+            borderTop: '1.5px solid #664b2d',
+            borderLeft: '1px solid #4a341f',
+            borderRight: '1px solid #4a341f',
+            borderBottom: '3px solid #140d06',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.6)'
+          }}
+          className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-2xl"
+        >
+          <Gem size={17} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(0,229,255,0.6)]" />
+          <span className="text-sm font-black text-[#f7bf46] font-mono">
+            {user?.diamonds?.toLocaleString() || '14,063'}
+          </span>
+        </div>
+      </div>
+
+      {/* 4 Category Tabs Container with Glowing Dots */}
+      <div
+        style={{
+          backgroundColor: '#1d130a',
+          borderTop: '1px solid #422915',
+          borderBottom: '3px solid #0f0a05',
+          boxShadow: '0 6px 14px rgba(0,0,0,0.7)'
+        }}
+        className="flex p-1.5 rounded-2xl justify-between border-x border-[#382413]"
+      >
+        {[
+          { id: 'daily', label: 'Daily' },
+          { id: 'social', label: 'Social' },
+          { id: 'exclusive', label: 'Exclusive' },
+          { id: 'partner', label: 'Partner' }
+        ].map((cat) => {
+          const isActive = activeCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => {
+                triggerHaptic('selection');
+                setActiveCategory(cat.id);
+                setStatusMessage(null);
+              }}
+              style={
+                isActive
+                  ? {
+                      background: 'linear-gradient(180deg, #57371a 0%, #3a2512 100%)',
+                      borderTop: '1px solid #825429',
+                      borderBottom: '2.5px solid #1c1007',
+                      color: '#f7bf46',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.5)'
+                    }
+                  : {
+                      color: '#a89782'
+                    }
+              }
+              className="flex-1 py-2 px-2 text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-1.5 active:scale-95"
+            >
+              <span>{cat.label}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-[#f7bf46] shadow-[0_0_6px_#f7bf46]' : 'bg-[#5c4026]'}`} />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Status Message */}
+      {statusMessage && (
+        <div className={`p-3 rounded-2xl text-xs flex items-center space-x-2 animate-fadeIn ${
+          statusMessage.type === 'success'
+            ? 'bg-[#18291b] border border-[#2b5432] text-emerald-300'
+            : statusMessage.type === 'error'
+            ? 'bg-[#2b1616] border border-[#542828] text-rose-300'
+            : 'bg-[#16232b] border border-[#244254] text-cyan-300'
+        }`}>
+          {statusMessage.type === 'success' ? <CheckCircle2 size={16} /> : <Info size={16} />}
+          <span className="font-semibold">{statusMessage.text}</span>
+        </div>
+      )}
+
+      {/* 1. DAILY ADS SECTION */}
+      {activeCategory === 'daily' && (
+        <div className="space-y-3.5 pt-1">
+          <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-wider text-[#8a7966]">
+            <span>WATCH & EARN</span>
+            <div className="h-[1px] bg-[#3d2918] flex-1" />
+          </div>
+
+          {ads.map((ad) => {
+            const watched = ad.watched_today || 0;
+            const max = ad.max_daily || 10;
+            const percentage = Math.min(100, Math.round((watched / max) * 100));
+            const isFinished = watched >= max;
+
+            return (
+              <div
+                key={ad.id}
+                style={{
+                  background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                  borderTop: '2px solid #664b2d',
+                  borderLeft: '1.5px solid #4a341f',
+                  borderRight: '1.5px solid #4a341f',
+                  borderBottom: '5px solid #140d06',
+                  boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 230, 180, 0.15)'
+                }}
+                className="rounded-[28px] p-4 flex items-center justify-between relative transition-transform"
+              >
+                <div className="flex items-center space-x-3.5 flex-1 pr-3">
+                  {ad.id === 'adsgram' ? (
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #42a5f5 0%, #1e88e5 60%, #0d47a1 100%)',
+                        borderTop: '1.5px solid #90caf9',
+                        borderBottom: '3.5px solid #05264a',
+                        boxShadow: '0 4px 10px rgba(13, 71, 161, 0.4)'
+                      }}
+                      className="w-[58px] h-[58px] rounded-[18px] flex items-center justify-center shrink-0 relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent rounded-t-[18px] pointer-events-none" />
+                      <svg viewBox="0 0 100 100" className="w-8 h-8 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                        <path d="M50 15 L85 80 L65 80 L50 48 L35 80 L15 80 Z" />
+                        <path d="M42 62 L58 62 L50 46 Z" fill="#1e88e5" />
+                      </svg>
+                    </div>
+                  ) : ad.id === 'monetag' ? (
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #b2ea6e 0%, #9cd65b 60%, #7dbd39 100%)',
+                        borderTop: '1.5px solid #d4ff9e',
+                        borderBottom: '3.5px solid #476e1e',
+                        boxShadow: '0 4px 10px rgba(125, 189, 57, 0.4)'
+                      }}
+                      className="w-[58px] h-[58px] rounded-[18px] flex items-center justify-center shrink-0 relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 left-0 right-0 h-1/2 bg-white/30 to-transparent rounded-t-[18px] pointer-events-none" />
+                      <div className="text-black font-black text-[13px] tracking-tighter flex items-center drop-shadow-sm">
+                        <span>mon</span>
+                        <span className="text-[#0d47a1] font-extrabold mx-[1px]">|</span>
+                        <span>tag</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: 'linear-gradient(180deg, #ffb74d 0%, #ffa726 60%, #e65100 100%)',
+                        borderTop: '1.5px solid #ffe082',
+                        borderBottom: '3.5px solid #8c2d00'
+                      }}
+                      className="w-[58px] h-[58px] rounded-[18px] flex items-center justify-center shadow-md shrink-0"
+                    >
+                      <Gem className="text-white" size={26} />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1.5">
+                    <h4 className="text-[15px] font-black text-white tracking-wide leading-tight drop-shadow-sm">
+                      {ad.name}
+                    </h4>
+
+                    <p className="text-[12px] text-[#a89782] leading-tight font-medium">
+                      Watch {ad.name} ad
+                    </p>
+
+                    <div className="py-1">
+                      <div
+                        style={{
+                          backgroundColor: '#0f0803',
+                          border: '1px solid #4a321d',
+                          borderTop: '1.5px solid #000000',
+                          boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.95), 0 1px 2px rgba(255,255,255,0.08)'
+                        }}
+                        className="w-full h-[8px] rounded-full overflow-hidden p-[1px] relative flex items-center"
+                      >
+                        <div
+                          style={{
+                            width: `${percentage}%`,
+                            background: 'linear-gradient(90deg, #f59e0b 0%, #ffd700 60%, #fff2a8 100%)',
+                            boxShadow: '0 0 14px rgba(255, 215, 0, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.8)'
+                          }}
+                          className="h-full rounded-full transition-all duration-400 relative overflow-hidden"
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-pulse" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[12px] text-[#a89782] leading-tight font-sans font-medium">
+                      {watched} of {max} done
+                    </p>
+
+                    <div className="flex items-center space-x-1.5 pt-0.5">
+                      <Gem size={14} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(0,229,255,0.7)] shrink-0" />
+                      <span className="text-[#f7bf46] font-black text-[13px] font-mono">
+                        +{ad.reward_diamonds}
+                      </span>
+                      <span className="text-[#a89782] text-[12px] font-medium">· watch a clip</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleWatchAd(ad)}
+                  disabled={loading || isFinished}
+                  style={
+                    !isFinished
+                      ? {
+                          background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 45%, #e8a522 100%)',
+                          borderTop: '1.5px solid #fff2b8',
+                          borderLeft: '1px solid #e8a522',
+                          borderRight: '1px solid #e8a522',
+                          borderBottom: '4px solid #7d4800',
+                          color: '#1a0f02',
+                          boxShadow: '0 6px 14px rgba(232, 165, 34, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.6)'
+                        }
+                      : {
+                          backgroundColor: '#352415',
+                          color: '#7a6752',
+                          borderTop: '1px solid #4a3420',
+                          borderBottom: '2.5px solid #1a1108'
+                        }
+                  }
+                  className="px-6 py-2.5 rounded-[20px] text-[14px] font-black tracking-wide shrink-0 transition-all active:translate-y-1 active:border-b-[1px] active:shadow-none"
+                >
+                  {isFinished ? 'Done' : 'Watch'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 2. EXCLUSIVE SECTION WITH USER TASK CREATION, MY POSTS, AND AUTO-EXPIRATION */}
+      {activeCategory === 'exclusive' && (
+        <div className="space-y-3 pt-1">
+          {/* Add Your Own Task 3D Banner */}
+          <div
+            onClick={() => {
+              triggerHaptic('impact', 'light');
+              setCreateModalOpen(true);
+            }}
+            style={{
+              background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+              borderTop: '2px solid #825429',
+              borderLeft: '1.5px solid #4a341f',
+              borderRight: '1.5px solid #4a341f',
+              borderBottom: '5px solid #140d06',
+              boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(247, 191, 70, 0.1)'
+            }}
+            className="cursor-pointer rounded-[28px] p-4 flex items-center justify-between active:scale-98 transition-all group"
+          >
+            <div className="flex items-center space-x-3.5">
+              <div
+                style={{
+                  background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                  borderTop: '1px solid #fff2b8',
+                  borderBottom: '2.5px solid #7a4b00',
+                  boxShadow: '0 4px 10px rgba(247, 191, 70, 0.3)'
+                }}
+                className="w-11 h-11 rounded-2xl flex items-center justify-center text-[#1a0f02] font-black"
+              >
+                <PlusCircle size={22} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white group-hover:text-[#f7bf46] transition-colors">
+                  Add your own task
+                </h4>
+                <p className="text-[11px] text-[#a89782] mt-0.5 font-medium">
+                  100 Users = 0.20 TON · Max 2,000 Users
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-1">
+              <span className="text-[11px] font-black text-[#f7bf46] uppercase">Create</span>
+              <ChevronRight className="text-[#f7bf46]" size={18} />
+            </div>
+          </div>
+
+          {/* Sub Filters: All Tasks vs My Tasks */}
+          <div className="flex space-x-2 pt-1">
+            <button
+              onClick={() => {
+                triggerHaptic('selection');
+                setExclusiveSubTab('all');
+              }}
+              style={
+                exclusiveSubTab === 'all'
+                  ? {
+                      background: 'linear-gradient(180deg, #57371a 0%, #3a2512 100%)',
+                      borderTop: '1px solid #825429',
+                      borderBottom: '2.5px solid #1c1007',
+                      color: '#f7bf46'
+                    }
+                  : {
+                      background: '#1d130a',
+                      borderTop: '1px solid #382413',
+                      borderBottom: '2.5px solid #0f0a05',
+                      color: '#a89782'
+                    }
+              }
+              className="px-5 py-2 rounded-2xl font-black text-xs uppercase transition-all flex items-center space-x-1.5"
+            >
+              <span>All tasks</span>
+              <span className="text-[10px] opacity-75 font-mono">({tasks.length})</span>
+            </button>
+
+            <button
+              onClick={() => {
+                triggerHaptic('selection');
+                setExclusiveSubTab('my');
+              }}
+              style={
+                exclusiveSubTab === 'my'
+                  ? {
+                      background: 'linear-gradient(180deg, #57371a 0%, #3a2512 100%)',
+                      borderTop: '1px solid #825429',
+                      borderBottom: '2.5px solid #1c1007',
+                      color: '#f7bf46'
+                    }
+                  : {
+                      background: '#1d130a',
+                      borderTop: '1px solid #382413',
+                      borderBottom: '2.5px solid #0f0a05',
+                      color: '#a89782'
+                    }
+              }
+              className="px-5 py-2 rounded-2xl font-black text-xs uppercase transition-all flex items-center space-x-1.5"
+            >
+              <span>My tasks / Posts</span>
+              {myTasks.length > 0 && (
+                <span className="px-1.5 py-0.2 bg-[#f7bf46] text-black rounded-full text-[10px] font-mono font-black">
+                  {myTasks.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-wider text-[#8a7966] pt-1">
+            <span>{exclusiveSubTab === 'all' ? 'EXCLUSIVE COMMUNITY TASKS' : 'MY CAMPAIGN POSTS'}</span>
+            <div className="h-[1px] bg-[#3d2918] flex-1" />
+          </div>
+
+          {/* VIEW 1: ALL TASKS (Approved & Running) */}
+          {exclusiveSubTab === 'all' && (
+            <>
+              {tasks.length === 0 ? (
+                <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-2">
+                  <Sparkles size={28} className="mx-auto text-[#a89782]" />
+                  <p className="text-xs text-white font-bold">No exclusive tasks available right now.</p>
+                  <p className="text-[11px] text-[#a89782]">Click "+ Add your own task" above to launch your campaign!</p>
+                </div>
+              ) : (
+                tasks.map((t) => (
+                  <div
+                    key={t.id}
+                    style={{
+                      background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                      borderTop: '2px solid #664b2d',
+                      borderLeft: '1.5px solid #4a341f',
+                      borderRight: '1.5px solid #4a341f',
+                      borderBottom: '5px solid #140d06',
+                      boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8)'
+                    }}
+                    className="rounded-[28px] p-4 flex items-center justify-between"
+                  >
+                    <div className="space-y-1 flex-1 pr-3">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-600/30">
+                          {t.type || 'Exclusive'}
+                        </span>
+                        {t.max_users && (
+                          <span className="text-[10px] text-[#a89782] font-mono">
+                            {t.current_completed || 0}/{t.max_users} done
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="text-sm font-black text-white leading-tight">{t.title}</h4>
+                      <p className="text-[11px] text-[#a89782] font-medium line-clamp-1">{t.description}</p>
+
+                      <div className="flex items-center space-x-1.5 text-xs pt-0.5">
+                        <Gem size={14} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(0,229,255,0.7)]" />
+                        <span className="text-[#f7bf46] font-black text-[13px] font-mono">+{t.reward_diamonds}</span>
+                        <span className="text-[#a89782] text-[11px]">Gems</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleTaskAction(t)}
+                      disabled={t.is_completed || verifyingTaskId === t.id}
+                      style={
+                        t.is_completed
+                          ? {
+                              backgroundColor: '#352415',
+                              color: '#7a6752',
+                              borderBottom: '2px solid #1a1108'
+                            }
+                          : visitedTasks[t.id]
+                          ? {
+                              background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                              borderTop: '1.5px solid #fff2b8',
+                              borderBottom: '3.5px solid #7a4b00',
+                              color: '#1a0f02',
+                              boxShadow: '0 4px 12px rgba(247, 191, 70, 0.4)'
+                            }
+                          : {
+                              background: 'linear-gradient(180deg, #4d331d 0%, #301f11 100%)',
+                              borderTop: '1px solid #734d2b',
+                              borderBottom: '3px solid #140d06',
+                              color: '#ffffff'
+                            }
+                      }
+                      className="px-6 py-2.5 rounded-[20px] text-xs font-black flex items-center space-x-1 uppercase transition-all active:translate-y-1 active:border-b-[1px] shrink-0"
+                    >
+                      <span>
+                        {t.is_completed
+                          ? 'Completed'
+                          : verifyingTaskId === t.id
+                          ? 'Checking...'
+                          : visitedTasks[t.id]
+                          ? 'Verify'
+                          : 'Go'}
+                      </span>
+                      {!t.is_completed && !visitedTasks[t.id] && <ExternalLink size={12} className="text-[#a89782]" />}
+                    </button>
+                  </div>
+                ))
+              )}
+            </>
+          )}
+
+          {/* VIEW 2: MY TASKS (User Campaigns with Pay Now, Reject, Approved, Completed) */}
+          {exclusiveSubTab === 'my' && (
+            <div className="space-y-3">
+              {myTasks.length === 0 ? (
+                <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-3">
+                  <Clock size={32} className="mx-auto text-[#a89782]" />
+                  <div>
+                    <h4 className="text-sm font-black text-white">No campaigns created yet</h4>
+                    <p className="text-[11px] text-[#a89782] mt-1 max-w-xs mx-auto">
+                      Create your first campaign post to reach hundreds of hunters.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setCreateModalOpen(true)}
+                    style={{
+                      background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                      borderTop: '1px solid #fff2b8',
+                      borderBottom: '3px solid #7a4b00',
+                      color: '#1a0f02'
+                    }}
+                    className="px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all inline-flex items-center space-x-1.5"
+                  >
+                    <PlusCircle size={15} />
+                    <span>Create Exclusive Task</span>
+                  </button>
+                </div>
+              ) : (
+                myTasks.map((t) => {
+                  const isPending = t.status === 'pending_payment';
+                  const isApproved = t.status === 'approved';
+                  const isCompleted = t.status === 'completed' || ((t.current_completed || 0) >= t.max_users);
+                  const progressPct = Math.min(100, Math.round(((t.current_completed || 0) / (t.max_users || 100)) * 100));
+
+                  return (
+                    <div
+                      key={t.id}
+                      style={{
+                        background: 'linear-gradient(180deg, #2b1c10 0%, #1c1108 100%)',
+                        borderTop: isPending ? '2px solid #c97a2b' : isApproved ? '2px solid #2e7d32' : '2px solid #4a341f',
+                        borderLeft: '1.5px solid #4a341f',
+                        borderRight: '1.5px solid #4a341f',
+                        borderBottom: '5px solid #0f0904',
+                        boxShadow: '0 8px 20px rgba(0, 0, 0, 0.7)'
+                      }}
+                      className="rounded-[28px] p-4 space-y-3"
+                    >
+                      {/* Top status header */}
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] text-[#a89782] font-mono">
+                            {new Date(t.created_at).toLocaleDateString()}
+                          </span>
+                          <span className="text-[10px] text-[#634e38]">·</span>
+                          <span className="text-[10px] text-[#f7bf46] font-mono font-bold">
+                            {t.max_users} Users
+                          </span>
+                        </div>
+
+                        {/* Status Badge */}
+                        {isPending ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                            Pending Payment
+                          </span>
+                        ) : isCompleted ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                            Approved · Done
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                            <span>Approved & Active</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Post details */}
+                      <div>
+                        <h4 className="text-sm font-black text-white">{t.title}</h4>
+                        <p className="text-[11px] text-[#a89782] mt-0.5 truncate font-mono">{t.link}</p>
+                      </div>
+
+                      {/* Progress Bar (If Approved or Completed) */}
+                      {!isPending && (
+                        <div className="space-y-1 bg-[#140c06] p-2.5 rounded-2xl border border-[#382413]">
+                          <div className="flex justify-between text-[11px] font-bold">
+                            <span className="text-[#a89782]">Completed by hunters</span>
+                            <span className="text-white font-mono">{t.current_completed || 0} / {t.max_users} ({progressPct}%)</span>
+                          </div>
+                          <div className="w-full h-2 bg-[#20140a] rounded-full overflow-hidden p-[1px]">
+                            <div
+                              style={{ width: `${progressPct}%` }}
+                              className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 rounded-full transition-all duration-500"
+                            />
+                          </div>
+                          {isCompleted && (
+                            <p className="text-[10px] text-emerald-400 font-bold text-center pt-0.5">
+                              ✓ Target reached! Campaign successfully concluded.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Price & Action Buttons */}
+                      <div className="pt-1 flex items-center justify-between border-t border-[#382413]">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs font-black text-[#00f5ff] font-mono">
+                            {(t.ton_cost || (t.max_users / 100) * 0.20).toFixed(2)} TON
+                          </span>
+                          <span className="text-[10px] text-[#8a7966]">total cost</span>
+                        </div>
+
+                        {isPending ? (
+                          <div className="flex items-center space-x-1.5">
+                            {/* Edit Post */}
+                            <button
+                              onClick={() => {
+                                triggerHaptic('selection');
+                                setEditModalTask(t);
+                              }}
+                              style={{
+                                background: '#26190e',
+                                borderTop: '1px solid #573a1e',
+                                borderBottom: '2px solid #140c06',
+                                color: '#f7bf46'
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-[11px] font-black uppercase flex items-center space-x-1 transition-all active:scale-95"
+                            >
+                              <Edit3 size={11} />
+                              <span>Edit</span>
+                            </button>
+
+                            {/* Reject / Cancel */}
+                            <button
+                              onClick={() => handleQuickCancelTask(t.id)}
+                              style={{
+                                background: '#1d120a',
+                                borderTop: '1px solid #3d2414',
+                                borderBottom: '2px solid #0d0703',
+                                color: '#f87171'
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-[11px] font-black uppercase transition-all active:scale-95"
+                            >
+                              Reject
+                            </button>
+
+                            {/* Pay Now */}
+                            <button
+                              onClick={() => setPaymentModalTask(t)}
+                              style={{
+                                background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 50%, #0077b6 100%)',
+                                borderTop: '1px solid #a6f4ff',
+                                borderBottom: '2.5px solid #004777',
+                                color: '#031726',
+                                boxShadow: '0 4px 10px rgba(0, 180, 216, 0.4)'
+                              }}
+                              className="px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase flex items-center space-x-1 transition-all active:scale-95"
+                            >
+                              <CreditCard size={12} />
+                              <span>Pay now</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[10px] font-black text-[#f7bf46] uppercase font-mono">
+                              {isCompleted ? '✓ FULFILLED' : '● LIVE'}
+                            </span>
+
+                            {/* Boost Campaign Button */}
+                            <button
+                              onClick={() => {
+                                triggerHaptic('impact', 'medium');
+                                setBoostModalTask(t);
+                              }}
+                              style={{
+                                background: 'linear-gradient(180deg, #ff8a00 0%, #e52e71 100%)',
+                                borderTop: '1px solid #ffb380',
+                                borderBottom: '2.5px solid #7a1538',
+                                color: '#ffffff',
+                                boxShadow: '0 4px 10px rgba(229, 46, 113, 0.4)'
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase flex items-center space-x-1 transition-all active:scale-95"
+                            >
+                              <Rocket size={12} />
+                              <span>Boost</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. SOCIAL & PARTNER TABS */}
+      {(activeCategory === 'social' || activeCategory === 'partner') && (
+        <div className="space-y-3 pt-1">
+          <div className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-wider text-[#8a7966]">
+            <span>{activeCategory === 'social' ? 'SOCIAL TASKS' : 'PARTNER OFFERS'}</span>
+            <div className="h-[1px] bg-[#3d2918] flex-1" />
+          </div>
+
+          {tasks.map((t) => (
+            <div
+              key={t.id}
+              style={{
+                background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                borderTop: '2px solid #664b2d',
+                borderLeft: '1.5px solid #4a341f',
+                borderRight: '1.5px solid #4a341f',
+                borderBottom: '5px solid #140d06',
+                boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8)'
+              }}
+              className="rounded-[28px] p-4 flex items-center justify-between"
+            >
+              <div className="space-y-1">
+                <h4 className="text-sm font-black text-white">{t.title}</h4>
+                <p className="text-[11px] text-[#a89782]">{t.description}</p>
+                <div className="flex items-center space-x-1.5 text-xs pt-0.5">
+                  <Gem size={14} className="text-cyan-400 drop-shadow-[0_0_6px_rgba(0,229,255,0.7)]" />
+                  <span className="text-[#f7bf46] font-black text-[13px] font-mono">+{t.reward_diamonds}</span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => handleTaskAction(t)}
+                disabled={t.is_completed || verifyingTaskId === t.id}
+                style={
+                  t.is_completed
+                    ? {
+                        backgroundColor: '#352415',
+                        color: '#7a6752',
+                        borderBottom: '2px solid #1a1108'
+                      }
+                    : visitedTasks[t.id]
+                    ? {
+                        background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                        borderTop: '1.5px solid #fff2b8',
+                        borderBottom: '3.5px solid #7a4b00',
+                        color: '#1a0f02',
+                        boxShadow: '0 4px 12px rgba(247, 191, 70, 0.4)'
+                      }
+                    : {
+                        background: 'linear-gradient(180deg, #4d331d 0%, #301f11 100%)',
+                        borderTop: '1px solid #734d2b',
+                        borderBottom: '3px solid #140d06',
+                        color: '#ffffff'
+                      }
+                }
+                className="px-6 py-2.5 rounded-[20px] text-xs font-black flex items-center space-x-1 uppercase transition-all active:translate-y-1 active:border-b-[1px] shrink-0"
+              >
+                <span>
+                  {t.is_completed
+                    ? 'Completed'
+                    : verifyingTaskId === t.id
+                    ? 'Checking...'
+                    : visitedTasks[t.id]
+                    ? 'Verify'
+                    : 'Go'}
+                </span>
+                {!t.is_completed && !visitedTasks[t.id] && <ExternalLink size={12} className="text-[#a89782]" />}
+              </button>
+            </div>
+          ))}
+
+          {/* 3D How Treasure Vault Rewards Work info box */}
+          <div
+            style={{
+              background: 'linear-gradient(180deg, #2b1c10 0%, #201509 100%)',
+              borderTop: '1.5px solid #5c3f24',
+              borderBottom: '3.5px solid #120b04',
+              boxShadow: '0 6px 16px rgba(0,0,0,0.7)'
+            }}
+            className="rounded-[28px] p-4 mt-6 space-y-2 border-x border-[#3d2918]"
+          >
+            <h4 className="text-xs font-black text-white">How Treasure Vault Rewards Work</h4>
+            <p className="text-[11px] text-[#a89782] leading-relaxed font-medium">
+              Task and quest bounties are verified through our secure vault system. Telegram channels verify bot membership, while link visits confirm instantly. Once verified, pure GEMS are instantly added to your chest balance.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      <CreateExclusiveTaskModal
+        isOpen={createModalOpen || !!editModalTask}
+        editTask={editModalTask}
+        onClose={() => {
+          setCreateModalOpen(false);
+          setEditModalTask(null);
+        }}
+        onTaskCreated={(newTask) => {
+          setExclusiveSubTab('my');
+          setStatusMessage({
+            type: 'success',
+            text: '🎉 Campaign post ready! Please click "Pay now" to activate and approve it.'
+          });
+          loadTasksAndAds();
+        }}
+        onTaskUpdated={(updatedTask) => {
+          setStatusMessage({
+            type: 'success',
+            text: '🎉 Campaign post draft updated successfully!'
+          });
+          loadTasksAndAds();
+        }}
+      />
+
+      <TaskPaymentModal
+        task={paymentModalTask}
+        isOpen={!!paymentModalTask}
+        onClose={() => setPaymentModalTask(null)}
+        onPaymentSuccess={(approvedTask) => {
+          setStatusMessage({
+            type: 'success',
+            text: '🎉 Payment confirmed! Your task is now APPROVED and live in Exclusive Tasks!'
+          });
+          loadTasksAndAds();
+        }}
+        onTaskCancelled={(cancelledId) => {
+          setStatusMessage({
+            type: 'info',
+            text: 'Campaign post draft was rejected and cancelled.'
+          });
+          loadTasksAndAds();
+        }}
+      />
+
+      <BoostTaskModal
+        task={boostModalTask}
+        isOpen={!!boostModalTask}
+        onClose={() => setBoostModalTask(null)}
+        onTaskBoosted={(boostedTask) => {
+          setStatusMessage({
+            type: 'success',
+            text: `🚀 Campaign boosted! Added audience capacity is now active for new hunters.`
+          });
+          loadTasksAndAds();
+        }}
+      />
+    </div>
+  );
+}

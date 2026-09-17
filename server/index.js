@@ -1,0 +1,824 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { db } from './db.js';
+import { authMiddleware, adminMiddleware } from './auth.js';
+import {
+  verifyUserChannelMembership,
+  verifyBotIsAdminInChat,
+  broadcastToUsers
+} from './bot.js';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
+// Public health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// ==========================================
+// USER & PROFILE ROUTES (Protected)
+// ==========================================
+
+app.get('/api/user/me', authMiddleware, (req, res) => {
+  try {
+    const user = db.getOrCreateUser(req.user);
+    res.json({
+      success: true,
+      user,
+      isAdmin: req.isAdmin,
+      settings: {
+        rate: db.data.settings.diamond_to_usd_rate,
+        commission: db.data.settings.referral_commission_rate,
+        minWithdrawal: db.data.settings.min_withdrawal_usdt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/user/sync', authMiddleware, (req, res) => {
+  try {
+    const { referrerId } = req.body;
+    const user = db.getOrCreateUser(req.user, referrerId);
+    res.json({ success: true, user, isAdmin: req.isAdmin });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Open Treasure Chest
+app.post('/api/chest/open', authMiddleware, (req, res) => {
+  try {
+    const result = db.openChest(req.user.id);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// TASKS & COMPLETION ROUTES
+// ==========================================
+
+app.get('/api/tasks', authMiddleware, (req, res) => {
+  try {
+    const { category } = req.query;
+    const tasks = db.getTasks(category);
+    const userId = req.user.id;
+
+    // Attach completion status for current user
+    const formatted = tasks.map(t => ({
+      ...t,
+      is_completed: db.isTaskCompleted(userId, t.id)
+    }));
+
+    res.json({ success: true, tasks: formatted });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/tasks/complete', authMiddleware, async (req, res) => {
+  try {
+    const { taskId } = req.body;
+    const userId = req.user.id;
+
+    const task = db.getTaskById(taskId);
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found' });
+    }
+
+    if (db.isTaskCompleted(userId, taskId)) {
+      return res.status(400).json({ success: false, error: 'Task already completed' });
+    }
+
+    // If verified channel/group task, verify actual membership with bot API
+    if ((task.type === 'channel' || task.type === 'group') && (task.verification_type === 'verified' || (!task.verification_type && task.chat_id))) {
+      if (task.chat_id) {
+        const check = await verifyUserChannelMembership(task.chat_id, userId);
+        if (!check.verified) {
+          return res.status(400).json({
+            success: false,
+            error: check.error || 'You have not joined the channel/group yet! Please join the channel first and then click Verify.'
+          });
+        }
+      }
+    }
+
+    const { user, task: updatedTask } = db.completeTask(userId, taskId);
+
+    res.json({
+      success: true,
+      reward: task.reward_diamonds,
+      user,
+      task: updatedTask
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// User's own exclusive task campaigns
+app.get('/api/tasks/my', authMiddleware, (req, res) => {
+  try {
+    const userTasks = db.getUserTasks(req.user.id);
+    res.json({ success: true, tasks: userTasks });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create Exclusive Task Post (Pending Payment)
+app.post('/api/tasks/exclusive/create', authMiddleware, (req, res) => {
+  try {
+    const newTask = db.createUserExclusiveTask(req.user.id, req.body);
+    res.json({ success: true, task: newTask });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Confirm & Pay for Exclusive Task Campaign
+app.post('/api/tasks/exclusive/pay', authMiddleware, (req, res) => {
+  try {
+    const { taskId } = req.body;
+    const task = db.payUserExclusiveTask(req.user.id, taskId);
+    res.json({ success: true, task });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Verify if Bot is Admin in given Telegram Channel/Group
+app.post('/api/tasks/verify-bot-admin', authMiddleware, async (req, res) => {
+  try {
+    const { usernameOrLink } = req.body;
+    let clean = (usernameOrLink || '').trim();
+    if (!clean) {
+      return res.status(400).json({ success: false, error: 'Telegram channel or group username/link is required' });
+    }
+
+    let chatId = clean;
+    if (clean.includes('t.me/')) {
+      const match = clean.match(/t\.me\/([a-zA-Z0-9_]+)/);
+      if (match && match[1]) {
+        chatId = '@' + match[1];
+      }
+    } else if (!chatId.startsWith('@') && !chatId.startsWith('-100') && !/^\d+$/.test(chatId)) {
+      chatId = '@' + chatId;
+    }
+
+    const check = await verifyBotIsAdminInChat(chatId);
+    if (check.isAdmin) {
+      res.json({
+        success: true,
+        isAdmin: true,
+        chatId,
+        isSimulation: check.isSimulation || false,
+        message: 'Bot is confirmed as Admin in this channel/group!'
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        isAdmin: false,
+        chatId,
+        error: 'Bot is not an administrator in this channel/group! Please add the bot as Admin with invite/post rights and try again.'
+      });
+    }
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Edit Unpaid Task Campaign Draft
+app.put('/api/tasks/exclusive/:taskId', authMiddleware, (req, res) => {
+  try {
+    const updated = db.editUserExclusiveTask(req.user.id, req.params.taskId, req.body);
+    res.json({ success: true, task: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Boost Task Campaign (Add more user capacity)
+app.post('/api/tasks/exclusive/boost', authMiddleware, (req, res) => {
+  try {
+    const { taskId, boostQuantity } = req.body;
+    const result = db.boostUserExclusiveTask(req.user.id, taskId, boostQuantity);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// ADS & DAILY REWARD ROUTES
+// ==========================================
+
+app.get('/api/ads', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const ads = db.getAdsConfig();
+
+    const formatted = ads.map(a => ({
+      ...a,
+      watched_today: db.getDailyAdCount(userId, a.id),
+      is_completed_today: db.getDailyAdCount(userId, a.id) >= a.max_daily
+    }));
+
+    res.json({ success: true, ads: formatted });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/ads/watch', authMiddleware, (req, res) => {
+  try {
+    const { adId } = req.body;
+    const userId = req.user.id;
+
+    const count = db.getDailyAdCount(userId, adId);
+    const ad = db.data.ads_config.find(a => a.id === adId);
+
+    if (!ad) {
+      return res.status(404).json({ success: false, error: 'Ad slot not found' });
+    }
+
+    if (count >= ad.max_daily) {
+      return res.status(400).json({ success: false, error: 'Daily limit reached for this ad' });
+    }
+
+    const result = db.recordAdWatch(userId, adId);
+    res.json({
+      success: true,
+      watchedToday: result.count,
+      maxDaily: ad.max_daily,
+      rewardDiamonds: result.reward,
+      user: result.user
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// WALLET: CONVERT & WITHDRAW ROUTES
+// ==========================================
+
+app.post('/api/wallet/convert', authMiddleware, (req, res) => {
+  try {
+    const { amountDiamonds } = req.body;
+    const { user, conversion } = db.convertDiamonds(req.user.id, amountDiamonds);
+    res.json({ success: true, user, conversion });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/wallet/withdraw', authMiddleware, (req, res) => {
+  try {
+    const { amountUsdt, network, walletAddress } = req.body;
+    const { user, withdrawal } = db.createWithdrawal(
+      req.user.id,
+      amountUsdt,
+      network,
+      walletAddress
+    );
+    res.json({ success: true, user, withdrawal });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/wallet/requirements', authMiddleware, (req, res) => {
+  try {
+    const reqs = db.getWithdrawalRequirements(req.user.id);
+    res.json({ success: true, requirements: reqs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/store/buy-crystal', authMiddleware, (req, res) => {
+  try {
+    const { quantity } = req.body;
+    const result = db.buyCrystalCoin(req.user.id, quantity || 1);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/daily-rewards/status', authMiddleware, (req, res) => {
+  try {
+    const status = db.getDailyRewardStatus(req.user.id);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/daily-rewards/claim', authMiddleware, (req, res) => {
+  try {
+    const result = db.claimDailyReward(req.user.id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/wallet/history', authMiddleware, (req, res) => {
+  try {
+    const userId = String(req.user.id);
+    const withdrawals = db.getWithdrawals(userId);
+    const conversions = db.data.conversions.filter(c => c.user_id === userId);
+    res.json({ success: true, withdrawals, conversions });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// PROMO CODE REDEMPTION ROUTE (User)
+// ==========================================
+
+app.post('/api/promo/redeem', authMiddleware, (req, res) => {
+  try {
+    const { code } = req.body;
+    const result = db.redeemPromoCode(req.user.id, code);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// TIC-TAC-TOE GAME API ROUTES
+// ==========================================
+
+app.get('/api/game/tictactoe/session', authMiddleware, (req, res) => {
+  try {
+    const session = db.getTicTacToeSession(req.user.id);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/tictactoe/start', authMiddleware, (req, res) => {
+  try {
+    const result = db.startTicTacToe(req.user.id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/tictactoe/save', authMiddleware, (req, res) => {
+  try {
+    const { board, isPlayerTurn } = req.body;
+    const session = db.updateTicTacToeSession(req.user.id, board, isPlayerTurn);
+    res.json({ success: true, session });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/tictactoe/finish', authMiddleware, (req, res) => {
+  try {
+    const { result, board } = req.body;
+    const outcome = db.finishTicTacToe(req.user.id, result, board);
+    res.json({ success: true, ...outcome });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// LUCKY DRAW & GAME STATS API ROUTES
+// ==========================================
+
+app.get('/api/game/stats', authMiddleware, (req, res) => {
+  try {
+    const stats = db.getDailyGameStats(req.user.id);
+    res.json({ success: true, ...stats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/luckydraw/play', authMiddleware, (req, res) => {
+  try {
+    const outcome = db.playLuckyDraw(req.user.id);
+    res.json({ success: true, ...outcome });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// REFERRAL ROUTES
+// ==========================================
+
+app.get('/api/referrals', authMiddleware, (req, res) => {
+  try {
+    const user = db.getUser(req.user.id);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const botUsername = db.data.settings.bot_username || 'TreasureHunt_bot';
+    const refLink = `https://t.me/${botUsername}?start=ref_${user.id}`;
+    const rate = db.data.settings.diamond_to_usd_rate || 0.00004;
+
+    res.json({
+      success: true,
+      totalReferrals: user.total_referrals || 0,
+      referralEarningsDiamonds: user.referral_earnings_diamonds || 0,
+      referralEarningsUsd: Number(((user.referral_earnings_diamonds || 0) * rate).toFixed(4)),
+      commissionPercent: 10,
+      referralLink: refLink,
+      bonusRules: [
+        {
+          step: 1,
+          title: 'Friend joins channel + community and verifies',
+          rewardDiamonds: 30,
+          rewardUsd: Number((30 * rate).toFixed(4))
+        },
+        {
+          step: 2,
+          title: 'Friend completes 5 tasks',
+          rewardDiamonds: 100,
+          rewardUsd: Number((100 * rate).toFixed(4))
+        },
+        {
+          step: 3,
+          title: 'Friend watches 20 ads',
+          rewardDiamonds: 180,
+          rewardUsd: Number((180 * rate).toFixed(4))
+        }
+      ]
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// ADMIN DASHBOARD ROUTES (Restricted to 5697990319)
+// ==========================================
+
+// Verify Bot admin status in a channel before adding task
+app.post('/api/admin/verify-channel', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { chatId } = req.body;
+    if (!chatId) return res.status(400).json({ success: false, error: 'Chat ID / Username is required' });
+
+    const check = await verifyBotIsAdminInChat(chatId);
+    if (!check.isAdmin) {
+      return res.json({
+        success: false,
+        error: 'The Bot is NOT an administrator in this channel/group. Please make the bot an Admin with invite permissions first.'
+      });
+    }
+
+    res.json({ success: true, message: 'Bot admin status verified successfully!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Add Task
+app.post('/api/admin/tasks', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { category, type, title, description, link, chat_id, reward_diamonds, max_users } = req.body;
+
+    if (!title || !link) {
+      return res.status(400).json({ success: false, error: 'Title and Link are required' });
+    }
+
+    const newTask = db.addTask({
+      category,
+      type,
+      title,
+      description,
+      link,
+      chat_id,
+      reward_diamonds,
+      max_users
+    });
+
+    res.json({ success: true, task: newTask });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Delete Task
+app.delete('/api/admin/tasks/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    db.deleteTask(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get/Manage All Ads
+app.get('/api/admin/ads', authMiddleware, adminMiddleware, (req, res) => {
+  res.json({ success: true, ads: db.getAllAdsConfig() });
+});
+
+app.patch('/api/admin/ads/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const updated = db.updateAdConfig(req.params.id, req.body);
+    res.json({ success: true, ad: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// User Management
+app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { query } = req.query;
+    let list = Object.values(db.data.users);
+
+    if (query) {
+      const q = query.toLowerCase().trim();
+      list = list.filter(u =>
+        String(u.id || '').toLowerCase().includes(q) ||
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.first_name && u.first_name.toLowerCase().includes(q)) ||
+        (u.last_name && u.last_name.toLowerCase().includes(q))
+      );
+    }
+
+    res.json({ success: true, users: list });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/balance', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { userId, type, amount, action } = req.body;
+    const user = db.getUser(userId);
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const val = Number(amount);
+    if (isNaN(val) || val <= 0) return res.status(400).json({ success: false, error: 'Invalid amount' });
+
+    if (type === 'diamonds') {
+      if (action === 'add') user.diamonds += Math.floor(val);
+      if (action === 'deduct') user.diamonds = Math.max(0, user.diamonds - Math.floor(val));
+    } else if (type === 'usdt') {
+      if (action === 'add') user.usdt = Number((user.usdt + val).toFixed(4));
+      if (action === 'deduct') user.usdt = Math.max(0, Number((user.usdt - val).toFixed(4)));
+    }
+
+    db.save();
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/users/wallet', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { userId, network, walletAddress } = req.body;
+    const user = db.adminUpdateUserWallet(userId, network, walletAddress);
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Manage Withdrawals (Enriched with user info, UID, timestamps & equivalent diamonds)
+app.get('/api/admin/withdrawals', authMiddleware, adminMiddleware, (req, res) => {
+  const rate = db.data.settings?.diamond_to_usd_rate || 0.00004;
+  const withdrawals = db.getWithdrawals().map(w => {
+    const user = db.getUser(w.user_id);
+    const amountUsdt = Number(w.amount_usdt) || 0;
+    const amountDiamonds = w.amount_diamonds || Math.round(amountUsdt / rate);
+    return {
+      ...w,
+      username: user?.username ? `@${user.username}` : (w.username ? `@${w.username}` : 'Hunter'),
+      name: user ? [user.first_name, user.last_name].filter(Boolean).join(' ') : 'Hunter',
+      uid: w.user_id,
+      amount_diamonds: amountDiamonds,
+      timestamp: w.created_at || w.timestamp || new Date().toISOString()
+    };
+  });
+  res.json({ success: true, withdrawals });
+});
+
+app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { status } = req.body; // 'approved' or 'rejected'
+    const updated = db.updateWithdrawalStatus(req.params.id, status);
+    res.json({ success: true, withdrawal: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin User Balance Adjustment (+ / - Diamonds, USDT, Keys)
+app.post('/api/admin/user/balance-adjust', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { userId, type, amount, action } = req.body;
+    const user = db.adminAdjustBalance(userId, { type, amount, action });
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Send Gift with Custom Note
+app.post('/api/admin/user/gift', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { userId, type, amount, note } = req.body;
+    const result = db.adminSendGift(userId, { type, amount, note });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Weekly Contest Reset
+app.post('/api/admin/contest/reset', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const contest = db.resetWeeklyContest();
+    res.json({ success: true, contest });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// REFERRAL LEADERBOARD & CONTEST ROUTES
+// ==========================================
+app.get('/api/referral/leaderboard', authMiddleware, (req, res) => {
+  try {
+    const leaderboards = db.getReferralLeaderboards();
+    res.json({ success: true, ...leaderboards });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/referral/weekly-contest', authMiddleware, (req, res) => {
+  try {
+    const contest = db.getWeeklyContest();
+    res.json({ success: true, contest });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// ANTI-CHEAT DEVICE LOCK ROUTES
+// ==========================================
+app.post('/api/user/device-check', authMiddleware, (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    const check = db.checkDeviceLock(req.user.id, deviceId);
+    res.json({ success: true, ...check });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/user/device-switch', authMiddleware, (req, res) => {
+  try {
+    const { deviceId } = req.body;
+    const user = db.switchAccountResetBalance(req.user.id, deviceId);
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Promo Codes Management
+app.get('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
+  res.json({ success: true, promoCodes: db.getPromoCodes() });
+});
+
+app.post('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { code, reward_type, reward_amount, max_uses } = req.body;
+    if (!code || !reward_amount) {
+      return res.status(400).json({ success: false, error: 'Code and reward amount are required' });
+    }
+    const promo = db.createPromoCode({
+      code,
+      reward_type,
+      reward_amount,
+      max_uses
+    });
+    res.json({ success: true, promo });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/admin/promo/:id', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    db.deletePromoCode(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Broadcast Message
+app.post('/api/admin/broadcast', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message || message.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Message cannot be empty' });
+    }
+
+    const result = await broadcastToUsers(message.trim());
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+// MANDATORY COMMUNITY GATE ROUTES
+// ==========================================
+
+app.get('/api/mandatory-channels/status', authMiddleware, (req, res) => {
+  try {
+    const status = db.getMandatoryChannelsStatus(req.user.id);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/mandatory-channels/verify', authMiddleware, async (req, res) => {
+  try {
+    const { visited = {} } = req.body;
+    const userId = req.user.id;
+    const currentStatus = db.getMandatoryChannelsStatus(userId);
+    const verifiedMap = {};
+
+    for (const ch of currentStatus.channels) {
+      if (ch.isJoined) {
+        verifiedMap[ch.id] = true;
+        continue;
+      }
+
+      // Check membership via Telegram Bot if active
+      const check = await verifyUserChannelMembership(ch.chat_id, userId);
+      if (check.verified) {
+        verifiedMap[ch.id] = true;
+      } else if (check.isSimulation && visited[ch.id]) {
+        // In local dev simulation mode, mark verified if user visited and confirmed
+        verifiedMap[ch.id] = true;
+      }
+    }
+
+    const updated = db.verifyMandatoryChannels(userId, verifiedMap);
+    res.json({
+      success: true,
+      ...updated,
+      user: db.getUser(userId)
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.join(__dirname, '../dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
+app.listen(PORT, () => {
+  console.log(`⚔️ Treasure Hunt Backend Server running on port ${PORT}`);
+});
