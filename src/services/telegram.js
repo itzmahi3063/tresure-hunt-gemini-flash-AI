@@ -66,13 +66,13 @@ export function getTelegramUser() {
     } catch (e) {}
   }
 
-  // Fallback
+  // Fallback if opened outside Telegram or testing
   return {
-    id: 7780774047,
-    first_name: 'Treasure',
-    last_name: 'Hunter',
-    username: 'mahi_hunter',
-    photo_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=TreasureMaster'
+    id: 100000000,
+    first_name: 'Hunter',
+    last_name: '',
+    username: 'player',
+    photo_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hunter'
   };
 }
 

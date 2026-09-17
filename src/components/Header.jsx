@@ -11,7 +11,7 @@ export default function Header() {
 
   const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') 
     || (user?.username ? `@${user.username}` : 'Treasure Hunter');
-  const userUID = user?.id ? `ID: ${user.id}` : 'ID: 7780774047';
+  const userUID = user?.id ? `ID: ${user.id}` : '';
   const avatarUrl = user?.photo_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.id || 'hunter'}`;
 
   return (

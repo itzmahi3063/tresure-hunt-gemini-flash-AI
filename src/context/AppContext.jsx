@@ -104,9 +104,8 @@ export function AppProvider({ children }) {
         }
       }
     } catch (err) {
-      console.warn('Backend connection notice (operating with local state):', err.message);
       const isParamAdmin = typeof window !== 'undefined' && window.location.search.includes('admin=true');
-      setIsAdmin(String(tgUser.id) === '7780774047' || isParamAdmin);
+      setIsAdmin(isParamAdmin);
     } finally {
       setLoading(false);
     }
