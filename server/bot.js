@@ -6,7 +6,7 @@ dotenv.config();
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ADMIN_ID = String(process.env.ADMIN_ID || '7780774047');
-const WEBAPP_URL = process.env.WEBAPP_URL || 'http://localhost:5173';
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app';
 
 export let bot = null;
 
