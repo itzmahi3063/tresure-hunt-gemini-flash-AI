@@ -107,23 +107,6 @@ export default function Navbar() {
             </button>
           );
         })}
-
-        {/* Admin Shortcut (Exclusive to 5697990319) */}
-        {isAdmin && (
-          <button
-            onClick={() => handleTabClick('admin')}
-            className={`flex flex-col items-center justify-center py-1 px-1 transition-all ${
-              activeTab === 'admin' ? 'scale-105' : 'text-cyan-500'
-            }`}
-          >
-            <div className={`p-1.5 rounded-2xl ${
-              activeTab === 'admin' ? 'btn-3d-cyan' : 'bg-cyan-950/60 border border-cyan-500/40 border-b-2 border-cyan-950'
-            }`}>
-              <ShieldCheck size={19} className={activeTab === 'admin' ? 'text-black' : 'text-cyan-400'} />
-            </div>
-            <span className="text-[10px] mt-1 font-black uppercase text-cyan-400">Admin</span>
-          </button>
-        )}
       </div>
     </div>
   );

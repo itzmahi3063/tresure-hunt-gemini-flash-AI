@@ -40,19 +40,38 @@ export function isInsideTelegram() {
 }
 
 export function getTelegramInitData() {
-  return tg ? tg.initData : '';
+  const webapp = typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp 
+    ? window.Telegram.WebApp 
+    : tg;
+  return webapp ? (webapp.initData || '') : '';
 }
 
 export function getTelegramUser() {
-  if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
-    return tg.initDataUnsafe.user;
+  const webapp = typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp 
+    ? window.Telegram.WebApp 
+    : tg;
+
+  if (webapp?.initDataUnsafe?.user?.id) {
+    return webapp.initDataUnsafe.user;
   }
-  // Fallback test user for local browser preview
+
+  if (webapp?.initData) {
+    try {
+      const urlParams = new URLSearchParams(webapp.initData);
+      const userParam = urlParams.get('user');
+      if (userParam) {
+        const parsed = JSON.parse(userParam);
+        if (parsed?.id) return parsed;
+      }
+    } catch (e) {}
+  }
+
+  // Fallback
   return {
-    id: 100000001,
+    id: 7780774047,
     first_name: 'Treasure',
     last_name: 'Hunter',
-    username: 'GuestHunter',
+    username: 'mahi_hunter',
     photo_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=TreasureMaster'
   };
 }

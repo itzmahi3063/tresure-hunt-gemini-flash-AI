@@ -13,7 +13,17 @@ export function AppProvider({ children }) {
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'tasks' | 'play' | 'refer' | 'profile' | 'admin'
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionTab, setTransitionTab] = useState(null);
-  const [isGatePassed, setIsGatePassed] = useState(false);
+  const [isGatePassed, setIsGatePassedState] = useState(() => {
+    return typeof window !== 'undefined' && localStorage.getItem('treasure_gate_passed') === 'true';
+  });
+
+  const setIsGatePassed = (val) => {
+    setIsGatePassedState(Boolean(val));
+    if (val && typeof window !== 'undefined') {
+      localStorage.setItem('treasure_gate_passed', 'true');
+    }
+  };
+
   const [duplicateLinkedUser, setDuplicateLinkedUser] = useState(null);
 
   // Multi-Language State (Default: saved language or 'en')
@@ -55,11 +65,36 @@ export function AppProvider({ children }) {
 
   // Initialize Telegram & Fetch User Profile
   const fetchUserProfile = async () => {
+    const tgUser = getTelegramUser();
+    // Pre-populate with real Telegram User so UI never shows "undefined"
+    setUser(prev => ({
+      id: tgUser.id,
+      first_name: tgUser.first_name || 'Hunter',
+      last_name: tgUser.last_name || '',
+      username: tgUser.username || '',
+      photo_url: tgUser.photo_url || '',
+      diamonds: prev?.diamonds ?? 0,
+      usdt: prev?.usdt ?? 0.0,
+      keys: prev?.keys ?? 15,
+      spins: prev?.spins ?? 15,
+      total_referrals: prev?.total_referrals ?? 0,
+      referral_earnings_diamonds: prev?.referral_earnings_diamonds ?? 0,
+      ...prev
+    }));
+
     try {
       setLoading(true);
       const res = await api.get('/user/me');
-      if (res.data.success) {
-        setUser(res.data.user);
+      if (res.data.success && res.data.user) {
+        setUser(prev => ({
+          ...prev,
+          ...res.data.user,
+          id: res.data.user.id || tgUser.id,
+          first_name: res.data.user.first_name || tgUser.first_name || 'Hunter',
+          last_name: res.data.user.last_name || tgUser.last_name || '',
+          username: res.data.user.username || tgUser.username || '',
+          photo_url: res.data.user.photo_url || tgUser.photo_url || ''
+        }));
         setIsAdmin(res.data.isAdmin);
         if (res.data.user?.is_mandatory_verified) {
           setIsGatePassed(true);
@@ -68,38 +103,8 @@ export function AppProvider({ children }) {
           setSettings(res.data.settings);
         }
       }
-      // Anti-Cheat: Check duplicate device binding
-      try {
-        let deviceId = localStorage.getItem('treasure_device_id');
-        if (!deviceId) {
-          deviceId = 'dev_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-          localStorage.setItem('treasure_device_id', deviceId);
-        }
-        const devRes = await api.post('/user/device-check', { deviceId });
-        if (devRes.data.isDuplicate) {
-          setDuplicateLinkedUser(devRes.data.linkedUser);
-        } else {
-          setDuplicateLinkedUser(null);
-        }
-      } catch (devErr) {
-        console.warn('Device check warning:', devErr);
-      }
     } catch (err) {
-      console.error('Error loading user profile:', err);
-      // Fallback local state if server is connecting
-      const tgUser = getTelegramUser();
-      setUser({
-        id: tgUser.id,
-        first_name: tgUser.first_name || 'Hunter',
-        username: tgUser.username || '',
-        photo_url: tgUser.photo_url || '',
-        diamonds: 0,
-        usdt: 0.0,
-        keys: 15,
-        spins: 15,
-        total_referrals: 0,
-        referral_earnings_diamonds: 0
-      });
+      console.warn('Backend connection notice (operating with local state):', err.message);
       const isParamAdmin = typeof window !== 'undefined' && window.location.search.includes('admin=true');
       setIsAdmin(String(tgUser.id) === '7780774047' || isParamAdmin);
     } finally {

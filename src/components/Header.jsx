@@ -9,9 +9,10 @@ export default function Header() {
 
   if (!user) return null;
 
-  const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Treasure Hunter';
-  const username = user.username ? `@${user.username}` : `ID: ${user.id}`;
-  const avatarUrl = user.photo_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}`;
+  const displayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') 
+    || (user?.username ? `@${user.username}` : 'Treasure Hunter');
+  const userUID = user?.id ? `ID: ${user.id}` : 'ID: 7780774047';
+  const avatarUrl = user?.photo_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.id || 'hunter'}`;
 
   return (
     <div className="w-full pt-2.5 px-4 pb-2">
@@ -65,7 +66,7 @@ export default function Header() {
               {displayName}
             </h2>
             <div className="flex items-center space-x-1.5 text-xs text-yellow-400 font-numbers font-bold">
-              <span>{username}</span>
+              <span>{userUID}</span>
             </div>
           </div>
         </div>

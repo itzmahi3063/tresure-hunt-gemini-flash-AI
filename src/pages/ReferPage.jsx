@@ -109,7 +109,7 @@ export default function ReferPage() {
     return () => clearInterval(interval);
   }, [weeklyContest]);
 
-  const referralLink = refData?.referralLink || `https://t.me/TreasureHunt_bot?start=ref_${user?.id || '5697990319'}`;
+  const referralLink = `https://t.me/treasure_hunt12_bot/Play?startapp=ref_${user?.id || 'mahi'}`;
   const totalRefers = refData?.totalReferrals || user?.total_referrals || 0;
   const earningsDiamonds = refData?.referralEarningsDiamonds || user?.referral_earnings_diamonds || 0;
   const earningsUsd = refData?.referralEarningsUsd || (earningsDiamonds * 0.00004).toFixed(4);
@@ -124,7 +124,7 @@ export default function ReferPage() {
   const handleShareNow = () => {
     triggerHaptic('impact', 'medium');
     const shareText = encodeURIComponent(
-      `💎 Join Treasure Hunt on Telegram! Open daily chests, earn Diamonds & withdraw real USDT!\n\nJoin here: ${referralLink}`
+      `💎 Join Treasure Hunt on Telegram! Complete tasks, earn Diamonds & withdraw real USDT!\n\nJoin here: ${referralLink}`
     );
     openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${shareText}`);
   };
@@ -261,14 +261,15 @@ export default function ReferPage() {
           <span className="text-[10px] uppercase font-black text-cyan-400 tracking-widest font-heading">
             TOTAL BONUS PER FRIEND
           </span>
-          <div className="text-3xl font-black text-emerald-400 font-numbers">
-            400 <span className="text-cyan-300 text-lg">💎</span>
+          <div className="text-3xl font-black text-emerald-400 font-numbers flex items-center justify-center space-x-2">
+            <span>310 <span className="text-cyan-300 text-lg">💎</span></span>
+            <span className="text-lg text-purple-400 font-bold">+ 1 🔮</span>
           </div>
           <div className="text-xs text-gray-400 font-numbers">
-            ≈ $0.0160 USD
+            ≈ $0.0160 USD + 1 Free Crystal Coin
           </div>
           <div className="badge-3d inline-flex items-center space-x-1 text-[11px] text-yellow-400 font-bold px-3 py-1 mt-1 font-numbers">
-            <span>💰 + 10% of everything they withdraw, forever</span>
+            <span>🔮 Complete all 3 conditions: 1 Free Crystal Coin! + 10% lifetime withdrawals</span>
           </div>
         </div>
 
