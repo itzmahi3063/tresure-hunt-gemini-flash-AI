@@ -220,7 +220,7 @@ export default function AdminDashboard() {
         description: taskDescription,
         link: taskLink,
         chat_id: taskType === 'channel' ? taskChatId : '',
-        reward_diamonds: Number(taskReward) || 100,
+        reward_diamonds: 10,
         max_users: taskMaxUsers ? Number(taskMaxUsers) : null
       });
 
@@ -415,8 +415,8 @@ export default function AdminDashboard() {
             {/* Category Selector */}
             <div>
               <label className="block text-[11px] text-gray-400 font-bold uppercase mb-1">Target Section</label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {['daily', 'social', 'exclusive', 'partner'].map((cat) => (
+              <div className="grid grid-cols-3 gap-1.5">
+                {['social', 'exclusive', 'partner'].map((cat) => (
                   <button
                     key={cat}
                     type="button"
@@ -529,11 +529,11 @@ export default function AdminDashboard() {
               <div>
                 <label className="block text-[11px] text-gray-400 font-bold uppercase mb-1">Reward (💎)</label>
                 <input
-                  type="number"
-                  placeholder="500"
-                  value={taskReward}
-                  onChange={(e) => setTaskReward(e.target.value)}
-                  className="w-full bg-[#0D0D14] border border-[#2B2B3D] rounded-xl px-3 py-2 text-xs text-yellow-400 font-mono font-bold outline-none"
+                  type="text"
+                  value="10 GEMS (Fixed)"
+                  disabled
+                  readOnly
+                  className="w-full bg-[#0D0D14] border border-[#2B2B3D] rounded-xl px-3 py-2 text-xs text-yellow-400 font-mono font-bold outline-none opacity-80 cursor-not-allowed"
                 />
               </div>
               <div>
@@ -945,7 +945,7 @@ export default function AdminDashboard() {
                     if (res.data.success) {
                       setSelectedUser(res.data.user);
                       triggerHaptic('notification', 'success');
-                      setFeedback({ type: 'success', text: `Gift of ${giftAmt} 💎 with note sent to ${selectedUser.first_name}!` });
+                      setFeedback({ type: 'success', text: `Gift of ${giftAmt} 💎 sent to ${selectedUser.first_name} — they'll see a claim popup, and the balance is added once they tap "Claim Gift".` });
                     }
                   } catch (err) {
                     alert(err.response?.data?.error || 'Failed to send gift');
