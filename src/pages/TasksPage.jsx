@@ -273,38 +273,22 @@ export default function TasksPage() {
                 className="rounded-[28px] p-4 flex items-center justify-between relative transition-transform"
               >
                 <div className="flex items-center space-x-3.5 flex-1 pr-3">
-                  {ad.id === 'adsgram' ? (
+                  {ad.logo_url ? (
                     <div
                       style={{
-                        background: 'linear-gradient(180deg, #42a5f5 0%, #1e88e5 60%, #0d47a1 100%)',
-                        borderTop: '1.5px solid #90caf9',
-                        borderBottom: '3.5px solid #05264a',
-                        boxShadow: '0 4px 10px rgba(13, 71, 161, 0.4)'
+                        borderTop: '1.5px solid rgba(255,255,255,0.25)',
+                        borderBottom: '3.5px solid rgba(0,0,0,0.5)',
+                        boxShadow: '0 4px 10px rgba(0,0,0,0.4)'
                       }}
-                      className="w-[58px] h-[58px] rounded-[18px] flex items-center justify-center shrink-0 relative overflow-hidden"
+                      className="w-[58px] h-[58px] rounded-[18px] shrink-0 relative overflow-hidden bg-[#1a1108]"
                     >
-                      <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent rounded-t-[18px] pointer-events-none" />
-                      <svg viewBox="0 0 100 100" className="w-8 h-8 fill-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-                        <path d="M50 15 L85 80 L65 80 L50 48 L35 80 L15 80 Z" />
-                        <path d="M42 62 L58 62 L50 46 Z" fill="#1e88e5" />
-                      </svg>
-                    </div>
-                  ) : ad.id === 'monetag' ? (
-                    <div
-                      style={{
-                        background: 'linear-gradient(180deg, #b2ea6e 0%, #9cd65b 60%, #7dbd39 100%)',
-                        borderTop: '1.5px solid #d4ff9e',
-                        borderBottom: '3.5px solid #476e1e',
-                        boxShadow: '0 4px 10px rgba(125, 189, 57, 0.4)'
-                      }}
-                      className="w-[58px] h-[58px] rounded-[18px] flex items-center justify-center shrink-0 relative overflow-hidden"
-                    >
-                      <div className="absolute top-0 left-0 right-0 h-1/2 bg-white/30 to-transparent rounded-t-[18px] pointer-events-none" />
-                      <div className="text-black font-black text-[13px] tracking-tighter flex items-center drop-shadow-sm">
-                        <span>mon</span>
-                        <span className="text-[#0d47a1] font-extrabold mx-[1px]">|</span>
-                        <span>tag</span>
-                      </div>
+                      <img
+                        src={ad.logo_url}
+                        alt={ad.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => { e.target.style.display = 'none'; }}
+                      />
+                      <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-white/20 to-transparent pointer-events-none" />
                     </div>
                   ) : (
                     <div
