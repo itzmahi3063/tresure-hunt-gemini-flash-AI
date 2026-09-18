@@ -9,6 +9,7 @@ import ProfilePage from './pages/ProfilePage';
 import AdminDashboard from './components/AdminDashboard';
 import WalletModal from './components/WalletModal';
 import ContactAdminModal from './components/ContactAdminModal';
+import GiftClaimModal from './components/GiftClaimModal';
 import ThreeCanvas from './components/ThreeCanvas';
 import SectionLoader from './components/SectionLoader';
 import LanguageModal from './components/LanguageModal';
@@ -104,6 +105,7 @@ export default function App() {
         {/* Modals */}
         <WalletModal />
         <ContactAdminModal />
+        <GiftClaimModal />
         <LanguageModal
           isOpen={languageModalOpen}
           onClose={() => setLanguageModalOpen(false)}
@@ -114,4 +116,3 @@ export default function App() {
     </ErrorBoundary>
   );
 }
-
