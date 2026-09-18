@@ -190,9 +190,13 @@ class Database {
     this.mongoClient = null;
     this.mongoCollection = null;
     this.isMongoConnected = false;
-    this.syncTimeout = null;
+    this.dirty = false;
     this.load();
-    this.initMongo();
+    // Kept as a promise (never rejects — initMongo catches its own errors)
+    // so route handlers can `await db.mongoReady` before touching this.data.
+    // This closes the race where a request on a fresh serverless instance
+    // gets served BEFORE the latest state has been pulled from MongoDB.
+    this.mongoReady = this.initMongo();
   }
 
   load() {
@@ -258,11 +262,31 @@ class Database {
 
   save() {
     this.saveLocal();
-    if (this.isMongoConnected && this.mongoCollection) {
-      if (this.syncTimeout) clearTimeout(this.syncTimeout);
-      this.syncTimeout = setTimeout(() => {
-        this.syncToMongo();
-      }, 500); // Debounced 500ms sync
+    // Just mark state as dirty here — do NOT schedule a delayed/debounced
+    // background sync. On serverless (Vercel), the function's execution
+    // context can be frozen the instant the HTTP response is sent, so a
+    // setTimeout() scheduled here is not guaranteed to ever run, and any
+    // write that only landed in `this.data` + the local /tmp file (which is
+    // unique to that one serverless instance) is invisible to every other
+    // instance — including whichever instance serves the admin panel. That
+    // is what caused new users/referrals to "disappear" from the admin view.
+    // `flush()` (awaited by middleware before every response is sent, see
+    // server/index.js) performs the actual Mongo write synchronously with
+    // the request instead.
+    this.dirty = true;
+  }
+
+  // Persist any pending in-memory changes to MongoDB right now, and wait
+  // for it to finish. Safe to call often — it's a no-op when there is
+  // nothing new to persist or Mongo isn't connected.
+  async flush() {
+    if (!this.dirty || !this.isMongoConnected || !this.mongoCollection) return;
+    this.dirty = false;
+    try {
+      await this.syncToMongo();
+    } catch (err) {
+      console.error('MongoDB Atlas flush error (will retry on next write):', err.message);
+      this.dirty = true;
     }
   }
 
