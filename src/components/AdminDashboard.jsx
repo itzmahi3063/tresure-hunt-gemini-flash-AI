@@ -48,6 +48,7 @@ export default function AdminDashboard() {
   const [newPromoMaxUses, setNewPromoMaxUses] = useState('');
 
   const [adsList, setAdsList] = useState([]);
+  const [adNetworks, setAdNetworks] = useState([]);
 
   const [userQuery, setUserQuery] = useState('');
   const [userResults, setUserResults] = useState([]);
@@ -74,9 +75,10 @@ export default function AdminDashboard() {
 
   const loadAllAdminData = async () => {
     try {
-      const [tasksRes, adsRes, wdRes, promoRes, usersRes] = await Promise.all([
+      const [tasksRes, adsRes, networksRes, wdRes, promoRes, usersRes] = await Promise.all([
         api.get('/tasks'),
         api.get('/admin/ads'),
+        api.get('/admin/ad-networks'),
         api.get('/admin/withdrawals'),
         api.get('/admin/promo'),
         api.get('/admin/users')
@@ -84,6 +86,7 @@ export default function AdminDashboard() {
 
       if (tasksRes.data.success) setTasksList(tasksRes.data.tasks || []);
       if (adsRes.data.success) setAdsList(adsRes.data.ads || []);
+      if (networksRes.data.success) setAdNetworks(networksRes.data.networks || []);
       if (wdRes.data.success) setWithdrawalsList(wdRes.data.withdrawals || []);
       if (promoRes.data.success) setPromoList(promoRes.data.promoCodes || []);
       if (usersRes.data.success) setUserResults(usersRes.data.users || []);
@@ -267,6 +270,17 @@ export default function AdminDashboard() {
       loadAllAdminData();
     } catch (err) {
       alert('Failed to update reward');
+    }
+  };
+
+  const handleSwapAdNetwork = async (adId, networkId) => {
+    if (!networkId) return;
+    try {
+      await api.post(`/admin/ads/${adId}/network`, { networkId });
+      loadAllAdminData();
+      triggerHaptic('notification', 'success');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to swap ad network');
     }
   };
 
@@ -790,29 +804,53 @@ export default function AdminDashboard() {
 
           <div className="space-y-2">
             {adsList.map((ad) => (
-              <div key={ad.id} className="badge-3d p-3 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-black text-white">{ad.title}</span>
-                  <div className="text-[10px] text-gray-400 font-mono">
-                    Provider: {ad.provider} • Limit: {ad.daily_limit} ads/day
+              <div key={ad.id} className="badge-3d p-3 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5">
+                    <img
+                      src={ad.logo_url}
+                      alt={ad.name}
+                      className="w-9 h-9 rounded-lg object-cover border border-[#2B2B3D] bg-black/30"
+                      onError={(e) => { e.target.style.visibility = 'hidden'; }}
+                    />
+                    <div>
+                      <span className="font-black text-white">{ad.name}</span>
+                      <div className="text-[10px] text-gray-400 font-mono">
+                        Slot: {ad.id} • Limit: {ad.max_daily}/day
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      defaultValue={ad.reward_diamonds}
+                      onBlur={(e) => handleUpdateAdReward(ad.id, e.target.value)}
+                      className="w-16 bg-[#0D0D14] border border-[#2B2B3D] rounded-lg px-2 py-1 text-xs text-yellow-400 font-mono text-center"
+                    />
+                    <span className="text-[10px] text-yellow-400">💎</span>
+
+                    <button
+                      onClick={() => handleToggleAd(ad.id, ad.is_hidden)}
+                      className={`p-1.5 rounded-lg ${ad.is_hidden ? 'text-gray-500 bg-gray-800' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'}`}
+                    >
+                      {ad.is_hidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="number"
-                    defaultValue={ad.reward_diamonds}
-                    onBlur={(e) => handleUpdateAdReward(ad.id, e.target.value)}
-                    className="w-16 bg-[#0D0D14] border border-[#2B2B3D] rounded-lg px-2 py-1 text-xs text-yellow-400 font-mono text-center"
-                  />
-                  <span className="text-[10px] text-yellow-400">💎</span>
-
-                  <button
-                    onClick={() => handleToggleAd(ad.id, ad.is_hidden)}
-                    className={`p-1.5 rounded-lg ${ad.is_hidden ? 'text-gray-500 bg-gray-800' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'}`}
+                {/* Swap which ad network shows in this slot — reward/hide/limit above stay unchanged */}
+                <div className="flex items-center space-x-2 pt-1 border-t border-[#252535]">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold shrink-0">Network:</span>
+                  <select
+                    value={ad.network_id || ''}
+                    onChange={(e) => handleSwapAdNetwork(ad.id, e.target.value)}
+                    className="flex-1 bg-[#0D0D14] border border-[#2B2B3D] rounded-lg px-2 py-1.5 text-[11px] text-white font-bold outline-none"
                   >
-                    {ad.is_hidden ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+                    {adNetworks.map((net) => (
+                      <option key={net.id} value={net.id}>{net.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             ))}
