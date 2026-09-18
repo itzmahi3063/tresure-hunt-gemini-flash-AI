@@ -24,6 +24,41 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Wait for the initial MongoDB Atlas sync to finish before handling any
+// request. On a cold serverless start this resolves once (a few hundred ms);
+// on a warm instance it's already resolved and adds no delay. Without this,
+// a fresh instance could answer requests (e.g. the admin panel) using empty
+// default data instead of the real synced state.
+app.use(async (req, res, next) => {
+  try {
+    await db.mongoReady;
+  } catch (e) {
+    // initMongo() already catches its own errors and never rejects, but
+    // guard anyway so a request is never blocked forever.
+  }
+  next();
+});
+
+// Ensure any pending write this request makes is actually persisted to
+// MongoDB before the response goes out. Serverless functions can freeze
+// immediately after the response is sent, so a "fire and forget" write
+// scheduled for later (the old behavior) could simply never happen —
+// which is why new users / referral counts / balance changes made on one
+// instance were invisible on another (e.g. the admin panel).
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  const originalSend = res.send.bind(res);
+  let flushing = null;
+  const flushBefore = (sendFn) => async (body) => {
+    if (!flushing) flushing = db.flush().catch(() => {});
+    await flushing;
+    return sendFn(body);
+  };
+  res.json = flushBefore(originalJson);
+  res.send = flushBefore(originalSend);
+  next();
+});
+
 // URL Prefix normalizer for serverless environments
 app.use((req, res, next) => {
   if (!req.url.startsWith('/api')) {
@@ -104,7 +139,16 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
   try {
     const { referrerId } = req.body;
     const user = db.getOrCreateUser(req.user, referrerId);
-    res.json({ success: true, user, isAdmin: req.isAdmin });
+    res.json({
+      success: true,
+      user,
+      isAdmin: req.isAdmin,
+      settings: {
+        rate: db.data.settings.diamond_to_usd_rate,
+        commission: db.data.settings.referral_commission_rate,
+        minWithdrawal: db.data.settings.min_withdrawal_usdt
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
