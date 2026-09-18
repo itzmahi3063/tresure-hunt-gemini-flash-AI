@@ -80,20 +80,59 @@ export default async function handler(req, res) {
 
       // 2. /start command
       if (text === '/start' || text.startsWith('/start')) {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `????? *Welcome to Treasure Hunt, ${message.from?.first_name || 'Hunter'}!* ??\n\nOpen daily chests, complete tasks, invite friends and earn real *Diamonds* & *USDT*!\n\n?? *1 Diamond = $0.00004 USD*\n?? *Earn 10% Lifetime Commission!*\n\nTap the button below to start your adventure:`,
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '?? Open Treasure Hunt', web_app: { url: webappUrl } }]
-              ]
-            }
-          })
-        });
+        let appUrl = webappUrl;
+        const parts = text.split(' ');
+        if (parts.length > 1 && parts[1].startsWith('ref_')) {
+          appUrl = `${webappUrl}?startapp=${parts[1]}`;
+        }
+
+        const bannerUrl = `${webappUrl}/welcome_banner.jpg`;
+        const captionText =
+          `*Welcome to TREASURE HUNT!*\n\n` +
+          `Earn free crypto (GEMS → TON/USDT) by watching videos — no investment required! 💰\n\n` +
+          `⚠️ Joining our official channel and community is required before you can start.`;
+
+        const reply_markup = {
+          inline_keyboard: [
+            [
+              { text: '📢 Official Channel', url: 'https://t.me/treasure_hunt_12' },
+              { text: '💬 Community', url: 'https://t.me/treasure_hunt12' }
+            ],
+            [
+              { text: '🏴‍☠️ Hunt', web_app: { url: appUrl } }
+            ]
+          ]
+        };
+
+        try {
+          const photoRes = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              photo: bannerUrl,
+              caption: captionText,
+              parse_mode: 'Markdown',
+              reply_markup
+            })
+          });
+          const photoData = await photoRes.json();
+          if (!photoData.ok) {
+            console.warn('sendPhoto failed, falling back to sendMessage:', photoData.description);
+            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: captionText,
+                parse_mode: 'Markdown',
+                reply_markup
+              })
+            });
+          }
+        } catch (e) {
+          console.error('Error sending start message:', e);
+        }
 
         return res.status(200).json({ ok: true, start: true });
       }

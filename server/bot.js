@@ -1,8 +1,14 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { db } from './db.js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 const ADMIN_ID = String(process.env.ADMIN_ID || '7780774047');
@@ -27,19 +33,45 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
       // Initialize user in database
       const user = db.getOrCreateUser(from, referrerId);
 
-      const welcomeText = `🏴‍☠️ *Welcome to Treasure Hunt, ${from.first_name || 'Hunter'}!* 💎\n\n` +
-        `Open daily chests, complete tasks, invite friends and earn real *Diamonds* & *USDT*!\n\n` +
-        `💰 *1 Diamond = $0.00004 USD*\n` +
-        `👥 *Earn 10% Lifetime Commission on all referral withdrawals!*\n\n` +
-        `Tap the button below to start your adventure:`;
+      let appUrl = WEBAPP_URL;
+      if (payload && payload.startsWith('ref_')) {
+        appUrl = `${WEBAPP_URL}?startapp=${payload}`;
+      }
 
-      await ctx.replyWithMarkdown(
-        welcomeText,
-        Markup.inlineKeyboard([
-          [Markup.button.webApp('💎 Open Treasure Hunt', WEBAPP_URL)],
-          [Markup.button.url('📢 Join Official Channel', 'https://t.me/TreasureHuntCommunity')]
-        ])
-      );
+      const captionText =
+        `*Welcome to TREASURE HUNT!*\n\n` +
+        `Earn free crypto (GEMS → TON/USDT) by watching videos — no investment required! 💰\n\n` +
+        `⚠️ Joining our official channel and community is required before you can start.`;
+
+      const bannerPath = path.join(__dirname, '../public/welcome_banner.jpg');
+      const bannerUrl = `${WEBAPP_URL}/welcome_banner.jpg`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.url('📢 Official Channel', 'https://t.me/treasure_hunt_12'),
+          Markup.button.url('💬 Community', 'https://t.me/treasure_hunt12')
+        ],
+        [
+          Markup.button.webApp('🏴‍☠️ Hunt', appUrl)
+        ]
+      ]);
+
+      try {
+        if (fs.existsSync(bannerPath)) {
+          await ctx.replyWithPhoto(
+            { source: bannerPath },
+            { caption: captionText, parse_mode: 'Markdown', ...keyboard }
+          );
+        } else {
+          await ctx.replyWithPhoto(
+            bannerUrl,
+            { caption: captionText, parse_mode: 'Markdown', ...keyboard }
+          );
+        }
+      } catch (err) {
+        console.warn('Could not send banner photo, falling back to text:', err.message);
+        await ctx.replyWithMarkdown(captionText, keyboard);
+      }
     });
 
     // /admin command - STRICTLY RESTRICTED TO ADMIN_ID
