@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
-import { initTelegram, getTelegramUser, triggerHaptic } from '../services/telegram';
+import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartParam } from '../services/telegram';
 import { getTranslation, LANGUAGES } from '../utils/translations';
 import confetti from 'canvas-confetti';
 
@@ -84,7 +84,14 @@ export function AppProvider({ children }) {
 
     try {
       setLoading(true);
-      const res = await api.get('/user/me');
+      // Always go through /user/sync (not /user/me) on load: this is what
+      // actually records a referral. If this Mini App was opened via a
+      // referral link (?startapp=ref_12345), start_param carries the
+      // referrer's id — the referral only gets credited on this call, and
+      // only the very first time this user is created, so it's always safe
+      // to send it.
+      const referrerId = getReferrerIdFromStartParam();
+      const res = await api.post('/user/sync', referrerId ? { referrerId } : {});
       if (res.data.success && res.data.user) {
         setUser(prev => ({
           ...prev,
