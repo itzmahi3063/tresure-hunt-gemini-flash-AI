@@ -24,17 +24,18 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Wait for the initial MongoDB Atlas sync to finish before handling any
-// request. On a cold serverless start this resolves once (a few hundred ms);
-// on a warm instance it's already resolved and adds no delay. Without this,
-// a fresh instance could answer requests (e.g. the admin panel) using empty
-// default data instead of the real synced state.
+// Keep every request's view of the data fresh from MongoDB — not just on
+// cold start, but on every single request. A warm serverless instance
+// that stays alive across many requests would otherwise only ever have
+// the snapshot it saw at its own startup, which is why balances/game
+// state/admin visibility could look inconsistent between requests handled
+// by different instances. This is the fix for that.
 app.use(async (req, res, next) => {
   try {
-    await db.mongoReady;
+    await db.mongoReady; // cold start: wait for the very first connection
+    await db.ensureFresh(); // every request: pull the latest state
   } catch (e) {
-    // initMongo() already catches its own errors and never rejects, but
-    // guard anyway so a request is never blocked forever.
+    // Never block a request forever over this.
   }
   next();
 });
@@ -648,12 +649,30 @@ app.post('/api/admin/verify-channel', authMiddleware, adminMiddleware, async (re
 });
 
 // Add Task
-app.post('/api/admin/tasks', authMiddleware, adminMiddleware, (req, res) => {
+app.post('/api/admin/tasks', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { category, type, title, description, link, chat_id, reward_diamonds, max_users } = req.body;
 
     if (!title || !link) {
       return res.status(400).json({ success: false, error: 'Title and Link are required' });
+    }
+
+    // Same server-side enforcement as the user Exclusive Task flow: a
+    // Channel/Group task can only go live if the bot is genuinely an admin
+    // there — regardless of whether "Verify Admin" was actually clicked in
+    // the UI first. This is what stops a channel/group task from going
+    // live broken (every user's Verify would fail) if it's ever posted
+    // without the bot really having access.
+    let resolvedChatId = (chat_id || '').trim();
+    if (type === 'channel' || type === 'group') {
+      if (!resolvedChatId) resolvedChatId = normalizeTelegramChatId(link);
+      const check = await verifyBotIsAdminInChat(resolvedChatId);
+      if (!check.isAdmin) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bot is not an administrator in this channel/group yet. Click "Verify Admin" after adding the bot as Admin before posting this task.'
+        });
+      }
     }
 
     const newTask = db.addTask({
@@ -662,8 +681,12 @@ app.post('/api/admin/tasks', authMiddleware, adminMiddleware, (req, res) => {
       title,
       description,
       link,
-      chat_id,
-      reward_diamonds,
+      chat_id: resolvedChatId,
+      // Social / Exclusive / Partner tasks always reward a fixed 10 GEMS,
+      // regardless of whatever value the client sends — only the "Ads"
+      // system (managed separately, powers the Daily tab) has a
+      // per-ad configurable reward.
+      reward_diamonds: 10,
       max_users
     });
 
@@ -798,6 +821,19 @@ app.post('/api/admin/user/gift', authMiddleware, adminMiddleware, (req, res) => 
   try {
     const { userId, type, amount, note } = req.body;
     const result = db.adminSendGift(userId, { type, amount, note });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// User claims a pending gift from the popup — this is the only moment the
+// reward is actually credited to their balance.
+app.post('/api/gift/claim', authMiddleware, (req, res) => {
+  try {
+    const { giftId } = req.body;
+    if (!giftId) return res.status(400).json({ success: false, error: 'giftId is required' });
+    const result = db.claimGift(req.user.id, giftId);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
