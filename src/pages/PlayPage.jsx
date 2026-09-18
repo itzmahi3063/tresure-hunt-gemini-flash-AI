@@ -157,10 +157,17 @@ export default function PlayPage() {
       const res = await api.get('/game/tictactoe/session');
       if (res.data.success && res.data.session) {
         const session = res.data.session;
-        setBoard(session.board || Array(9).fill(null));
+        const currentBoard = session.board || Array(9).fill(null);
+        setBoard(currentBoard);
         setDifficultyMode(session.difficultyMode || 'hard');
         setIsPlayerTurn(session.isPlayerTurn ?? true);
         setCurrentView('tictactoe_in_game');
+
+        // Check if game was already finished when app was closed/reloaded
+        const winner = checkWinnerState(currentBoard);
+        if (winner) {
+          handleFinishGame(winner, currentBoard);
+        }
       }
     } catch (err) {
       console.warn('Could not restore session:', err);
@@ -281,11 +288,22 @@ export default function PlayPage() {
     }
   };
 
-  const handleReturnToPlay = () => {
+  const handleReturnToPlay = async () => {
     triggerHaptic('selection');
+    if (currentView === 'tictactoe_in_game' && !gameOverResult) {
+      try {
+        await api.post('/game/tictactoe/finish', {
+          result: 'lose',
+          board
+        });
+      } catch (e) {
+        console.warn('Could not forfeit active session:', e);
+      }
+    }
     setBoard(Array(9).fill(null));
     setGameOverResult(null);
     setCurrentView('list');
+    fetchGameStats();
   };
 
   // ==========================================
@@ -377,11 +395,20 @@ export default function PlayPage() {
       <div className="min-h-screen pb-28 pt-4 px-4 max-w-md mx-auto flex flex-col items-center justify-between animate-fadeIn select-none">
         <div className="w-full flex flex-col items-center space-y-3">
           {/* Header */}
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center">
-              <Grid size={18} className="text-cyan-400" />
+          <div className="w-full flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center">
+                <Grid size={18} className="text-cyan-400" />
+              </div>
+              <h2 className="text-2xl font-black text-white tracking-wide">Tic-Tac-Toe</h2>
             </div>
-            <h2 className="text-2xl font-black text-white tracking-wide">Tic-Tac-Toe</h2>
+            <button
+              onClick={handleReturnToPlay}
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 flex items-center justify-center text-gray-300 hover:text-white transition-colors"
+              title="Exit Game"
+            >
+              <X size={18} />
+            </button>
           </div>
 
           {/* Turn Indicator Pill */}

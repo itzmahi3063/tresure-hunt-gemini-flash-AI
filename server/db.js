@@ -143,16 +143,22 @@ const initialData = {
   // panel's "swap ad" dropdown for any slot.
   ad_networks: [
     {
-      id: 'monetag',
-      name: 'Monetag',
-      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
-      block_id: 'sample-monetag-zone'
-    },
-    {
       id: 'adsgram',
       name: 'Adsgram',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
       block_id: 'sample-adsgram-block'
+    },
+    {
+      id: 'adsgram_cat',
+      name: 'Adsgram 🐱🏍',
+      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
+      block_id: 'sample-adsgram-cat-block'
+    },
+    {
+      id: 'monetag',
+      name: 'Monetag',
+      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
+      block_id: 'sample-monetag-zone'
     },
     {
       id: 'usl',
@@ -161,38 +167,36 @@ const initialData = {
       block_id: 'sample-usl-zone'
     }
   ],
-  // 4 fixed Daily-tab ad SLOTS. Each slot's reward_diamonds/is_hidden/
-  // max_daily belong to the SLOT (position) and are never touched when
-  // the admin swaps which network is assigned to it — only name/logo_url/
-  // block_id/network_id change on a swap (see assignAdNetworkToSlot).
+  // 4 fixed Daily-tab ad SLOTS in exact requested order:
+  // 1. Adsgram | 2. Adsgram 🐱🏍 | 3. Monetag | 4. USL 👾
   ads_config: [
     {
       id: 'slot_1',
-      network_id: 'monetag',
-      name: 'Monetag',
-      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
-      block_id: 'sample-monetag-zone',
-      reward_diamonds: 400,
+      network_id: 'adsgram',
+      name: 'Adsgram',
+      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
+      block_id: 'sample-adsgram-block',
+      reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
     },
     {
       id: 'slot_2',
-      network_id: 'adsgram',
-      name: 'Adsgram',
+      network_id: 'adsgram_cat',
+      name: 'Adsgram 🐱🏍',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-block',
-      reward_diamonds: 500,
+      block_id: 'sample-adsgram-cat-block',
+      reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
     },
     {
       id: 'slot_3',
-      network_id: 'adsgram',
-      name: '🐱‍🏍 Adsgram',
-      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-block',
-      reward_diamonds: 500,
+      network_id: 'monetag',
+      name: 'Monetag',
+      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
+      block_id: 'sample-monetag-zone',
+      reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
     },
@@ -202,7 +206,7 @@ const initialData = {
       name: 'USL 👾',
       logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
       block_id: 'sample-usl-zone',
-      reward_diamonds: 500,
+      reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
     }
@@ -253,6 +257,7 @@ class Database {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         this.data = { ...initialData, ...JSON.parse(raw) };
+        this.ensureFourAdSlots();
       } else {
         this.saveLocal();
       }
@@ -312,10 +317,53 @@ class Database {
     const remoteState = await this.mongoCollection.findOne({ _id: 'main_state' });
     if (remoteState && remoteState.data) {
       this.data = { ...initialData, ...remoteState.data };
+      this.ensureFourAdSlots();
       this.saveLocal();
       return true;
     }
     return false;
+  }
+
+  ensureFourAdSlots() {
+    if (!this.data) return;
+    const defaultSlots = initialData.ads_config;
+    if (!Array.isArray(this.data.ads_config) || this.data.ads_config.length === 0) {
+      this.data.ads_config = JSON.parse(JSON.stringify(defaultSlots));
+      this.data.ad_networks = JSON.parse(JSON.stringify(initialData.ad_networks));
+      this.save();
+      return;
+    }
+
+    let changed = false;
+    const currentSlots = this.data.ads_config;
+
+    // Ensure all 4 default slots exist and match the ordered definitions
+    const updatedSlots = defaultSlots.map((ds) => {
+      let existing = currentSlots.find(a => a.id === ds.id);
+      if (!existing) {
+        changed = true;
+        return { ...ds };
+      }
+      let slotChanged = false;
+      if (existing.is_hidden) {
+        existing.is_hidden = false;
+        slotChanged = true;
+      }
+      if (existing.name !== ds.name || existing.logo_url !== ds.logo_url) {
+        existing.name = ds.name;
+        existing.logo_url = ds.logo_url;
+        existing.network_id = ds.network_id;
+        slotChanged = true;
+      }
+      if (slotChanged) changed = true;
+      return existing;
+    });
+
+    if (changed || this.data.ads_config.length !== 4) {
+      this.data.ads_config = updatedSlots;
+      this.data.ad_networks = JSON.parse(JSON.stringify(initialData.ad_networks));
+      this.save();
+    }
   }
 
   // Called at the start of every single request (see server/index.js
@@ -737,10 +785,12 @@ class Database {
 
   // Ads Config & Tracking
   getAdsConfig() {
+    this.ensureFourAdSlots();
     return this.data.ads_config.filter(a => !a.is_hidden);
   }
 
   getAllAdsConfig() {
+    this.ensureFourAdSlots();
     return this.data.ads_config;
   }
 
@@ -1382,6 +1432,7 @@ class Database {
       return { user, result, returnAmount: 0 };
     }
 
+    const todayStr = new Date().toISOString().split('T')[0];
     let returnAmount = 0;
     let profitText = '';
 
@@ -1405,7 +1456,6 @@ class Database {
     user.diamonds += returnAmount;
 
     // Increment daily count
-    const todayStr = new Date().toISOString().split('T')[0];
     const dailyKey = `${userId}_ttt_${todayStr}`;
     if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
     this.data.game_daily_counts[dailyKey] = (this.data.game_daily_counts[dailyKey] || 0) + 1;
