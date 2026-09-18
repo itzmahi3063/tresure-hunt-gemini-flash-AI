@@ -76,6 +76,54 @@ export function getTelegramUser() {
   };
 }
 
+/**
+ * Extract the referral code that was passed when the Mini App was opened via
+ * a referral link, e.g. https://t.me/bot/Play?startapp=ref_12345
+ *
+ * Telegram exposes this as `start_param` on `initDataUnsafe` (and also inside
+ * the raw `initData` query string). We also fall back to a normal `?ref=` /
+ * `?startapp=` URL query param so the link still works when the Mini App is
+ * opened directly in a browser for testing/simulation.
+ *
+ * Returns the referrer's numeric Telegram user id as a string, or null.
+ */
+export function getReferrerIdFromStartParam() {
+  let startParam = null;
+
+  const webapp = typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp
+    ? window.Telegram.WebApp
+    : tg;
+
+  // 1) Preferred: Telegram's parsed initDataUnsafe.start_param
+  if (webapp?.initDataUnsafe?.start_param) {
+    startParam = webapp.initDataUnsafe.start_param;
+  }
+
+  // 2) Fallback: parse it out of the raw initData string ourselves
+  if (!startParam && webapp?.initData) {
+    try {
+      const urlParams = new URLSearchParams(webapp.initData);
+      startParam = urlParams.get('start_param');
+    } catch (e) {}
+  }
+
+  // 3) Fallback for browser/dev testing: ?startapp=ref_123 or ?ref=123 in the URL
+  if (!startParam && typeof window !== 'undefined') {
+    const search = new URLSearchParams(window.location.search);
+    startParam = search.get('startapp') || search.get('tgWebAppStartParam') || search.get('ref');
+  }
+
+  if (!startParam) return null;
+
+  const match = String(startParam).match(/^ref_(.+)$/);
+  const referrerId = match ? match[1] : String(startParam);
+
+  // Never treat garbage/non-numeric-looking ids as a referrer
+  if (!/^\d+$/.test(referrerId)) return null;
+
+  return referrerId;
+}
+
 export function triggerHaptic(type = 'impact', style = 'medium') {
   if (tg && tg.HapticFeedback) {
     try {
