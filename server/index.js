@@ -711,12 +711,29 @@ app.get('/api/admin/ads', authMiddleware, adminMiddleware, (req, res) => {
   res.json({ success: true, ads: db.getAllAdsConfig() });
 });
 
+// Catalog of ad networks (name + logo) the admin can assign to any slot
+app.get('/api/admin/ad-networks', authMiddleware, adminMiddleware, (req, res) => {
+  res.json({ success: true, networks: db.getAdNetworks() });
+});
+
 app.patch('/api/admin/ads/:id', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const updated = db.updateAdConfig(req.params.id, req.body);
     res.json({ success: true, ad: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Swap which ad network is shown in a given Daily slot. Only the
+// name/logo/block_id change — the slot's reward/hidden/max_daily stay put.
+app.post('/api/admin/ads/:id/network', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { networkId } = req.body;
+    const updated = db.assignAdNetworkToSlot(req.params.id, networkId);
+    res.json({ success: true, ad: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
   }
 });
 
