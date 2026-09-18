@@ -239,24 +239,80 @@ app.get('/api/tasks/my', authMiddleware, (req, res) => {
   }
 });
 
-// Create Exclusive Task Post (Pending Payment)
-app.post('/api/tasks/exclusive/create', authMiddleware, (req, res) => {
+// Normalize a raw Telegram channel/group link, @username, or numeric chat id
+// into the chat_id format Telegram's Bot API expects.
+function normalizeTelegramChatId(usernameOrLink) {
+  let clean = (usernameOrLink || '').trim();
+  if (!clean) return '';
+  let chatId = clean;
+  if (clean.includes('t.me/')) {
+    const match = clean.match(/t\.me\/([a-zA-Z0-9_]+)/);
+    if (match && match[1]) {
+      chatId = '@' + match[1];
+    }
+  } else if (!chatId.startsWith('@') && !chatId.startsWith('-100') && !/^\d+$/.test(chatId)) {
+    chatId = '@' + chatId;
+  }
+  return chatId;
+}
+
+// Server-side enforcement for "Bot must be verified as Admin" tasks. The
+// frontend already disables the Post button until the user clicks Verify,
+// but that alone is only a UI convenience — anyone could call this API
+// directly and skip the click entirely. This re-checks with Telegram
+// itself, independent of whatever the client claims, so a "Verified"
+// task can never go live without the bot genuinely being an admin in
+// that exact channel/group.
+async function assertBotVerifiedIfRequired(taskData) {
+  if (taskData.verification_type !== 'verified') return { chatId: (taskData.chat_id || '').trim() };
+
+  const chatId = normalizeTelegramChatId(taskData.chat_id || taskData.link);
+  if (!chatId) {
+    const err = new Error('A Telegram channel/group username or link is required for a Verified task.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const check = await verifyBotIsAdminInChat(chatId);
+  if (!check.isAdmin) {
+    const err = new Error('Bot is not an administrator in this channel/group yet. Please click "Verify" after adding the bot as Admin before posting.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return { chatId };
+}
+
+app.post('/api/tasks/exclusive/create', authMiddleware, async (req, res) => {
   try {
-    const newTask = db.createUserExclusiveTask(req.user.id, req.body);
+    const { chatId } = await assertBotVerifiedIfRequired(req.body);
+    const newTask = db.createUserExclusiveTask(req.user.id, { ...req.body, chat_id: chatId || req.body.chat_id });
     res.json({ success: true, task: newTask });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.statusCode || 400).json({ success: false, error: err.message });
   }
 });
 
 // Confirm & Pay for Exclusive Task Campaign
-app.post('/api/tasks/exclusive/pay', authMiddleware, (req, res) => {
+app.post('/api/tasks/exclusive/pay', authMiddleware, async (req, res) => {
   try {
     const { taskId } = req.body;
+    const existing = db.getTaskById(taskId);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Task campaign not found' });
+    }
+    // Re-check right before the task actually goes live — closes the gap
+    // where the bot could have been removed as admin between creation and
+    // payment approval.
+    await assertBotVerifiedIfRequired({
+      verification_type: existing.verification_type,
+      chat_id: existing.chat_id,
+      link: existing.link
+    });
     const task = db.payUserExclusiveTask(req.user.id, taskId);
     res.json({ success: true, task });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.statusCode || 400).json({ success: false, error: err.message });
   }
 });
 
@@ -264,20 +320,10 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, (req, res) => {
 app.post('/api/tasks/verify-bot-admin', authMiddleware, async (req, res) => {
   try {
     const { usernameOrLink } = req.body;
-    let clean = (usernameOrLink || '').trim();
-    if (!clean) {
+    if (!(usernameOrLink || '').trim()) {
       return res.status(400).json({ success: false, error: 'Telegram channel or group username/link is required' });
     }
-
-    let chatId = clean;
-    if (clean.includes('t.me/')) {
-      const match = clean.match(/t\.me\/([a-zA-Z0-9_]+)/);
-      if (match && match[1]) {
-        chatId = '@' + match[1];
-      }
-    } else if (!chatId.startsWith('@') && !chatId.startsWith('-100') && !/^\d+$/.test(chatId)) {
-      chatId = '@' + chatId;
-    }
+    const chatId = normalizeTelegramChatId(usernameOrLink);
 
     const check = await verifyBotIsAdminInChat(chatId);
     if (check.isAdmin) {
@@ -302,12 +348,13 @@ app.post('/api/tasks/verify-bot-admin', authMiddleware, async (req, res) => {
 });
 
 // Edit Unpaid Task Campaign Draft
-app.put('/api/tasks/exclusive/:taskId', authMiddleware, (req, res) => {
+app.put('/api/tasks/exclusive/:taskId', authMiddleware, async (req, res) => {
   try {
-    const updated = db.editUserExclusiveTask(req.user.id, req.params.taskId, req.body);
+    const { chatId } = await assertBotVerifiedIfRequired(req.body);
+    const updated = db.editUserExclusiveTask(req.user.id, req.params.taskId, { ...req.body, chat_id: chatId || req.body.chat_id });
     res.json({ success: true, task: updated });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    res.status(err.statusCode || 400).json({ success: false, error: err.message });
   }
 });
 
