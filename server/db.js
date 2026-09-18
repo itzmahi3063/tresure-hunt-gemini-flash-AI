@@ -240,12 +240,8 @@ class Database {
       console.log('💎 Connected to MongoDB Atlas Cloud Database successfully!');
 
       // Sync cloud state into memory if present
-      const remoteState = await this.mongoCollection.findOne({ _id: 'main_state' });
-      if (remoteState && remoteState.data) {
-        this.data = { ...initialData, ...remoteState.data };
-        this.saveLocal();
-        console.log('☁️ Successfully loaded and synced cloud state from MongoDB Atlas.');
-      } else {
+      const pulled = await this.pullRemoteState();
+      if (!pulled) {
         // First time initialization in MongoDB
         await this.mongoCollection.updateOne(
           { _id: 'main_state' },
@@ -257,6 +253,44 @@ class Database {
     } catch (err) {
       console.warn('⚠️ MongoDB Atlas connection notice (continuing with local storage):', err.message);
       this.isMongoConnected = false;
+    }
+  }
+
+  // Pull the latest state from MongoDB into memory. Returns true if a
+  // remote document existed and was loaded, false otherwise.
+  async pullRemoteState() {
+    if (!this.isMongoConnected || !this.mongoCollection) return false;
+    const remoteState = await this.mongoCollection.findOne({ _id: 'main_state' });
+    if (remoteState && remoteState.data) {
+      this.data = { ...initialData, ...remoteState.data };
+      this.saveLocal();
+      return true;
+    }
+    return false;
+  }
+
+  // Called at the start of every single request (see server/index.js
+  // middleware). This is what actually keeps multiple concurrent
+  // serverless instances consistent with each other: a "warm" instance
+  // that has been alive for a while only ever pulled MongoDB's state once,
+  // at its own cold start — without re-pulling on every request, any write
+  // made on a *different* instance in the meantime would be invisible here
+  // (this is exactly what caused balances/gifts/game state to look like
+  // they "reset" or got silently overwritten with an older value). Since
+  // we always flush() before a response goes out (see below), the document
+  // in MongoDB is always the source of truth, so it's safe/cheap to just
+  // re-pull it fresh at the top of every request.
+  async ensureFresh() {
+    if (this.dirty) {
+      // We have local changes not yet flushed (shouldn't normally happen —
+      // flush() runs before every response — but never discard pending
+      // writes by overwriting them with an older remote read).
+      await this.flush();
+    }
+    try {
+      await this.pullRemoteState();
+    } catch (err) {
+      console.error('MongoDB Atlas refresh error (continuing with last known state):', err.message);
     }
   }
 
@@ -1751,20 +1785,16 @@ class Database {
     return user;
   }
 
+  // Admin sends a gift: this only CREATES a pending, unclaimed gift entry.
+  // The balance is intentionally NOT touched here — it's only added once the
+  // user opens the popup in the app and taps "Claim Gift" (claimGift below).
   adminSendGift(userId, { type, amount, note }) {
     const user = this.getUser(userId);
     if (!user) throw new Error('User not found');
 
     const numAmount = Math.abs(Number(amount));
     if (isNaN(numAmount) || numAmount <= 0) throw new Error('Invalid gift amount');
-
-    if (type === 'diamonds') {
-      user.diamonds += numAmount;
-    } else if (type === 'usdt') {
-      user.usdt = Number((user.usdt + numAmount).toFixed(4));
-    } else if (type === 'keys') {
-      user.keys += Math.floor(numAmount);
-    }
+    if (!['diamonds', 'usdt', 'keys'].includes(type)) throw new Error('Invalid gift type');
 
     if (!user.gifts) user.gifts = [];
     const giftEntry = {
@@ -1779,6 +1809,32 @@ class Database {
 
     this.save();
     return { user, gift: giftEntry };
+  }
+
+  // Called when the user taps "Claim Gift" in the popup. This is the only
+  // place a gift's reward actually lands in the user's balance.
+  claimGift(userId, giftId) {
+    const user = this.getUser(userId);
+    if (!user) throw new Error('User not found');
+
+    const gift = (user.gifts || []).find(g => g.id === giftId);
+    if (!gift) throw new Error('Gift not found');
+    if (gift.claimed) throw new Error('This gift has already been claimed');
+
+    if (gift.type === 'diamonds') {
+      user.diamonds += gift.amount;
+    } else if (gift.type === 'usdt') {
+      user.usdt = Number(((user.usdt || 0) + gift.amount).toFixed(4));
+    } else if (gift.type === 'keys') {
+      user.keys += Math.floor(gift.amount);
+    }
+
+    gift.claimed = true;
+    gift.claimed_at = new Date().toISOString();
+    user.updated_at = new Date().toISOString();
+
+    this.save();
+    return { user, gift };
   }
 
   // ==========================================
