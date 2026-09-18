@@ -42,6 +42,7 @@ export default function MandatoryGateScreen({ onVerified }) {
   const { setUser } = useApp();
   const [visitedMap, setVisitedMap] = useState({});
   const [joinedMap, setJoinedMap] = useState({});
+  const [hasCheckedOnce, setHasCheckedOnce] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -114,6 +115,7 @@ export default function MandatoryGateScreen({ onVerified }) {
             if (onVerified) onVerified();
           }, 1200);
         } else {
+          setHasCheckedOnce(true);
           triggerHaptic('notification', 'error');
           const unjoinedCount = MANDATORY_ITEMS.filter((i) => !newJoined[i.id]).length;
           setErrorMsg(
@@ -124,6 +126,7 @@ export default function MandatoryGateScreen({ onVerified }) {
         }
       }
     } catch (err) {
+      setHasCheckedOnce(true);
       setErrorMsg(err.response?.data?.error || 'Verification check failed. Please try again.');
       triggerHaptic('notification', 'error');
     } finally {
@@ -341,7 +344,7 @@ export default function MandatoryGateScreen({ onVerified }) {
               className="w-full py-4 rounded-[22px] text-sm font-black uppercase tracking-wider flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all disabled:opacity-50"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-              <span>{loading ? 'Checking...' : 'Check again'}</span>
+              <span>{loading ? 'Checking...' : hasCheckedOnce ? 'Check again' : 'Verify'}</span>
             </button>
           )}
         </div>

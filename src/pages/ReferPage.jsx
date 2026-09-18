@@ -306,6 +306,106 @@ export default function ReferPage() {
         </div>
       </div>
 
+      {/* 4.5 Invited Friends & Milestone Status */}
+      <div className="box-3d p-4 space-y-3">
+        <div className="flex items-center justify-between border-b border-[#252535] pb-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-base">👥</span>
+            <span className="text-xs font-black text-cyan-400 uppercase tracking-wider font-heading">
+              Your Referred Friends ({refData?.referredFriends?.length || 0})
+            </span>
+          </div>
+          <span className="text-[10px] text-gray-400 font-mono">
+            {refData?.totalReferrals || 0} Verified
+          </span>
+        </div>
+
+        {(!refData?.referredFriends || refData.referredFriends.length === 0) ? (
+          <div className="text-center py-5 space-y-1.5">
+            <div className="text-2xl">⏳</div>
+            <p className="text-xs font-bold text-gray-300">No Friends Joined Yet</p>
+            <p className="text-[11px] text-gray-500 max-w-[260px] mx-auto">
+              Share your link above. When friends verify mandatory channels, you will instantly earn rewards!
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+            {refData.referredFriends.map((friend) => (
+              <div
+                key={friend.id}
+                className="p-3 rounded-2xl bg-[#0D0D14] border border-[#2B2B3D] space-y-2 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-purple-900/40 border border-purple-500/30 flex items-center justify-center font-bold text-purple-300 text-xs shrink-0 overflow-hidden">
+                      {friend.photo_url ? (
+                        <img src={friend.photo_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        friend.first_name?.[0] || 'H'
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-black text-white truncate text-xs">{friend.first_name}</div>
+                      <div className="text-[10px] text-gray-400 font-mono truncate">
+                        {friend.username ? `@${friend.username}` : `UID: ${friend.id}`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {friend.grand_prize && (
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-black font-numbers shrink-0">
+                      🔮 +1 Crystal
+                    </span>
+                  )}
+                </div>
+
+                {/* Milestone Progress Badges */}
+                <div className="grid grid-cols-3 gap-1.5 pt-1">
+                  <div
+                    className={`p-1.5 rounded-xl border text-center ${
+                      friend.step1_verified
+                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400'
+                        : 'bg-[#14141E] border-[#252535] text-gray-500'
+                    }`}
+                  >
+                    <div className="text-[9px] uppercase font-bold">Step 1: Gate</div>
+                    <div className="text-[10px] font-black mt-0.5">
+                      {friend.step1_verified ? '✅ +30💎' : '⏳ Pending'}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-1.5 rounded-xl border text-center ${
+                      friend.step2_tasks
+                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400'
+                        : 'bg-[#14141E] border-[#252535] text-gray-500'
+                    }`}
+                  >
+                    <div className="text-[9px] uppercase font-bold">Step 2: 5 Tasks</div>
+                    <div className="text-[10px] font-black mt-0.5">
+                      {friend.step2_tasks ? '✅ +100💎' : '⏳ In progress'}
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-1.5 rounded-xl border text-center ${
+                      friend.step3_ads
+                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-400'
+                        : 'bg-[#14141E] border-[#252535] text-gray-500'
+                    }`}
+                  >
+                    <div className="text-[9px] uppercase font-bold">Step 3: 20 Ads</div>
+                    <div className="text-[10px] font-black mt-0.5">
+                      {friend.step3_ads ? '✅ +180💎' : '⏳ In progress'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* ========================================================
           5. WEEKLY REFER CONTEST SECTION (7-Day Timer & Top 5 Trophies)
           ======================================================== */}

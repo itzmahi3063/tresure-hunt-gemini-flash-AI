@@ -400,11 +400,8 @@ class Database {
       let refId = null;
       if (referrerId && String(referrerId) !== id && this.data.users[String(referrerId)]) {
         refId = String(referrerId);
-        // Increment referrer count
-        this.data.users[refId].total_referrals = (this.data.users[refId].total_referrals || 0) + 1;
-        // Direct referral bonus: 400 Diamonds to referrer, 100 to new user
-        this.data.users[refId].diamonds += 400;
-        this.data.users[refId].referral_earnings_diamonds = (this.data.users[refId].referral_earnings_diamonds || 0) + 400;
+        // Do NOT increment referrer count or give diamonds yet!
+        // Referrals only become valid when the friend completes mandatory channel/group verification.
       }
 
       this.data.users[id] = {
@@ -413,7 +410,7 @@ class Database {
         last_name: telegramUser.last_name || '',
         username: telegramUser.username || '',
         photo_url: telegramUser.photo_url || '',
-        diamonds: refId ? 100 : 0, // Welcome bonus
+        diamonds: 0,
         usdt: 0.0,
         keys: 5, // 5 Welcome Chest Keys for 1st time users!
         spins: 15,
@@ -425,8 +422,13 @@ class Database {
         missed_first_week_crystal: false,
         total_daily_cycles: 0,
         referrer_id: refId,
+        referral_step1_claimed: false,
+        referral_step2_claimed: false,
+        referral_step3_claimed: false,
+        referral_grand_prize_claimed: false,
         total_referrals: 0,
         referral_earnings_diamonds: 0,
+        total_ads_watched: 0,
         is_banned: false,
         last_daily_reset: today,
         created_at: new Date().toISOString(),
@@ -441,6 +443,11 @@ class Database {
       u.username = telegramUser.username || u.username;
       if (telegramUser.photo_url) u.photo_url = telegramUser.photo_url;
       
+      // Link referrer if user was created without one and hasn't verified gate yet
+      if (referrerId && String(referrerId) !== id && this.data.users[String(referrerId)] && !u.referrer_id && !u.is_mandatory_verified) {
+        u.referrer_id = String(referrerId);
+      }
+
       // Daily reset for daily ad limits and daily activity
       if (u.last_daily_reset !== today) {
         u.last_daily_reset = today;
@@ -706,6 +713,24 @@ class Database {
     // Add diamonds to user
     user.diamonds += task.reward_diamonds;
 
+    // Milestone 2: Friend completes 5 tasks -> Referrer gets +100 Diamonds
+    const userTaskCount = Object.values(this.data.task_completions || {}).filter(
+      tc => String(tc.user_id) === String(userId)
+    ).length;
+
+    if (user.referrer_id && this.data.users[user.referrer_id] && !user.referral_step2_claimed && userTaskCount >= 5) {
+      user.referral_step2_claimed = true;
+      const referrer = this.data.users[user.referrer_id];
+      referrer.diamonds = (referrer.diamonds || 0) + 100;
+      referrer.referral_earnings_diamonds = (referrer.referral_earnings_diamonds || 0) + 100;
+
+      // Check Grand Prize: 1 Free Crystal Coin (🔮) if all 3 conditions met
+      if (user.referral_step1_claimed && user.referral_step2_claimed && user.referral_step3_claimed && !user.referral_grand_prize_claimed) {
+        user.referral_grand_prize_claimed = true;
+        referrer.crystal_coins = (referrer.crystal_coins || 0) + 1;
+      }
+    }
+
     this.save();
     return { user, task };
   }
@@ -772,11 +797,26 @@ class Database {
     this.data.daily_ads_completed[key] = count;
 
     const ad = this.data.ads_config.find(a => a.id === adId);
-    const reward = ad ? ad.reward_diamonds : 100;
+    const reward = ad ? ad.reward_diamonds : 50;
     
     const user = this.getUser(userId);
     if (user) {
       user.diamonds += reward;
+      user.total_ads_watched = (user.total_ads_watched || 0) + 1;
+
+      // Milestone 3: Friend watches 20 ads -> Referrer gets +180 Diamonds
+      if (user.referrer_id && this.data.users[user.referrer_id] && !user.referral_step3_claimed && user.total_ads_watched >= 20) {
+        user.referral_step3_claimed = true;
+        const referrer = this.data.users[user.referrer_id];
+        referrer.diamonds = (referrer.diamonds || 0) + 180;
+        referrer.referral_earnings_diamonds = (referrer.referral_earnings_diamonds || 0) + 180;
+
+        // Check Grand Prize: 1 Free Crystal Coin (🔮) if all 3 conditions met
+        if (user.referral_step1_claimed && user.referral_step2_claimed && user.referral_step3_claimed && !user.referral_grand_prize_claimed) {
+          user.referral_grand_prize_claimed = true;
+          referrer.crystal_coins = (referrer.crystal_coins || 0) + 1;
+        }
+      }
     }
     this.save();
     return { count, reward, user };
@@ -1704,6 +1744,23 @@ class Database {
     const allJoined = channelKeys.every(key => user.mandatory_channels[key] === true);
     if (allJoined) {
       user.is_mandatory_verified = true;
+
+      // Milestone 1: Channel + community join & verify (+30 💎 to referrer & +1 referral count)
+      if (user.referrer_id && this.data.users[user.referrer_id] && !user.referral_step1_claimed) {
+        user.referral_step1_claimed = true;
+        const referrer = this.data.users[user.referrer_id];
+        referrer.total_referrals = (referrer.total_referrals || 0) + 1;
+        referrer.diamonds = (referrer.diamonds || 0) + 30;
+        referrer.referral_earnings_diamonds = (referrer.referral_earnings_diamonds || 0) + 30;
+        referrer.weekly_referrals = (referrer.weekly_referrals || 0) + 1;
+        referrer.daily_referrals = (referrer.daily_referrals || 0) + 1;
+
+        // Check Grand Prize: 1 Free Crystal Coin (🔮) if all 3 conditions met
+        if (user.referral_step1_claimed && user.referral_step2_claimed && user.referral_step3_claimed && !user.referral_grand_prize_claimed) {
+          user.referral_grand_prize_claimed = true;
+          referrer.crystal_coins = (referrer.crystal_coins || 0) + 1;
+        }
+      }
     }
 
     this.save();

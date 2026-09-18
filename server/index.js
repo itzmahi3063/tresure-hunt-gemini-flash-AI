@@ -120,7 +120,8 @@ app.get('/api/set-webhook', async (req, res) => {
 
 app.get('/api/user/me', authMiddleware, (req, res) => {
   try {
-    const user = db.getOrCreateUser(req.user);
+    const referrerId = req.query.referrerId || null;
+    const user = db.getOrCreateUser(req.user, referrerId);
     res.json({
       success: true,
       user,
@@ -587,9 +588,24 @@ app.get('/api/referrals', authMiddleware, (req, res) => {
     const user = db.getUser(req.user.id);
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
-    const botUsername = db.data.settings.bot_username || 'TreasureHunt_bot';
-    const refLink = `https://t.me/${botUsername}?start=ref_${user.id}`;
+    const botUsername = 'treasure_hunt12_bot';
+    const refLink = `https://t.me/${botUsername}/Play?startapp=ref_${user.id}`;
     const rate = db.data.settings.diamond_to_usd_rate || 0.00004;
+
+    // Get list of friends referred by this user with milestone progress
+    const referredFriends = Object.values(db.data.users || {})
+      .filter(u => String(u.referrer_id) === String(user.id))
+      .map(u => ({
+        id: u.id,
+        first_name: u.first_name || 'Hunter',
+        username: u.username || '',
+        photo_url: u.photo_url || '',
+        step1_verified: !!u.referral_step1_claimed,
+        step2_tasks: !!u.referral_step2_claimed,
+        step3_ads: !!u.referral_step3_claimed,
+        grand_prize: !!u.referral_grand_prize_claimed,
+        joined_at: u.created_at
+      }));
 
     res.json({
       success: true,
@@ -598,6 +614,7 @@ app.get('/api/referrals', authMiddleware, (req, res) => {
       referralEarningsUsd: Number(((user.referral_earnings_diamonds || 0) * rate).toFixed(4)),
       commissionPercent: 10,
       referralLink: refLink,
+      referredFriends,
       bonusRules: [
         {
           step: 1,

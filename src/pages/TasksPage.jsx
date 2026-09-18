@@ -41,25 +41,81 @@ export default function TasksPage() {
   const [paymentModalTask, setPaymentModalTask] = useState(null);
   const [boostModalTask, setBoostModalTask] = useState(null);
 
+  const [tasksCache, setTasksCache] = useState({
+    daily: [],
+    social: [],
+    exclusive: [],
+    partner: []
+  });
+
+  // Preload all categories on mount for instant zero-lag tab switching
+  useEffect(() => {
+    preloadAllCategories();
+  }, []);
+
+  const preloadAllCategories = async () => {
+    try {
+      const [adsRes, socialRes, exclRes, partnerRes, myRes] = await Promise.all([
+        api.get('/ads').catch(() => ({ data: { success: false } })),
+        api.get('/tasks?category=social').catch(() => ({ data: { success: false } })),
+        api.get('/tasks?category=exclusive').catch(() => ({ data: { success: false } })),
+        api.get('/tasks?category=partner').catch(() => ({ data: { success: false } })),
+        api.get('/tasks/my').catch(() => ({ data: { success: false } }))
+      ]);
+
+      const newCache = {
+        daily: adsRes.data?.ads || [],
+        social: socialRes.data?.tasks || [],
+        exclusive: exclRes.data?.tasks || [],
+        partner: partnerRes.data?.tasks || []
+      };
+      setTasksCache(newCache);
+
+      if (myRes.data?.tasks) setMyTasks(myRes.data.tasks);
+
+      // Display currently active tab from fresh fetch
+      if (activeCategory === 'daily' && adsRes.data?.ads) setAds(adsRes.data.ads);
+      else if (newCache[activeCategory]) setTasks(newCache[activeCategory]);
+    } catch (e) {
+      console.warn('Preload tasks notice:', e);
+    }
+  };
+
   useEffect(() => {
     loadTasksAndAds();
   }, [activeCategory, exclusiveSubTab]);
 
   const loadTasksAndAds = async () => {
+    // Instant switch from cache (0 delay)
+    if (activeCategory === 'daily') {
+      if (tasksCache.daily.length > 0) setAds(tasksCache.daily);
+    } else if (tasksCache[activeCategory]?.length > 0) {
+      setTasks(tasksCache[activeCategory]);
+    }
+
     try {
       if (activeCategory === 'daily') {
         const res = await api.get('/ads');
-        if (res.data.success) setAds(res.data.ads);
+        if (res.data.success) {
+          setAds(res.data.ads);
+          setTasksCache(prev => ({ ...prev, daily: res.data.ads }));
+        }
       } else if (activeCategory === 'exclusive') {
         const [tasksRes, myRes] = await Promise.all([
           api.get('/tasks?category=exclusive'),
           api.get('/tasks/my')
         ]);
-        if (tasksRes.data.success) setTasks(tasksRes.data.tasks);
+        if (tasksRes.data.success) {
+          setTasks(tasksRes.data.tasks);
+          setTasksCache(prev => ({ ...prev, exclusive: tasksRes.data.tasks }));
+        }
         if (myRes.data.success) setMyTasks(myRes.data.tasks);
       } else {
         const res = await api.get(`/tasks?category=${activeCategory}`);
-        if (res.data.success) setTasks(res.data.tasks);
+        if (res.data.success) {
+          setTasks(res.data.tasks);
+          setTasksCache(prev => ({ ...prev, [activeCategory]: res.data.tasks }));
+        }
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);

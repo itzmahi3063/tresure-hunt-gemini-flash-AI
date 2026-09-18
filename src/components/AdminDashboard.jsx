@@ -906,6 +906,12 @@ export default function AdminDashboard() {
                   <div className="min-w-0 flex-1 pr-2">
                     <div className="font-black text-white truncate">{u.first_name} {u.last_name || ''}</div>
                     <div className="text-[10px] text-yellow-400 font-mono truncate">@{u.username || 'no_user'} (UID: {u.id})</div>
+                    <div className="text-[9px] text-gray-400 font-mono flex items-center space-x-2 mt-0.5">
+                      <span>👥 Ref: <b className="text-cyan-400">{u.total_referrals || 0}</b></span>
+                      <span>•</span>
+                      <span>Gate: <b className={u.is_mandatory_verified ? "text-emerald-400" : "text-amber-400"}>{u.is_mandatory_verified ? 'Verified ✅' : 'Pending ⏳'}</b></span>
+                      {u.referrer_id && <span>• RefBy: <b className="text-purple-400">{u.referrer_id}</b></span>}
+                    </div>
                   </div>
                   <div className="text-right font-mono font-bold shrink-0">
                     <span className="text-cyan-400 block font-numbers">{u.diamonds?.toLocaleString() || 0} 💎</span>
@@ -919,6 +925,24 @@ export default function AdminDashboard() {
           {/* User Modifier (+ / - Coins) & Gift System */}
           {selectedUser && (
             <div className="space-y-4 pt-2">
+              {/* User Overview Card */}
+              <div className="p-3 bg-[#10101A] border border-[#252535] rounded-xl text-xs space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-white text-sm">{selectedUser.first_name} {selectedUser.last_name || ''}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${selectedUser.is_mandatory_verified ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
+                    {selectedUser.is_mandatory_verified ? '✅ Mandatory Gate Passed' : '⏳ Gate Not Verified'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-400 font-mono pt-1">
+                  <div>UID: <span className="text-white font-bold">{selectedUser.id}</span></div>
+                  <div>Username: <span className="text-white font-bold">@{selectedUser.username || 'none'}</span></div>
+                  <div>Total Referrals: <span className="text-cyan-400 font-bold">{selectedUser.total_referrals || 0}</span></div>
+                  <div>Referral Earnings: <span className="text-emerald-400 font-bold">{selectedUser.referral_earnings_diamonds || 0} 💎</span></div>
+                  <div>Referred By: <span className="text-purple-400 font-bold">{selectedUser.referrer_id || 'None (Direct)'}</span></div>
+                  <div>Ads Watched: <span className="text-yellow-400 font-bold">{selectedUser.total_ads_watched || 0}</span></div>
+                </div>
+              </div>
+
               {/* 1. Add / Deduct Coins Form */}
               <form onSubmit={handleAdminAdjustBalance} className="badge-3d p-3.5 space-y-3">
                 <div className="flex justify-between items-center">
