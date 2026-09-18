@@ -138,24 +138,73 @@ const initialData = {
       created_at: new Date().toISOString()
     }
   ],
-  ads_config: [
-    {
-      id: 'adsgram',
-      name: 'Adsgram',
-      description: 'Watch Adsgram rewarded ad',
-      reward_diamonds: 500,
-      max_daily: 10,
-      is_hidden: false,
-      block_id: 'sample-adsgram-block'
-    },
+  // Catalog of ad networks admin can assign to any of the 4 Daily slots
+  // below. Adding a new network here makes it selectable from the admin
+  // panel's "swap ad" dropdown for any slot.
+  ad_networks: [
     {
       id: 'monetag',
       name: 'Monetag',
-      description: 'Watch Monetag rewarded clip',
+      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
+      block_id: 'sample-monetag-zone'
+    },
+    {
+      id: 'adsgram',
+      name: 'Adsgram',
+      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
+      block_id: 'sample-adsgram-block'
+    },
+    {
+      id: 'usl',
+      name: 'USL 👾',
+      logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
+      block_id: 'sample-usl-zone'
+    }
+  ],
+  // 4 fixed Daily-tab ad SLOTS. Each slot's reward_diamonds/is_hidden/
+  // max_daily belong to the SLOT (position) and are never touched when
+  // the admin swaps which network is assigned to it — only name/logo_url/
+  // block_id/network_id change on a swap (see assignAdNetworkToSlot).
+  ads_config: [
+    {
+      id: 'slot_1',
+      network_id: 'monetag',
+      name: 'Monetag',
+      logo_url: 'https://i.postimg.cc/28mzGd0w/monetag-logo.jpg',
+      block_id: 'sample-monetag-zone',
       reward_diamonds: 400,
       max_daily: 10,
-      is_hidden: false,
-      block_id: 'sample-monetag-zone'
+      is_hidden: false
+    },
+    {
+      id: 'slot_2',
+      network_id: 'adsgram',
+      name: 'Adsgram',
+      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
+      block_id: 'sample-adsgram-block',
+      reward_diamonds: 500,
+      max_daily: 10,
+      is_hidden: false
+    },
+    {
+      id: 'slot_3',
+      network_id: 'adsgram',
+      name: '🐱‍🏍 Adsgram',
+      logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
+      block_id: 'sample-adsgram-block',
+      reward_diamonds: 500,
+      max_daily: 10,
+      is_hidden: false
+    },
+    {
+      id: 'slot_4',
+      network_id: 'usl',
+      name: 'USL 👾',
+      logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
+      block_id: 'sample-usl-zone',
+      reward_diamonds: 500,
+      max_daily: 10,
+      is_hidden: false
     }
   ],
   daily_ads_completed: {}, // key: `${userId}_${adId}_${dateString}` -> count
@@ -673,10 +722,41 @@ class Database {
   updateAdConfig(adId, updates) {
     const ad = this.data.ads_config.find(a => a.id === adId);
     if (ad) {
-      Object.assign(ad, updates);
+      // reward_diamonds / is_hidden / max_daily are the only things this
+      // generic updater should touch — swapping the network itself always
+      // goes through assignAdNetworkToSlot so name/logo/block_id stay in
+      // sync with the catalog and can't drift out of sync with each other.
+      const { reward_diamonds, is_hidden, max_daily } = updates;
+      if (reward_diamonds !== undefined) ad.reward_diamonds = Math.max(0, Number(reward_diamonds) || 0);
+      if (is_hidden !== undefined) ad.is_hidden = !!is_hidden;
+      if (max_daily !== undefined) ad.max_daily = Math.max(1, Number(max_daily) || 10);
       this.save();
     }
     return ad;
+  }
+
+  getAdNetworks() {
+    return this.data.ad_networks || [];
+  }
+
+  // Assign a different ad network to a slot. Only name/logo_url/block_id/
+  // network_id change — the slot's own reward_diamonds, is_hidden and
+  // max_daily are left exactly as they were, since the reward belongs to
+  // the SLOT (position), not to whichever network is currently showing
+  // there.
+  assignAdNetworkToSlot(slotId, networkId) {
+    const slot = this.data.ads_config.find(a => a.id === slotId);
+    if (!slot) throw new Error('Ad slot not found');
+    const network = (this.data.ad_networks || []).find(n => n.id === networkId);
+    if (!network) throw new Error('Ad network not found');
+
+    slot.network_id = network.id;
+    slot.name = network.name;
+    slot.logo_url = network.logo_url;
+    slot.block_id = network.block_id;
+
+    this.save();
+    return slot;
   }
 
   getDailyAdCount(userId, adId) {
