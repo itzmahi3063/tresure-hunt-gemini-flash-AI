@@ -8,10 +8,10 @@ import { authMiddleware, adminMiddleware } from './auth.js';
 
 // Blocks reward-granting actions (chest opens, task/ad rewards, wallet
 // moves, game payouts, promo redemption, gifts...) for an account flagged
-// as sharing a device with another existing account (see
-// db.getOrCreateUser's device-lock check). This runs on the server, on
-// every request to these routes — so it can't be skipped by calling the
-// API directly instead of going through the app's UI.
+// as sharing a device OR sharing an IP beyond the allowed threshold with
+// another existing account (see db.getOrCreateUser's lock checks). This
+// runs on the server, on every request to these routes — so it can't be
+// skipped by calling the API directly instead of going through the app's UI.
 function blockIfDeviceConflict(req, res, next) {
   const user = db.getUser(req.user.id);
   if (user && user.device_conflict) {
@@ -20,6 +20,14 @@ function blockIfDeviceConflict(req, res, next) {
       error: 'This device is already linked to another account. Open the app to resolve this before continuing.',
       deviceConflict: true,
       linkedUser: user.device_conflict_linked || null
+    });
+  }
+  if (user && user.ip_conflict) {
+    return res.status(403).json({
+      success: false,
+      error: 'Too many accounts are already using this connection. Open the app to resolve this before continuing.',
+      ipConflict: true,
+      linkedUsers: user.ip_conflict_linked || []
     });
   }
   next();
@@ -179,6 +187,8 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
       user,
       isDuplicate: !!user.device_conflict,
       linkedUser: user.device_conflict_linked || null,
+      isIpDuplicate: !!user.ip_conflict,
+      ipLinkedUsers: user.ip_conflict_linked || [],
       isAdmin: req.isAdmin,
       settings: {
         rate: db.data.settings.diamond_to_usd_rate,
@@ -427,10 +437,26 @@ app.get('/api/ads', authMiddleware, (req, res) => {
   }
 });
 
+// No reward is granted for an ad "watched" in under this long — closes the
+// same direct-API-call bypass we closed for duplicate accounts. The client
+// (src/services/ads.js) already waits this long before calling these
+// routes; this is the check that can't be skipped by calling the API
+// directly instead of going through the app's UI.
+const MIN_AD_WATCH_MS = 4500; // small buffer under the client's 5000ms for normal network/processing latency
+
+function isAdWatchTooShort(watchStartedAt) {
+  if (!watchStartedAt || typeof watchStartedAt !== 'number') return true;
+  return Date.now() - watchStartedAt < MIN_AD_WATCH_MS;
+}
+
 app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
-    const { adId } = req.body;
+    const { adId, watchStartedAt } = req.body;
     const userId = req.user.id;
+
+    if (isAdWatchTooShort(watchStartedAt)) {
+      return res.status(400).json({ success: false, error: 'Please watch the full ad before claiming this reward.' });
+    }
 
     const count = db.getDailyAdCount(userId, adId);
     const ad = db.data.ads_config.find(a => a.id === adId);
@@ -515,6 +541,10 @@ app.get('/api/daily-rewards/status', authMiddleware, (req, res) => {
 
 app.post('/api/daily-rewards/claim', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
+    const { watchStartedAt } = req.body;
+    if (isAdWatchTooShort(watchStartedAt)) {
+      return res.status(400).json({ success: false, error: 'Please watch the full ad before claiming your daily reward.' });
+    }
     const result = db.claimDailyReward(req.user.id);
     res.json({ success: true, ...result });
   } catch (err) {
@@ -957,6 +987,16 @@ app.post('/api/user/device-switch', authMiddleware, (req, res) => {
   try {
     const { deviceId } = req.body;
     const user = db.switchAccountResetBalance(req.user.id, deviceId);
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/user/ip-switch', authMiddleware, (req, res) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || null;
+    const user = db.switchIpAccountResetBalance(req.user.id, ip);
     res.json({ success: true, user });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
