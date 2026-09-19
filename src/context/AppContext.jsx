@@ -25,6 +25,7 @@ export function AppProvider({ children }) {
   };
 
   const [duplicateLinkedUser, setDuplicateLinkedUser] = useState(null);
+  const [ipConflictUsers, setIpConflictUsers] = useState(null);
 
   // Multi-Language State (Default: saved language or 'en')
   const [language, setLanguageState] = useState(() => {
@@ -109,6 +110,12 @@ export function AppProvider({ children }) {
         // switches back to that account or claims this device (resetting
         // this account's balance) — see DeviceBlockedScreen.
         setDuplicateLinkedUser(res.data.isDuplicate ? res.data.linkedUser : null);
+        // Same-IP conflict is checked independently of device conflict —
+        // only shown if the device isn't already flagged, so the person
+        // sees one blocking screen at a time.
+        if (!res.data.isDuplicate) {
+          setIpConflictUsers(res.data.isIpDuplicate ? res.data.ipLinkedUsers : null);
+        }
         if (res.data.user?.is_mandatory_verified) {
           setIsGatePassed(true);
         }
@@ -128,7 +135,9 @@ export function AppProvider({ children }) {
     // Catches a device-conflict 403 from ANY action (chest open, tasks,
     // wallet, games...), not just the initial sync — see services/api.js.
     const handleDeviceConflict = (e) => setDuplicateLinkedUser(e.detail || {});
+    const handleIpConflict = (e) => setIpConflictUsers(e.detail || []);
     window.addEventListener('device-conflict', handleDeviceConflict);
+    window.addEventListener('ip-conflict', handleIpConflict);
 
     initTelegram();
     fetchUserProfile();
@@ -141,7 +150,10 @@ export function AppProvider({ children }) {
       setIsGatePassed(true);
     }
 
-    return () => window.removeEventListener('device-conflict', handleDeviceConflict);
+    return () => {
+      window.removeEventListener('device-conflict', handleDeviceConflict);
+      window.removeEventListener('ip-conflict', handleIpConflict);
+    };
   }, []);
 
   // Action: Open Treasure Chest
@@ -239,6 +251,8 @@ export function AppProvider({ children }) {
         setIsGatePassed,
         duplicateLinkedUser,
         setDuplicateLinkedUser,
+        ipConflictUsers,
+        setIpConflictUsers,
         language,
         setLanguage,
         t,
