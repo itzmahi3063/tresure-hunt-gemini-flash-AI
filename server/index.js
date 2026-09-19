@@ -5,6 +5,25 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
+
+// Blocks reward-granting actions (chest opens, task/ad rewards, wallet
+// moves, game payouts, promo redemption, gifts...) for an account flagged
+// as sharing a device with another existing account (see
+// db.getOrCreateUser's device-lock check). This runs on the server, on
+// every request to these routes — so it can't be skipped by calling the
+// API directly instead of going through the app's UI.
+function blockIfDeviceConflict(req, res, next) {
+  const user = db.getUser(req.user.id);
+  if (user && user.device_conflict) {
+    return res.status(403).json({
+      success: false,
+      error: 'This device is already linked to another account. Open the app to resolve this before continuing.',
+      deviceConflict: true,
+      linkedUser: user.device_conflict_linked || null
+    });
+  }
+  next();
+}
 import {
   bot,
   verifyUserChannelMembership,
@@ -68,9 +87,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// Public health check
+// Public health check — also reports whether MongoDB is actually the
+// storage backend right now. Hit this after every deploy: if
+// storage.mode is "local_json_fallback", balances WILL reset on the next
+// cold serverless instance because MONGO_URI is missing/invalid.
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    storage: {
+      mode: db.isMongoConnected ? 'mongodb' : 'local_json_fallback',
+      mongoConnected: db.isMongoConnected,
+      warning: db.isMongoConnected
+        ? null
+        : 'MONGO_URI is not set (or invalid) — user data is only in a local/temp file and WILL be lost on serverless restarts.'
+    }
+  });
 });
 
 // Telegram Webhook Handler (for Serverless Vercel & Webhook setups)
@@ -139,11 +171,14 @@ app.get('/api/user/me', authMiddleware, (req, res) => {
 
 app.post('/api/user/sync', authMiddleware, (req, res) => {
   try {
-    const { referrerId } = req.body;
-    const user = db.getOrCreateUser(req.user, referrerId);
+    const { referrerId, deviceId } = req.body;
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || null;
+    const user = db.getOrCreateUser(req.user, referrerId, { deviceId, ip });
     res.json({
       success: true,
       user,
+      isDuplicate: !!user.device_conflict,
+      linkedUser: user.device_conflict_linked || null,
       isAdmin: req.isAdmin,
       settings: {
         rate: db.data.settings.diamond_to_usd_rate,
@@ -157,7 +192,7 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
 });
 
 // Open Treasure Chest
-app.post('/api/chest/open', authMiddleware, (req, res) => {
+app.post('/api/chest/open', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const result = db.openChest(req.user.id);
     res.json({
@@ -191,7 +226,7 @@ app.get('/api/tasks', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/tasks/complete', authMiddleware, async (req, res) => {
+app.post('/api/tasks/complete', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
     const { taskId } = req.body;
     const userId = req.user.id;
@@ -296,7 +331,7 @@ app.post('/api/tasks/exclusive/create', authMiddleware, async (req, res) => {
 });
 
 // Confirm & Pay for Exclusive Task Campaign
-app.post('/api/tasks/exclusive/pay', authMiddleware, async (req, res) => {
+app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
     const { taskId } = req.body;
     const existing = db.getTaskById(taskId);
@@ -392,7 +427,7 @@ app.get('/api/ads', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/ads/watch', authMiddleware, (req, res) => {
+app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { adId } = req.body;
     const userId = req.user.id;
@@ -425,7 +460,7 @@ app.post('/api/ads/watch', authMiddleware, (req, res) => {
 // WALLET: CONVERT & WITHDRAW ROUTES
 // ==========================================
 
-app.post('/api/wallet/convert', authMiddleware, (req, res) => {
+app.post('/api/wallet/convert', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { amountDiamonds } = req.body;
     const { user, conversion } = db.convertDiamonds(req.user.id, amountDiamonds);
@@ -435,7 +470,7 @@ app.post('/api/wallet/convert', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/wallet/withdraw', authMiddleware, (req, res) => {
+app.post('/api/wallet/withdraw', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { amountUsdt, network, walletAddress } = req.body;
     const { user, withdrawal } = db.createWithdrawal(
@@ -459,7 +494,7 @@ app.get('/api/wallet/requirements', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/store/buy-crystal', authMiddleware, (req, res) => {
+app.post('/api/store/buy-crystal', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { quantity } = req.body;
     const result = db.buyCrystalCoin(req.user.id, quantity || 1);
@@ -478,7 +513,7 @@ app.get('/api/daily-rewards/status', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/daily-rewards/claim', authMiddleware, (req, res) => {
+app.post('/api/daily-rewards/claim', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const result = db.claimDailyReward(req.user.id);
     res.json({ success: true, ...result });
@@ -502,7 +537,7 @@ app.get('/api/wallet/history', authMiddleware, (req, res) => {
 // PROMO CODE REDEMPTION ROUTE (User)
 // ==========================================
 
-app.post('/api/promo/redeem', authMiddleware, (req, res) => {
+app.post('/api/promo/redeem', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { code } = req.body;
     const result = db.redeemPromoCode(req.user.id, code);
@@ -547,7 +582,7 @@ app.post('/api/game/tictactoe/save', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/game/tictactoe/finish', authMiddleware, (req, res) => {
+app.post('/api/game/tictactoe/finish', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { result, board } = req.body;
     const outcome = db.finishTicTacToe(req.user.id, result, board);
@@ -570,7 +605,7 @@ app.get('/api/game/stats', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/game/luckydraw/play', authMiddleware, (req, res) => {
+app.post('/api/game/luckydraw/play', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const outcome = db.playLuckyDraw(req.user.id);
     res.json({ success: true, ...outcome });
@@ -863,7 +898,7 @@ app.post('/api/admin/user/gift', authMiddleware, adminMiddleware, (req, res) => 
 
 // User claims a pending gift from the popup — this is the only moment the
 // reward is actually credited to their balance.
-app.post('/api/gift/claim', authMiddleware, (req, res) => {
+app.post('/api/gift/claim', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
     const { giftId } = req.body;
     if (!giftId) return res.status(400).json({ success: false, error: 'giftId is required' });
@@ -988,7 +1023,7 @@ app.get('/api/mandatory-channels/status', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/mandatory-channels/verify', authMiddleware, async (req, res) => {
+app.post('/api/mandatory-channels/verify', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
     const { visited = {} } = req.body;
     const userId = req.user.id;
