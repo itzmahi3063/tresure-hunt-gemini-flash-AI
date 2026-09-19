@@ -155,3 +155,26 @@ export function openExternalLink(url) {
     window.open(url, '_blank');
   }
 }
+
+// Persistent per-browser/per-device id used by the server's anti-duplicate-
+// account check (see db.getOrCreateUser). Generated once and kept in
+// localStorage — this is NOT a security boundary by itself (anyone with
+// devtools can clear it and get a fresh one), it's a signal the server
+// combines with real, signature-verified Telegram identity: clearing this
+// id no longer helps an attacker, because they still need a genuinely
+// different, real Telegram account for every "duplicate" — see auth.js.
+export function getOrCreateDeviceId() {
+  if (typeof window === 'undefined') return null;
+  try {
+    let id = localStorage.getItem('treasure_device_id');
+    if (!id) {
+      id = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID()
+        : `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem('treasure_device_id', id);
+    }
+    return id;
+  } catch {
+    return null; // localStorage unavailable (e.g. private mode edge cases) — sync still works, just without device-lock
+  }
+}
