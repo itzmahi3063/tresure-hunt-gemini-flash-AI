@@ -24,18 +24,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Any endpoint can 403 with { deviceConflict: true } if this account gets
-// flagged as sharing a device with another one mid-session (see
+// Any endpoint can 403 with { deviceConflict: true } or { ipConflict: true }
+// if this account gets flagged as sharing a device, or sharing an IP beyond
+// the allowed limit, with another account mid-session (see
 // blockIfDeviceConflict in server/index.js). Surface it as a global event
-// instead of a generic error toast, so the app can show DeviceBlockedScreen
-// no matter which action triggered it.
+// instead of a generic error toast, so the app can show the right blocked
+// screen no matter which action triggered it.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error?.response?.data?.deviceConflict && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('device-conflict', {
-        detail: error.response.data.linkedUser || null
-      }));
+    const data = error?.response?.data;
+    if (typeof window !== 'undefined') {
+      if (data?.deviceConflict) {
+        window.dispatchEvent(new CustomEvent('device-conflict', { detail: data.linkedUser || null }));
+      } else if (data?.ipConflict) {
+        window.dispatchEvent(new CustomEvent('ip-conflict', { detail: data.linkedUsers || [] }));
+      }
     }
     return Promise.reject(error);
   }
