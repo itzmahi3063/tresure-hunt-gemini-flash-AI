@@ -64,6 +64,25 @@ app.use(async (req, res, next) => {
   } catch (e) {
     // Never block a request forever over this.
   }
+
+  // Hard requirement in production: MongoDB must be the source of truth.
+  // Previously, if Mongo failed to connect on a cold start, this middleware
+  // still called next() unconditionally — so the request was silently
+  // served (and saved!) from the fresh/empty local state instead of the
+  // real persisted data. That is exactly what could make a balance look
+  // like it "reset": nothing was actually deleted from MongoDB, this
+  // instance just never talked to it and quietly acted on a blank slate.
+  // Now: no Mongo connection in production = an honest 503, never a fake
+  // empty account. /api/health is exempt so it can always report status.
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction && !db.isMongoConnected && req.path !== '/api/health') {
+    return res.status(503).json({
+      success: false,
+      error: 'Database temporarily unavailable. Please try again in a moment — your data is safe and has not been reset.',
+      dbUnavailable: true
+    });
+  }
+
   next();
 });
 
