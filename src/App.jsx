@@ -16,6 +16,7 @@ import LanguageModal from './components/LanguageModal';
 import MandatoryGateScreen from './components/MandatoryGateScreen';
 import SplashScreen from './components/SplashScreen';
 import DeviceBlockedScreen from './components/DeviceBlockedScreen';
+import IpBlockedScreen from './components/IpBlockedScreen';
 import TelegramOnlyScreen from './components/TelegramOnlyScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { isInsideTelegram } from './services/telegram';
@@ -32,6 +33,8 @@ export default function App() {
     setIsGatePassed,
     duplicateLinkedUser,
     setDuplicateLinkedUser,
+    ipConflictUsers,
+    setIpConflictUsers,
     fetchUserProfile,
     language,
     setLanguage,
@@ -71,6 +74,20 @@ export default function App() {
         onSwitched={(switchedUser) => {
           setUser(switchedUser);
           setDuplicateLinkedUser(null);
+        }}
+      />
+    );
+  }
+
+  // 4b. Anti-Cheat: Same-IP Detection Screen (more than 3 accounts on one IP)
+  if (ipConflictUsers) {
+    return (
+      <IpBlockedScreen
+        linkedUsers={ipConflictUsers}
+        onRetry={fetchUserProfile}
+        onSwitched={(switchedUser) => {
+          setUser(switchedUser);
+          setIpConflictUsers(null);
         }}
       />
     );
