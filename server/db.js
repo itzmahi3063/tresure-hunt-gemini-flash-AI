@@ -244,6 +244,7 @@ class Database {
     this.mongoCollection = null;
     this.isMongoConnected = false;
     this.dirty = false;
+    this._preSnapshot = null; // baseline for targeted (non-clobbering) Mongo writes — see buildTargetedUpdate()
     this.load();
     // Kept as a promise (never rejects — initMongo catches its own errors)
     // so route handlers can `await db.mongoReady` before touching this.data.
@@ -317,6 +318,11 @@ class Database {
     const remoteState = await this.mongoCollection.findOne({ _id: 'main_state' });
     if (remoteState && remoteState.data) {
       this.data = { ...initialData, ...remoteState.data };
+      // Baseline snapshot for this request. Anything that differs from this
+      // by the time we flush() is exactly what THIS request changed — see
+      // buildTargetedUpdate(). Taken before ensureFourAdSlots() on purpose,
+      // so any repair it makes is itself captured as a real change to save.
+      this._preSnapshot = JSON.parse(JSON.stringify(this.data));
       this.ensureFourAdSlots();
       this.saveLocal();
       return true;
@@ -421,12 +427,58 @@ class Database {
     }
   }
 
+  // Build a MongoDB $set document containing ONLY the paths this request
+  // actually changed (diffed against the snapshot taken right after the
+  // last pullRemoteState()). This is the fix for the "balance resets to 0"
+  // bug: the old code did `$set: { data: this.data }` — a full-document
+  // overwrite — so two concurrent requests (two different users, two
+  // different serverless instances) would race, and whichever one flushed
+  // last would silently erase the other's write, because it was still
+  // holding a stale full copy of `data` that didn't include the other
+  // user's change. Setting only `data.users.<id>` (and only the specific
+  // top-level sections that changed) means concurrent writes to different
+  // users/sections can never clobber each other, because MongoDB applies
+  // each dotted $set path independently.
+  buildTargetedUpdate() {
+    if (!this._preSnapshot) return null; // no baseline yet — caller falls back to a full write
+    const set = {};
+    const before = this._preSnapshot;
+    const after = this.data;
+
+    const beforeUsers = before.users || {};
+    const afterUsers = after.users || {};
+    for (const id of Object.keys(afterUsers)) {
+      if (JSON.stringify(afterUsers[id]) !== JSON.stringify(beforeUsers[id])) {
+        set[`data.users.${id}`] = afterUsers[id];
+      }
+    }
+
+    for (const key of Object.keys(after)) {
+      if (key === 'users') continue;
+      if (JSON.stringify(after[key]) !== JSON.stringify(before[key])) {
+        set[`data.${key}`] = after[key];
+      }
+    }
+
+    return set;
+  }
+
   async syncToMongo() {
     if (!this.isMongoConnected || !this.mongoCollection) return;
     try {
+      const targeted = this.buildTargetedUpdate();
+      const setDoc = { updated_at: new Date().toISOString() };
+      if (targeted) {
+        Object.assign(setDoc, targeted);
+      } else {
+        // No baseline snapshot available yet (e.g. very first write before
+        // any successful pull) — safe fallback to the old full-document
+        // write so nothing is ever silently skipped.
+        setDoc.data = this.data;
+      }
       await this.mongoCollection.updateOne(
         { _id: 'main_state' },
-        { $set: { data: this.data, updated_at: new Date().toISOString() } },
+        { $set: setDoc },
         { upsert: true }
       );
     } catch (err) {
@@ -440,9 +492,11 @@ class Database {
     return this.data.users[id] || null;
   }
 
-  getOrCreateUser(telegramUser, referrerId = null) {
+  getOrCreateUser(telegramUser, referrerId = null, meta = {}) {
+    const { deviceId = null, ip = null } = meta;
     const id = String(telegramUser.id);
     const today = new Date().toISOString().split('T')[0];
+    let isNewUser = false;
 
     if (!this.data.users[id]) {
       let refId = null;
@@ -480,8 +534,12 @@ class Database {
         is_banned: false,
         last_daily_reset: today,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        device_conflict: false,
+        device_conflict_linked: null,
+        signup_ip: ip || null
       };
+      isNewUser = true;
       this.save();
     } else {
       // Update profile info
@@ -501,6 +559,37 @@ class Database {
         u.last_daily_reset = today;
       }
       u.updated_at = new Date().toISOString();
+      this.save();
+    }
+
+    // --- Anti-duplicate-account enforcement (server-side, mandatory) ---
+    // This used to be an endpoint the frontend could simply never call
+    // (and never did) — anyone hitting the API directly (curl, devtools,
+    // automation tools) skipped it entirely. Now it runs on every single
+    // sync, for every client, with no way to opt out of it.
+    const user = this.data.users[id];
+    if (deviceId) {
+      const lockCheck = this.checkDeviceLock(id, deviceId);
+      const wasConflicted = !!user.device_conflict;
+      user.device_conflict = lockCheck.isDuplicate;
+      user.device_conflict_linked = lockCheck.isDuplicate ? lockCheck.linkedUser : null;
+      if (wasConflicted !== user.device_conflict) this.save();
+    }
+
+    // Lightweight IP-burst signal: flag (never auto-block) an account whose
+    // signup IP created an unusual number of other accounts recently. This
+    // is informational for the admin panel — device_conflict above is what
+    // actually stops reward abuse.
+    if (isNewUser && ip) {
+      if (!this.data.signup_ips) this.data.signup_ips = {};
+      const nowTs = Date.now();
+      const windowMs = 60 * 60 * 1000; // 1 hour
+      const recent = (this.data.signup_ips[ip] || []).filter(ts => nowTs - ts < windowMs);
+      recent.push(nowTs);
+      this.data.signup_ips[ip] = recent;
+      if (recent.length > 4) {
+        user.flagged_multi_account_ip = true;
+      }
       this.save();
     }
 
@@ -2075,6 +2164,8 @@ class Database {
     user.diamonds = 0;
     user.usdt = 0.0;
     user.is_switched_reset = true;
+    user.device_conflict = false;
+    user.device_conflict_linked = null;
     user.updated_at = new Date().toISOString();
 
     this.save();
