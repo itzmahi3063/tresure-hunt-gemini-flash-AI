@@ -14,6 +14,7 @@ import {
   Lock
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
+import { showMonetagRewardedPopup } from '../services/ads';
 import confetti from 'canvas-confetti';
 import api from '../services/api';
 
@@ -53,7 +54,12 @@ export default function DailyModal({ isOpen, onClose }) {
     triggerHaptic('impact', 'medium');
 
     try {
-      const res = await api.post('/daily-rewards/claim');
+      // Rewarded popup ad plays before the daily reward is granted — also
+      // enforces the 5-second minimum watch time before resolving.
+      setMessage({ type: 'info', text: 'Loading ad... please watch until the end to claim your reward.' });
+      const { watchStartedAt } = await showMonetagRewardedPopup();
+
+      const res = await api.post('/daily-rewards/claim', { watchStartedAt });
       if (res.data.success) {
         setUser(res.data.user);
         triggerHaptic('notification', 'success');
@@ -72,7 +78,7 @@ export default function DailyModal({ isOpen, onClose }) {
       triggerHaptic('notification', 'error');
       setMessage({
         type: 'error',
-        text: err.response?.data?.error || 'Failed to claim daily reward'
+        text: err.response?.data?.error || err.message || 'Failed to claim daily reward'
       });
     } finally {
       setClaiming(false);
