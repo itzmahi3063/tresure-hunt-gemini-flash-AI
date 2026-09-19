@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { openExternalLink, openTelegramLink, triggerHaptic } from '../services/telegram';
+import { showAdForNetwork } from '../services/ads';
 import CreateExclusiveTaskModal from '../components/CreateExclusiveTaskModal';
 import TaskPaymentModal from '../components/TaskPaymentModal';
 import BoostTaskModal from '../components/BoostTaskModal';
@@ -127,27 +128,29 @@ export default function TasksPage() {
 
     setLoading(true);
     triggerHaptic('impact', 'medium');
-    setStatusMessage({ type: 'info', text: `Loading ${ad.name} reward clip... Please watch until the end.` });
+    setStatusMessage({ type: 'info', text: `Loading ${ad.name} ad... please watch until the end.` });
 
-    setTimeout(async () => {
-      try {
-        const res = await api.post('/ads/watch', { adId: ad.id });
-        if (res.data.success) {
-          setUser(res.data.user);
-          setStatusMessage({
-            type: 'success',
-            text: `🎉 You earned +${res.data.rewardDiamonds} GEMS for watching ${ad.name}!`
-          });
-          loadTasksAndAds();
-          triggerHaptic('notification', 'success');
-        }
-      } catch (err) {
-        setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Ad verification failed' });
-        triggerHaptic('notification', 'error');
-      } finally {
-        setLoading(false);
+    try {
+      // Real ad SDK call (Adsgram or Monetag, by ad.network_id) — this also
+      // enforces the 5-second minimum watch time before resolving.
+      const { watchStartedAt } = await showAdForNetwork(ad);
+
+      const res = await api.post('/ads/watch', { adId: ad.id, watchStartedAt });
+      if (res.data.success) {
+        setUser(res.data.user);
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 You earned +${res.data.rewardDiamonds} GEMS for watching ${ad.name}!`
+        });
+        loadTasksAndAds();
+        triggerHaptic('notification', 'success');
       }
-    }, 3000);
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Ad verification failed' });
+      triggerHaptic('notification', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleTaskAction = async (task) => {
