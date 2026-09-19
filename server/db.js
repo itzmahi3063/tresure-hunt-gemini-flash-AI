@@ -278,37 +278,57 @@ class Database {
 
   async initMongo() {
     const uri = process.env.MONGO_URI;
+    const isProduction = process.env.NODE_ENV === 'production';
+
     if (!uri || uri.includes('<db_password>')) {
-      console.log('ℹ️ MongoDB URI not configured or contains placeholder <db_password>. Operating in local JSON storage mode.');
+      console.log(
+        isProduction
+          ? '❌ MONGO_URI is missing/invalid in production. MongoDB is required — requests will get a 503 until this is set (see /api/health).'
+          : 'ℹ️ MongoDB URI not configured or contains placeholder <db_password>. Operating in local JSON storage mode (dev only).'
+      );
       return;
     }
 
-    try {
-      this.mongoClient = new MongoClient(uri, {
-        serverSelectionTimeoutMS: 8000,
-        connectTimeoutMS: 8000
-      });
-      await this.mongoClient.connect();
-      const db = this.mongoClient.db('treasure_hunt');
-      this.mongoCollection = db.collection('app_state');
-      this.isMongoConnected = true;
-      console.log('💎 Connected to MongoDB Atlas Cloud Database successfully!');
+    // A handful of quick retries on cold start: a transient DNS/TLS hiccup
+    // connecting to Atlas used to permanently mark this instance as
+    // "local storage mode" for its entire lifetime — which is exactly what
+    // could make a balance look like it "reset" (this instance would then
+    // silently serve/save the fresh empty local state instead of the real
+    // one). Kept short so a genuinely cold Vercel function doesn't time out.
+    const MAX_ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        this.mongoClient = new MongoClient(uri, {
+          serverSelectionTimeoutMS: 3500,
+          connectTimeoutMS: 3500
+        });
+        await this.mongoClient.connect();
+        const db = this.mongoClient.db('treasure_hunt');
+        this.mongoCollection = db.collection('app_state');
+        this.isMongoConnected = true;
+        console.log('💎 Connected to MongoDB Atlas Cloud Database successfully!');
 
-      // Sync cloud state into memory if present
-      const pulled = await this.pullRemoteState();
-      if (!pulled) {
-        // First time initialization in MongoDB
-        await this.mongoCollection.updateOne(
-          { _id: 'main_state' },
-          { $set: { data: this.data, updated_at: new Date().toISOString() } },
-          { upsert: true }
-        );
-        console.log('☁️ Cloud database initialized with current application state.');
+        // Sync cloud state into memory if present
+        const pulled = await this.pullRemoteState();
+        if (!pulled) {
+          // First time initialization in MongoDB
+          await this.mongoCollection.updateOne(
+            { _id: 'main_state' },
+            { $set: { data: this.data, updated_at: new Date().toISOString() } },
+            { upsert: true }
+          );
+          console.log('☁️ Cloud database initialized with current application state.');
+        }
+        return; // connected — done
+      } catch (err) {
+        this.isMongoConnected = false;
+        console.warn(`⚠️ MongoDB connection attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err.message);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 400));
+        }
       }
-    } catch (err) {
-      console.warn('⚠️ MongoDB Atlas connection notice (continuing with local storage):', err.message);
-      this.isMongoConnected = false;
     }
+    console.error('❌ MongoDB connection failed after retries — requests will get a 503 (dbUnavailable) instead of silently using local storage. Check MONGO_URI / Atlas network access.');
   }
 
   // Pull the latest state from MongoDB into memory. Returns true if a
