@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
-import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartParam } from '../services/telegram';
+import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartParam, getOrCreateDeviceId } from '../services/telegram';
 import { getTranslation, LANGUAGES } from '../utils/translations';
 import confetti from 'canvas-confetti';
 
@@ -91,7 +91,8 @@ export function AppProvider({ children }) {
       // only the very first time this user is created, so it's always safe
       // to send it.
       const referrerId = getReferrerIdFromStartParam();
-      const res = await api.post('/user/sync', referrerId ? { referrerId } : {});
+      const deviceId = getOrCreateDeviceId();
+      const res = await api.post('/user/sync', { ...(referrerId ? { referrerId } : {}), deviceId });
       if (res.data.success && res.data.user) {
         setUser(prev => ({
           ...prev,
@@ -103,6 +104,11 @@ export function AppProvider({ children }) {
           photo_url: res.data.user.photo_url || tgUser.photo_url || ''
         }));
         setIsAdmin(res.data.isAdmin);
+        // Anti-duplicate-account check: this device is already linked to a
+        // different existing account. Block access until the person either
+        // switches back to that account or claims this device (resetting
+        // this account's balance) — see DeviceBlockedScreen.
+        setDuplicateLinkedUser(res.data.isDuplicate ? res.data.linkedUser : null);
         if (res.data.user?.is_mandatory_verified) {
           setIsGatePassed(true);
         }
@@ -119,6 +125,11 @@ export function AppProvider({ children }) {
   };
 
   useEffect(() => {
+    // Catches a device-conflict 403 from ANY action (chest open, tasks,
+    // wallet, games...), not just the initial sync — see services/api.js.
+    const handleDeviceConflict = (e) => setDuplicateLinkedUser(e.detail || {});
+    window.addEventListener('device-conflict', handleDeviceConflict);
+
     initTelegram();
     fetchUserProfile();
 
@@ -129,6 +140,8 @@ export function AppProvider({ children }) {
       setIsAdmin(true);
       setIsGatePassed(true);
     }
+
+    return () => window.removeEventListener('device-conflict', handleDeviceConflict);
   }, []);
 
   // Action: Open Treasure Chest
