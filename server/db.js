@@ -537,6 +537,8 @@ class Database {
         updated_at: new Date().toISOString(),
         device_conflict: false,
         device_conflict_linked: null,
+        ip_conflict: false,
+        ip_conflict_linked: null,
         signup_ip: ip || null
       };
       isNewUser = true;
@@ -576,10 +578,21 @@ class Database {
       if (wasConflicted !== user.device_conflict) this.save();
     }
 
+    // Same-IP lock: up to MAX_ACCOUNTS_PER_IP distinct accounts are allowed
+    // per IP (shared home/office WiFi, mobile-network NAT) before the next
+    // one is blocked — see checkIpLock().
+    if (ip) {
+      const ipCheck = this.checkIpLock(id, ip);
+      const wasIpConflicted = !!user.ip_conflict;
+      user.ip_conflict = ipCheck.isDuplicate;
+      user.ip_conflict_linked = ipCheck.isDuplicate ? ipCheck.linkedUsers : null;
+      if (wasIpConflicted !== user.ip_conflict) this.save();
+    }
+
     // Lightweight IP-burst signal: flag (never auto-block) an account whose
     // signup IP created an unusual number of other accounts recently. This
-    // is informational for the admin panel — device_conflict above is what
-    // actually stops reward abuse.
+    // is informational for the admin panel — device_conflict/ip_conflict
+    // above are what actually stop reward abuse.
     if (isNewUser && ip) {
       if (!this.data.signup_ips) this.data.signup_ips = {};
       const nowTs = Date.now();
@@ -2166,6 +2179,69 @@ class Database {
     user.is_switched_reset = true;
     user.device_conflict = false;
     user.device_conflict_linked = null;
+    user.updated_at = new Date().toISOString();
+
+    this.save();
+    return user;
+  }
+
+  // --- Same-IP duplicate-account lock ---
+  // Unlike the device lock (one device = one account, always), an IP is
+  // allowed up to MAX_ACCOUNTS_PER_IP distinct accounts before it's treated
+  // as suspicious — families/roommates/mobile-network NAT commonly share
+  // one public IP, so blocking on the very first shared IP would punish a
+  // lot of real users. The 4th+ distinct account from the same IP is what
+  // gets flagged.
+  static MAX_ACCOUNTS_PER_IP = 3;
+
+  checkIpLock(userId, ip) {
+    if (!ip) return { isDuplicate: false };
+    if (!this.data.ip_bindings) this.data.ip_bindings = {};
+
+    const id = String(userId);
+    const list = this.data.ip_bindings[ip] || [];
+
+    if (list.includes(id)) {
+      return { isDuplicate: false };
+    }
+
+    if (list.length < Database.MAX_ACCOUNTS_PER_IP) {
+      list.push(id);
+      this.data.ip_bindings[ip] = list;
+      this.save();
+      return { isDuplicate: false };
+    }
+
+    const linkedUsers = list.map((uid) => {
+      const u = this.getUser(uid);
+      return {
+        id: uid,
+        name: u ? [u.first_name, u.last_name].filter(Boolean).join(' ') : 'Linked Hunter',
+        username: u?.username || `user_${uid.slice(-4)}`
+      };
+    });
+
+    return { isDuplicate: true, linkedUsers };
+  }
+
+  switchIpAccountResetBalance(userId, ip) {
+    if (!ip) throw new Error('Could not detect your connection — please try again.');
+    if (!this.data.ip_bindings) this.data.ip_bindings = {};
+
+    const id = String(userId);
+    const user = this.getUser(id);
+    if (!user) throw new Error('User not found');
+
+    const list = this.data.ip_bindings[ip] || [];
+    if (!list.includes(id)) list.push(id);
+    this.data.ip_bindings[ip] = list;
+
+    // Reset balance to zero as penalty for multi-account abuse of one IP
+    user.diamonds = 0;
+    user.usdt = 0.0;
+    user.is_switched_reset = true;
+    user.ip_conflict = false;
+    user.ip_conflict_linked = null;
     user.updated_at = new Date().toISOString();
 
     this.save();
