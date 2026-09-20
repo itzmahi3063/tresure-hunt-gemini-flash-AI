@@ -13,7 +13,9 @@ import {
   Check,
   RefreshCw,
   Wallet,
-  PlusCircle
+  PlusCircle,
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import confetti from 'canvas-confetti';
@@ -28,11 +30,43 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [copiedMemo, setCopiedMemo] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(15 * 60); // 15 minutes countdown (900 seconds)
   const pollIntervalRef = useRef(null);
 
   const tonCost = task?.ton_cost || Number((((task?.max_users || 100) / 100) * 0.20).toFixed(2));
   const memoText = task ? `EXCL_${task.id}` : '';
   const nanoTonAmount = Math.round(tonCost * 1e9);
+
+  // Reset timer whenever modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      setTimeLeft(15 * 60);
+      setError(null);
+    }
+  }, [isOpen, task?.id]);
+
+  // 15-minute Countdown Timer Interval
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isOpen]);
+
+  const formatTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Fetch TON configuration on mount / open
   useEffect(() => {
@@ -59,7 +93,8 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
         const res = await api.get('/ton/check-payment', {
           params: { taskId: task.id, memo: memoText }
         });
-        if (res.data?.paid) {
+        // STRICT: Only auto-approve if genuine blockchain transaction hash or verified record exists
+        if (res.data?.paid && res.data.task?.tx_hash) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           confetti({
             particleCount: 80,
@@ -68,7 +103,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
           });
           triggerHaptic('notification', 'success');
           if (onPaymentSuccess) {
-            onPaymentSuccess(res.data.task || task);
+            onPaymentSuccess(res.data.task);
           }
           onClose();
         }
@@ -77,12 +112,13 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
       }
     };
 
-    // Initial check
-    checkStatus();
+    // Delay initial check by 2 seconds to avoid race condition on immediate mount
+    const initialTimer = setTimeout(checkStatus, 2000);
     // 3-second polling
     pollIntervalRef.current = setInterval(checkStatus, 3000);
 
     return () => {
+      clearTimeout(initialTimer);
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, [isOpen, task, memoText, onPaymentSuccess, onClose]);
@@ -112,7 +148,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
       const res = await api.get('/ton/check-payment', {
         params: { taskId: task.id, memo: memoText }
       });
-      if (res.data?.paid) {
+      if (res.data?.paid && res.data.task?.tx_hash) {
         confetti({
           particleCount: 70,
           spread: 75,
@@ -120,11 +156,11 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
         });
         triggerHaptic('notification', 'success');
         if (onPaymentSuccess) {
-          onPaymentSuccess(res.data.task || task);
+          onPaymentSuccess(res.data.task);
         }
         onClose();
       } else {
-        setError('Payment not detected on TON blockchain yet. Please wait a few moments after sending.');
+        setError('পেমেন্ট এখনও ব্লকচেইনে কনফার্ম হয়নি। টাকা পাঠিয়ে থাকলে ২-৩ মিনিট অপেক্ষা করুন, অথবা ট্রানজ্যাকশন সম্পন্ন করুন।');
         triggerHaptic('notification', 'warning');
       }
     } catch (err) {
@@ -163,7 +199,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
   };
 
   const handleCancelTask = async () => {
-    if (!window.confirm('Are you sure you want to cancel and reject this unpaid campaign?')) {
+    if (!window.confirm('Are you sure you want to cancel and delete this unpaid post draft?')) {
       return;
     }
 
@@ -203,7 +239,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
           borderBottom: '5px solid #0f0904',
           boxShadow: '0 20px 50px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 245, 255, 0.15)'
         }}
-        className="w-full max-w-md rounded-[32px] p-4 sm:p-5 pb-6 relative my-auto max-h-[88vh] overflow-y-auto custom-scrollbar"
+        className="w-full max-w-md rounded-[32px] p-4 sm:p-5 pb-6 relative my-auto max-h-[90vh] overflow-y-auto custom-scrollbar"
       >
         {/* Close Button */}
         <button
@@ -211,13 +247,13 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
             triggerHaptic('selection');
             onClose();
           }}
-          className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-[#a89782] hover:text-white bg-[#140c06] border border-[#4a341f] active:scale-90 transition-all"
+          className="absolute top-4 right-4 w-9 h-9 rounded-full flex items-center justify-center text-[#a89782] hover:text-white bg-[#140c06] border border-[#4a341f] active:scale-90 transition-all z-10"
         >
           <X size={18} />
         </button>
 
         {/* Top Header */}
-        <div className="flex items-center space-x-3 mb-4">
+        <div className="flex items-center space-x-3 mb-3">
           <div
             style={{
               background: 'linear-gradient(180deg, #00e5ff 0%, #0099ff 100%)',
@@ -225,18 +261,39 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               borderBottom: '3px solid #005599',
               boxShadow: '0 4px 12px rgba(0, 229, 255, 0.3)'
             }}
-            className="w-12 h-12 rounded-2xl flex items-center justify-center text-[#081b26] shrink-0"
+            className="w-11 h-11 rounded-2xl flex items-center justify-center text-[#081b26] shrink-0"
           >
-            <CreditCard size={24} />
+            <CreditCard size={22} />
           </div>
           <div>
             <h3 className="text-lg font-black text-white tracking-wide">Campaign Payment</h3>
-            <p className="text-xs text-[#a89782] font-medium">Activate your post to Exclusive Tasks</p>
+            <p className="text-xs text-[#a89782] font-medium">পেমেন্ট সম্পন্ন করে পোস্ট অ্যাক্টিভ করুন</p>
           </div>
         </div>
 
+        {/* PROMINENT BENGALI NOTICE BANNER (REQUIRED BY USER) */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.22) 0%, rgba(180, 83, 9, 0.3) 100%)',
+            border: '2px solid #f59e0b',
+            boxShadow: '0 8px 25px rgba(245, 158, 11, 0.28)'
+          }}
+          className="p-3.5 rounded-[22px] mb-3 text-center space-y-1.5"
+        >
+          <div className="flex items-center justify-center space-x-1.5 text-amber-300">
+            <AlertTriangle size={18} className="text-amber-400 shrink-0" />
+            <span className="text-xs font-black uppercase tracking-wider text-amber-300">জরুরি পেমেন্ট নির্দেশিকা</span>
+          </div>
+          <p className="text-sm font-black text-amber-100 leading-snug px-1 drop-shadow-sm">
+            “পেমেন্ট করে থাকলে ২-৩ মিনিট অপেক্ষা করুন, স্বয়ংক্রিয়ভাবে অ্যাপ্রুভ হয়ে যাবে। যদি পেমেন্ট না করে থাকেন তাহলে পেমেন্ট সম্পন্ন করুন।”
+          </p>
+          <p className="text-[11px] text-amber-200/90 font-bold pt-0.5">
+            টাকা পাঠানোর সময় অবশ্যই নিচে উল্লেখিত <span className="underline text-amber-300">Comment / Memo</span> টি দিন।
+          </p>
+        </div>
+
         {error && (
-          <div className="mb-4 p-3 rounded-2xl bg-[#2e1313] border border-[#632929] text-rose-300 text-xs flex items-center space-x-2">
+          <div className="mb-3 p-3 rounded-2xl bg-[#2e1313] border border-[#632929] text-rose-300 text-xs flex items-center space-x-2">
             <AlertCircle size={16} className="shrink-0" />
             <span className="font-semibold">{error}</span>
           </div>
@@ -250,14 +307,14 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
             borderBottom: '3.5px solid #0c0703',
             boxShadow: '0 8px 20px rgba(0,0,0,0.6)'
           }}
-          className="rounded-[24px] p-4 space-y-3 border-x border-[#382413] mb-4"
+          className="rounded-[24px] p-3.5 space-y-2.5 border-x border-[#382413] mb-3"
         >
           <div>
             <p className="text-[10px] text-[#a89782] uppercase font-black tracking-wider">Campaign Title</p>
             <h4 className="text-sm font-black text-white mt-0.5">{task.title}</h4>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-1 border-t border-[#382413]">
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#382413]">
             <div>
               <p className="text-[10px] text-[#a89782] uppercase font-black tracking-wider">Target Reach</p>
               <p className="text-xs font-black text-[#f7bf46] font-mono mt-0.5">{task.max_users} Users</p>
@@ -272,7 +329,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
 
           <div className="pt-2 border-t border-[#382413] flex justify-between items-center">
             <div>
-              <p className="text-[10px] text-[#a89782] uppercase font-black">Total Payable Amount</p>
+              <p className="text-[10px] text-[#a89782] uppercase font-black">Total Payable</p>
               <p className="text-[10px] text-emerald-400 font-medium">100 Users = 0.20 TON</p>
             </div>
             <div className="text-right">
@@ -285,7 +342,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
 
         {/* TON Blockchain Payment Details Box */}
         {walletAddress && (
-          <div className="p-3.5 rounded-[22px] bg-[#0c141c] border border-[#1b3247] space-y-3 mb-4">
+          <div className="p-3.5 rounded-[22px] bg-[#0c141c] border border-[#1b3247] space-y-2.5 mb-3">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase text-[#00f5ff] flex items-center space-x-1.5">
                 <Wallet size={14} />
@@ -337,22 +394,11 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
                 </button>
               </div>
               <p className="text-[10px] text-amber-200/80 leading-tight pt-0.5">
-                Paste <code className="text-amber-300 font-mono font-bold">{memoText}</code> into the comment box in Tonkeeper / Telegram Wallet when sending.
+                Paste <code className="text-amber-300 font-mono font-bold">{memoText}</code> into the comment/memo box in Tonkeeper / Telegram Wallet when sending.
               </p>
             </div>
           </div>
         )}
-
-        {/* Notice Info */}
-        <div className="p-3 rounded-2xl bg-[#121c21] border border-[#1f3f4d] mb-4 space-y-1">
-          <div className="flex items-center space-x-1.5 text-cyan-400 text-xs font-bold">
-            <Sparkles size={14} />
-            <span>Instant Webhook & 1-Minute Fallback</span>
-          </div>
-          <p className="text-[11px] text-[#8ea7b3] leading-relaxed">
-            Your campaign activates automatically within seconds of blockchain confirmation. You will also receive an instant confirmation message on your Telegram Bot!
-          </p>
-        </div>
 
         {/* Action Buttons */}
         <div className="space-y-2">
@@ -371,10 +417,10 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
                 color: '#031726',
                 boxShadow: '0 8px 18px rgba(0, 180, 216, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.7)'
               }}
-              className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all"
+              className="w-full py-3 rounded-[20px] text-xs font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all"
             >
               <span>{loading ? 'Processing...' : `Pay from Balance (${(user?.ton_balance || 0).toFixed(2)} TON Available)`}</span>
-              <ArrowRight size={16} />
+              <ArrowRight size={15} />
             </button>
           )}
 
@@ -390,11 +436,11 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
                 color: '#1a0f02',
                 boxShadow: '0 8px 18px rgba(247, 191, 70, 0.35)'
               }}
-              className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all text-center"
+              className="w-full py-3 rounded-[20px] text-xs font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all text-center"
             >
-              <Wallet size={17} />
+              <Wallet size={16} />
               <span>Open TON Wallet ({tonCost.toFixed(2)} TON)</span>
-              <ExternalLink size={15} />
+              <ExternalLink size={14} />
             </a>
           )}
 
@@ -423,7 +469,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               borderBottom: '2.5px solid #080f16',
               color: '#38bdf8'
             }}
-            className="w-full py-3 rounded-[20px] text-xs font-black uppercase flex items-center justify-center space-x-2 active:scale-98 transition-all hover:text-sky-300"
+            className="w-full py-2.5 rounded-[18px] text-xs font-black uppercase flex items-center justify-center space-x-2 active:scale-98 transition-all hover:text-sky-300"
           >
             <RefreshCw size={14} className={isVerifying ? 'animate-spin' : ''} />
             <span>{isVerifying ? 'Checking Blockchain...' : 'I Have Transferred · Verify Now'}</span>
@@ -440,14 +486,50 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               borderBottom: '2.5px solid #0d0703',
               color: '#f87171'
             }}
-            className="w-full py-2.5 rounded-[18px] text-xs font-black uppercase flex items-center justify-center space-x-1.5 active:scale-98 transition-all hover:text-rose-300"
+            className="w-full py-2 rounded-[16px] text-[11px] font-black uppercase flex items-center justify-center space-x-1.5 active:scale-98 transition-all hover:text-rose-300"
           >
-            <Trash2 size={13} />
-            <span>Reject / Cancel Post</span>
+            <Trash2 size={12} />
+            <span>Reject / Cancel Post Draft</span>
           </button>
+        </div>
+
+        {/* 15-MINUTE COUNTDOWN TIMER AT THE BOTTOM (REQUIRED BY USER) */}
+        <div
+          style={{
+            background: 'linear-gradient(180deg, #111a24 0%, #0a1017 100%)',
+            border: '1.5px solid #1c364d',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
+          }}
+          className="mt-3.5 p-3 rounded-[20px] flex items-center justify-between"
+        >
+          <div className="flex items-center space-x-2.5">
+            <div
+              className={`w-3 h-3 rounded-full ${
+                timeLeft > 60 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'
+              }`}
+            />
+            <div>
+              <div className="flex items-center space-x-1 text-gray-300">
+                <Clock size={12} className="text-cyan-400" />
+                <span className="text-[10px] uppercase font-bold text-gray-400">Payment Session Timer</span>
+              </div>
+              <p className="text-[11px] font-bold text-gray-200">
+                {timeLeft > 0 ? 'পেমেন্ট সম্পন্ন করার বাকি সময়' : 'সময় শেষ হয়ে গেছে!'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div
+              className={`font-mono text-lg font-black tracking-wider ${
+                timeLeft > 120 ? 'text-[#00f5ff]' : 'text-rose-400 animate-pulse'
+              }`}
+            >
+              ⏱️ {formatTimer(timeLeft)}
+            </div>
+            <span className="text-[9px] text-cyan-300/70 font-mono">15 Minutes Window</span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
