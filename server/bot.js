@@ -356,7 +356,7 @@ export async function postPromoCodeToChannel(promo) {
  * Process a batch of broadcast messages from persistent queue in db
  * Handles 20k-30k users safely across multiple cron runs without timing out
  */
-export async function processBroadcastQueue(batchSize = 35) {
+export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000) {
   if (!bot || !bot.telegram) return { processed: 0, reason: 'bot_not_ready' };
 
   const job = db.getNextBroadcastJob();
@@ -369,15 +369,7 @@ export async function processBroadcastQueue(batchSize = 35) {
   const amount = job.amount || 20;
   const unit = (job.reward_type || 'diamonds') === 'usdt' ? 'USDT' : 'GEMS';
 
-  // Exact requested beautiful template:
-  // 🎉 Congratulations! 🎉
-  //
-  // You have received 20 GEMS ✅🎁
-  //
-  // 🔴 Redeem Code: "99821"
-  // 📌 Tap the code to copy it instantly.
-  //
-  // Don't miss it! 🚀
+  // Exact requested template:
   const messageText =
     `🎉 <b>Congratulations!</b> 🎉\n\n` +
     `You have received <b>${amount} ${unit}</b> ✅🎁\n\n` +
@@ -398,8 +390,18 @@ export async function processBroadcastQueue(batchSize = 35) {
 
   let sentThisBatch = 0;
   let failedThisBatch = 0;
+  const startTime = Date.now();
+  const unhandled = [];
 
-  for (const uid of batch) {
+  for (let i = 0; i < batch.length; i++) {
+    const uid = batch[i];
+
+    // Safety guard: If approaching serverless timeout, return remaining to queue
+    if (Date.now() - startTime > maxDurationMs) {
+      unhandled.push(...batch.slice(i));
+      break;
+    }
+
     try {
       await bot.telegram.sendMessage(uid, messageText, {
         parse_mode: 'HTML',
@@ -408,11 +410,23 @@ export async function processBroadcastQueue(batchSize = 35) {
       job.sent_count = (job.sent_count || 0) + 1;
       sentThisBatch++;
     } catch (err) {
+      // If Telegram rate limit (429) hit, preserve remaining queue and break
+      if (err?.response?.error_code === 429) {
+        console.warn('Telegram rate limit 429 hit, preserving queue for next cron run');
+        unhandled.push(...batch.slice(i));
+        break;
+      }
+      // If user blocked bot or invalid ID, record and continue
       job.failed_count = (job.failed_count || 0) + 1;
       failedThisBatch++;
     }
-    // Small throttle (~35ms) to respect Telegram 30 msg/sec rate limit
+    // Small throttle (~35ms) to respect Telegram 30 msg/sec limit
     await new Promise(r => setTimeout(r, 35));
+  }
+
+  // Put any unhandled users back at the front of the queue
+  if (unhandled.length > 0) {
+    job.remaining_user_ids.unshift(...unhandled);
   }
 
   if (job.remaining_user_ids.length === 0) {
@@ -426,7 +440,7 @@ export async function processBroadcastQueue(batchSize = 35) {
 
   return {
     jobId: job.id,
-    processed: batch.length,
+    remainingUsers: job.remaining_user_ids.length,
     sentThisBatch,
     failedThisBatch,
     totalSent: job.sent_count,
