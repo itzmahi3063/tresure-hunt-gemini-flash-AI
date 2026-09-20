@@ -39,6 +39,12 @@ import {
   broadcastToUsers
 } from './bot.js';
 import axios from 'axios';
+import {
+  getTonConfig,
+  handleWebhookPayload,
+  verifyPendingTonPayments,
+  fetchRecentTransactions
+} from './ton.js';
 
 dotenv.config();
 
@@ -383,6 +389,102 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, asyn
     res.json({ success: true, task });
   } catch (err) {
     res.status(err.statusCode || 400).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// TON Blockchain & TonConsole Endpoints
+// ====================================================
+
+// Public TON configuration for frontend deposits & task campaign payments
+app.get('/api/ton/config', (req, res) => {
+  try {
+    const config = getTonConfig();
+    res.json({ success: true, ...config });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Webhook for TonConsole / TonAPI real-time transaction notifications
+app.post('/api/ton/webhook', async (req, res) => {
+  try {
+    console.log('📥 Incoming TON Webhook received:', JSON.stringify(req.body).slice(0, 180));
+    const result = await handleWebhookPayload(req.body);
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('TON Webhook Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1-minute Fallback Cron Endpoint (can be called by Vercel Cron or any scheduler)
+app.get('/api/ton/cron', async (req, res) => {
+  try {
+    const result = await verifyPendingTonPayments();
+    res.json({ success: true, timestamp: new Date().toISOString(), result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Real-time Payment & Deposit Verification for Frontend Polling
+app.get('/api/ton/check-payment', async (req, res) => {
+  try {
+    const { memo, taskId, userId } = req.query;
+
+    // Trigger instant blockchain scan so user doesn't wait for next interval
+    await verifyPendingTonPayments();
+
+    // 1. Check if Exclusive Task has been approved
+    if (taskId) {
+      const task = db.getTaskById(taskId);
+      if (task && (task.status === 'approved' || task.is_active)) {
+        return res.json({ success: true, paid: true, type: 'task', task });
+      }
+    }
+
+    // 2. Check if user deposit or memo processed
+    if (userId) {
+      const user = db.getUser(userId);
+      const isPaid = db.data.ton_transactions?.some(t => t.userId === String(userId) || (memo && t.memo === memo));
+      return res.json({
+        success: true,
+        paid: Boolean(isPaid),
+        type: 'deposit',
+        user: user ? { id: user.id, diamonds: user.diamonds, ton_balance: user.ton_balance } : null
+      });
+    }
+
+    // 3. Check if memo is found in ton_transactions
+    if (memo) {
+      const found = db.data.ton_transactions?.find(t => t.memo === memo || (t.memo && t.memo.includes(memo)));
+      if (found) {
+        return res.json({ success: true, paid: true, transaction: found });
+      }
+    }
+
+    res.json({ success: true, paid: false, message: 'Payment pending confirmation' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// TON Service Health & Status
+app.get('/api/ton/status', async (req, res) => {
+  try {
+    const config = getTonConfig();
+    const recent = await fetchRecentTransactions(5);
+    res.json({
+      success: true,
+      configured: config.isConfigured,
+      walletAddress: config.walletAddress,
+      recentTxCount: recent.length,
+      processedTxsCount: db.data.ton_processed_txs?.length || 0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -1139,6 +1241,13 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
+
+// Continuous 1-minute Fallback TON Scanner (runs in background)
+setInterval(() => {
+  verifyPendingTonPayments().catch(err => {
+    console.warn('Background TON check error:', err.message);
+  });
+}, 60000);
 
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
