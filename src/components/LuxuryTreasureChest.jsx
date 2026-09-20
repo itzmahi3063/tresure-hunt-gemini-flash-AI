@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useApp } from '../context/AppContext';
 import { Key, Flame } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
+import { showMonetagInterstitial } from '../services/ads';
 import confetti from 'canvas-confetti';
 import api from '../services/api';
 
@@ -438,7 +439,11 @@ export default function LuxuryTreasureChest() {
     triggerHaptic('impact', 'medium');
 
     try {
-      const res = await api.post('/chest/open');
+      // Monetag interstitial plays before the chest actually opens — also
+      // enforces the 5-second minimum watch time before resolving.
+      const { watchStartedAt } = await showMonetagInterstitial();
+
+      const res = await api.post('/chest/open', { watchStartedAt });
       if (res.data.success) {
         setUser(res.data.user);
         const rewardData = {
@@ -480,7 +485,7 @@ export default function LuxuryTreasureChest() {
       }
     } catch (err) {
       triggerHaptic('notification', 'error');
-      alert(err.response?.data?.error || 'Failed to open chest');
+      alert(err.response?.data?.error || err.message || 'Failed to open chest');
       isAnimatingRef.current = false;
       setIsOpening(false);
       setAnimationStage('idle');
