@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
+import { bot, postWithdrawalProofToChannel } from './bot.js';
 
 // Blocks reward-granting actions (chest opens, task/ad rewards, wallet
 // moves, game payouts, promo redemption, gifts...) for an account flagged
@@ -770,6 +771,56 @@ app.get('/api/wallet/history', authMiddleware, (req, res) => {
   }
 });
 
+// Real Daily Approved Withdrawal Proofs for Wallet Modal (Only approved payments)
+app.get('/api/wallet/proofs', (req, res) => {
+  try {
+    const approved = (db.data.withdrawals || [])
+      .filter(w => w.status === 'approved')
+      .sort((a, b) => new Date(b.approved_at || b.updated_at || b.created_at) - new Date(a.approved_at || a.updated_at || a.created_at))
+      .slice(0, 100);
+
+    const maskAddress = (addr) => {
+      if (!addr || typeof addr !== 'string') return '***';
+      const clean = addr.trim();
+      if (clean.length <= 6) return clean;
+      return `${clean.slice(0, 3)}*****${clean.slice(-3)}`;
+    };
+
+    const proofs = approved.map(w => {
+      const user = db.getUser(w.user_id);
+      const uidStr = String(w.user_id || '');
+      const maskedUid = uidStr.length > 5 ? `${uidStr.slice(0, 3)}***${uidStr.slice(-2)}` : `${uidStr}***`;
+      const maskedAddr = maskAddress(w.wallet_address || '');
+
+      let currencyLabel = 'USDT';
+      const net = (w.network || '').toUpperCase();
+      if (net.includes('TON')) currencyLabel = 'TON (Tonkeeper)';
+      else if (net.includes('BINANCE')) currencyLabel = 'USDT (Binance Pay)';
+      else currencyLabel = w.network || 'USDT';
+
+      const dateObj = new Date(w.approved_at || w.updated_at || w.created_at);
+
+      return {
+        id: w.id,
+        user_id: maskedUid,
+        raw_uid: uidStr,
+        username: user?.username ? `@${user.username}` : (user?.first_name || 'Hunter'),
+        amount: Number(w.amount_usdt || 0).toFixed(2),
+        currency: currencyLabel,
+        address: maskedAddr,
+        timestamp: dateObj.getTime(),
+        date_iso: dateObj.toISOString(),
+        date_str: dateObj.toISOString().split('T')[0], // YYYY-MM-DD
+        time_str: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+    });
+
+    res.json({ success: true, proofs });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ==========================================
 // PROMO CODE REDEMPTION ROUTE (User)
 // ==========================================
@@ -1112,10 +1163,28 @@ app.get('/api/admin/withdrawals', authMiddleware, adminMiddleware, (req, res) =>
   res.json({ success: true, withdrawals });
 });
 
-app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { status } = req.body; // 'approved' or 'rejected'
     const updated = db.updateWithdrawalStatus(req.params.id, status);
+
+    // If approved, immediately post to official payment proof channel & notify user
+    if (status === 'approved') {
+      const user = db.getUser(updated.user_id);
+      postWithdrawalProofToChannel(updated, user).catch(err => {
+        console.error('Error posting withdrawal proof to channel:', err.message);
+      });
+
+      if (bot && bot.telegram && updated.user_id) {
+        const amount = Number(updated.amount_usdt || 0).toFixed(2);
+        bot.telegram.sendMessage(
+          updated.user_id,
+          `🎉 <b>Withdrawal Approved & Sent!</b>\n\nYour withdrawal request for <b>$${amount} USDT</b> has been verified and processed.\n\nReceipt posted on @treasure_pay! Thank you for playing Treasure Hunt!`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+      }
+    }
+
     res.json({ success: true, withdrawal: updated });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
