@@ -1048,13 +1048,29 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* 1. Add / Deduct Coins Form */}
+              {/* 1. Add / Deduct Coins Form with Live User Balance */}
               <form onSubmit={handleAdminAdjustBalance} className="badge-3d p-3.5 space-y-3">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-black text-yellow-400 uppercase">
                     Adjust Balance (+ / -) for {selectedUser.first_name}
                   </h4>
                   <span className="text-[10px] text-gray-400 font-mono">ID: {selectedUser.id}</span>
+                </div>
+
+                {/* Selected User's Current Balance Badges inside the Adjustment Box */}
+                <div className="bg-[#0D0D14] border border-[#232333] rounded-2xl p-2.5 grid grid-cols-3 gap-2 text-center">
+                  <div className={`p-2 rounded-xl border transition-all ${balanceAdjust.type === 'diamonds' ? 'border-yellow-500/60 bg-yellow-500/15' : 'border-[#1C1C2A] bg-[#12121C]'}`}>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">💎 GEMS</div>
+                    <div className="text-sm font-black text-yellow-400 font-mono mt-0.5">{selectedUser.diamonds ?? 0}</div>
+                  </div>
+                  <div className={`p-2 rounded-xl border transition-all ${balanceAdjust.type === 'usdt' ? 'border-emerald-500/60 bg-emerald-500/15' : 'border-[#1C1C2A] bg-[#12121C]'}`}>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">💵 USDT</div>
+                    <div className="text-sm font-black text-emerald-400 font-mono mt-0.5">${Number(selectedUser.usdt || 0).toFixed(4)}</div>
+                  </div>
+                  <div className={`p-2 rounded-xl border transition-all ${balanceAdjust.type === 'keys' ? 'border-amber-500/60 bg-amber-500/15' : 'border-[#1C1C2A] bg-[#12121C]'}`}>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">🗝️ Keys</div>
+                    <div className="text-sm font-black text-amber-400 font-mono mt-0.5">{selectedUser.keys ?? 0}</div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1076,6 +1092,13 @@ export default function AdminDashboard() {
                     <option value="add">Add (+)</option>
                     <option value="deduct">Deduct (-)</option>
                   </select>
+                </div>
+
+                <div className="flex justify-between items-center text-[10px] text-gray-400 px-1 font-mono">
+                  <span>Target: <strong className="text-white capitalize">{balanceAdjust.type}</strong> ({balanceAdjust.action === 'add' ? '+ Add' : '- Deduct'})</span>
+                  <span>Current Balance: <strong className="text-yellow-400 font-bold">
+                    {balanceAdjust.type === 'diamonds' ? `${selectedUser.diamonds ?? 0} 💎` : balanceAdjust.type === 'usdt' ? `$${Number(selectedUser.usdt || 0).toFixed(4)}` : `${selectedUser.keys ?? 0} 🗝️`}
+                  </strong></span>
                 </div>
 
                 <input
