@@ -4,6 +4,7 @@ export default async function handler(req, res) {
     const token = rawToken.trim();
     const adminId = String(process.env.ADMIN_ID || '7780774047').trim();
     const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').trim();
+    const webhookSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || '').trim();
 
     if (req.method === 'GET') {
       if (!token) {
@@ -17,19 +18,32 @@ export default async function handler(req, res) {
       const proto = req.headers['x-forwarded-proto'] || 'https';
       const webhookUrl = `${proto}://${host}/api/webhook`;
 
-      // Set Webhook and drop any stuck/backlogged updates
-      const tgUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`;
+      // Set Webhook and drop any stuck/backlogged updates (include secret_token if configured)
+      let tgUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`;
+      if (webhookSecret) {
+        tgUrl += `&secret_token=${encodeURIComponent(webhookSecret)}`;
+      }
       const tgRes = await fetch(tgUrl);
       const tgData = await tgRes.json();
 
       return res.status(200).json({
         status: 'ok',
         webhookUrl,
+        secretConfigured: Boolean(webhookSecret),
         telegram: tgData
       });
     }
 
     if (req.method === 'POST') {
+      // Validate Telegram secret_token header if secret is configured
+      if (webhookSecret) {
+        const incomingSecret = req.headers['x-telegram-bot-api-secret-token'];
+        if (incomingSecret !== webhookSecret) {
+          console.warn('⚠️ Rejected Telegram Webhook: missing or invalid secret token');
+          return res.status(401).json({ ok: false, error: 'Unauthorized: invalid secret token' });
+        }
+      }
+
       const update = req.body || {};
 
       // Handle Callback Queries
