@@ -223,6 +223,10 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
 // Open Treasure Chest
 app.post('/api/chest/open', authMiddleware, blockIfDeviceConflict, (req, res) => {
   try {
+    const { watchStartedAt } = req.body;
+    if (isAdWatchTooShort(watchStartedAt)) {
+      return res.status(400).json({ success: false, error: 'Please watch the full ad before opening the chest.' });
+    }
     const result = db.openChest(req.user.id);
     res.json({
       success: true,
