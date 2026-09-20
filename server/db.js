@@ -2224,13 +2224,9 @@ class Database {
   }
 
   // --- Same-IP duplicate-account lock ---
-  // Unlike the device lock (one device = one account, always), an IP is
-  // allowed up to MAX_ACCOUNTS_PER_IP distinct accounts before it's treated
-  // as suspicious — families/roommates/mobile-network NAT commonly share
-  // one public IP, so blocking on the very first shared IP would punish a
-  // lot of real users. The 4th+ distinct account from the same IP is what
-  // gets flagged.
-  static MAX_ACCOUNTS_PER_IP = 3;
+  // Only 1 account allowed per IP without VPN. If a 2nd account uses the same IP,
+  // it is flagged with a warning that a different Network or VPN must be used.
+  static MAX_ACCOUNTS_PER_IP = 1;
 
   checkIpLock(userId, ip) {
     if (!ip) return { isDuplicate: false };
