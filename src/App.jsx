@@ -1,4 +1,4 @@
-import React from 'react';
+import React from 'react'; 
 import { useApp } from './context/AppContext';
 import Navbar from './components/Navbar';
 import HomePage from './pages/HomePage';
