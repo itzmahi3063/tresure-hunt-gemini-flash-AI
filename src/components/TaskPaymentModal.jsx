@@ -29,6 +29,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
   const [walletAddress, setWalletAddress] = useState('');
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [copiedMemo, setCopiedMemo] = useState(false);
+  const [copiedAmount, setCopiedAmount] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15 * 60); // 15 minutes countdown (900 seconds)
   const pollIntervalRef = useRef(null);
@@ -45,7 +46,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
     }
   }, [isOpen, task?.id]);
 
-  // 15-minute Countdown Timer Interval
+  // 15-minute Countdown Timer Interval & Auto-Close on Expiry
   useEffect(() => {
     if (!isOpen) return;
 
@@ -61,6 +62,15 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
 
     return () => clearInterval(timer);
   }, [isOpen]);
+
+  // Handle 15-minute expiration: automatically close modal and notify user
+  useEffect(() => {
+    if (isOpen && timeLeft === 0) {
+      triggerHaptic('notification', 'warning');
+      alert('⏳ পেমেন্টের ১৫ মিনিট সময় শেষ হয়ে গেছে! অনুগ্রহ করে পুনরায় "Pay now" বাটনে ক্লিক করে নতুন সেশন শুরু করুন।');
+      onClose();
+    }
+  }, [timeLeft, isOpen, onClose]);
 
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -127,12 +137,15 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
 
   const handleCopy = (text, type) => {
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(String(text));
     }
     triggerHaptic('selection');
     if (type === 'address') {
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
+    } else if (type === 'amount') {
+      setCopiedAmount(true);
+      setTimeout(() => setCopiedAmount(false), 2000);
     } else {
       setCopiedMemo(true);
       setTimeout(() => setCopiedMemo(false), 2000);
@@ -354,6 +367,24 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               </span>
             </div>
 
+            {/* Exact Deposit Amount */}
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Payable TON Amount:</span>
+              <div className="flex items-center justify-between bg-[#060a0f] p-2 rounded-xl border border-[#192b3a]">
+                <span className="text-xs font-mono font-black text-[#00f5ff]">
+                  {tonCost.toFixed(2)} TON
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(tonCost.toFixed(2), 'amount')}
+                  className="px-2.5 py-1 rounded-lg bg-[#142331] text-[10px] font-bold text-cyan-300 hover:bg-[#1f374e] active:scale-95 flex items-center space-x-1 shrink-0"
+                >
+                  {copiedAmount ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  <span>{copiedAmount ? 'Copied' : 'Copy Amount'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Recipient Wallet Address */}
             <div className="space-y-1">
               <span className="text-[10px] uppercase font-bold text-gray-400">Recipient TON Address:</span>
@@ -458,20 +489,6 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               <ArrowRight size={18} />
             </button>
           )}
-
-          {/* Deposit TON to Wallet Button */}
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('impact', 'medium');
-              onClose();
-              openWallet('deposit');
-            }}
-            className="w-full py-2.5 rounded-[18px] bg-[#142331] text-cyan-300 border border-[#1b3447] text-xs font-black uppercase flex items-center justify-center space-x-1.5 active:scale-95 transition-all"
-          >
-            <PlusCircle size={14} />
-            <span>Deposit TON to Account (Current: {(user?.ton_balance || 0).toFixed(2)} TON)</span>
-          </button>
 
           {/* Check Payment Now button */}
           <button
