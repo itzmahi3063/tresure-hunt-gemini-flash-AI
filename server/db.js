@@ -1497,6 +1497,14 @@ class Database {
     const today = this.getDailyDate();
     if (this.data.last_daily_reset_broadcast === today) return null;
 
+    // Check Bangladesh Time (UTC + 6)
+    const now = new Date();
+    const bstHour = (now.getUTCHours() + 6) % 24;
+
+    // Trigger in the morning starting from 9:00 AM BST
+    // (Prevents firing at random night hours on initial deployment)
+    if (bstHour < 9) return null;
+
     this.data.last_daily_reset_broadcast = today;
     this.save();
     return this.enqueueDailyResetBroadcast();

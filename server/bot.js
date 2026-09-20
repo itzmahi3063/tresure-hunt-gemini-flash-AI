@@ -423,63 +423,79 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   const startTime = Date.now();
   const unhandled = [];
 
-  for (let i = 0; i < batch.length; i++) {
-    const uid = batch[i];
+  const sendToUser = async (uid) => {
+    if (isDailyReset) {
+      try {
+        return await bot.telegram.sendPhoto(uid, dailyBannerUrl, {
+          caption: messageText,
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+      } catch (photoErr) {
+        return await bot.telegram.sendMessage(uid, messageText, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+      }
+    } else {
+      return await bot.telegram.sendMessage(uid, messageText, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+      });
+    }
+  };
 
-    // Safety guard: If approaching serverless timeout, return remaining to queue
+  const CHUNK_SIZE = 3;
+  for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+    // Safety guard: stop before serverless function timeout
     if (Date.now() - startTime > maxDurationMs) {
       unhandled.push(...batch.slice(i));
       break;
     }
 
-    try {
-      if (isDailyReset) {
-        try {
-          await bot.telegram.sendPhoto(uid, dailyBannerUrl, {
-            caption: messageText,
-            parse_mode: 'HTML',
-            reply_markup: keyboard
-          });
-        } catch (photoErr) {
-          // If photo send fails, fallback to message
-          await bot.telegram.sendMessage(uid, messageText, {
-            parse_mode: 'HTML',
-            reply_markup: keyboard
-          });
-        }
+    const chunk = batch.slice(i, i + CHUNK_SIZE);
+    const results = await Promise.allSettled(chunk.map(uid => sendToUser(uid)));
+
+    let rateLimited = false;
+    for (let j = 0; j < results.length; j++) {
+      const res = results[j];
+      const uid = chunk[j];
+
+      if (res.status === 'fulfilled') {
+        job.sent_count = (job.sent_count || 0) + 1;
+        sentThisBatch++;
       } else {
-        await bot.telegram.sendMessage(uid, messageText, {
-          parse_mode: 'HTML',
-          reply_markup: keyboard
-        });
-      }
-      job.sent_count = (job.sent_count || 0) + 1;
-      sentThisBatch++;
-    } catch (err) {
-      console.error(`Telegram send failed to ${uid}:`, err.message, err.response?.description || '');
-      // If Telegram rate limit (429) hit, preserve remaining queue and break
-      if (err?.response?.error_code === 429) {
-        console.warn('Telegram rate limit 429 hit, preserving queue for next cron run');
-        unhandled.push(...batch.slice(i));
-        break;
-      }
-      // If error might be due to keyboard url or markup, try without keyboard
-      if (err.message && (err.message.includes('BUTTON') || err.message.includes('reply_markup') || err.message.includes('entities') || err.message.includes('wrong URL'))) {
-        try {
-          await bot.telegram.sendMessage(uid, messageText, { parse_mode: 'HTML' });
-          job.sent_count = (job.sent_count || 0) + 1;
-          sentThisBatch++;
-          continue;
-        } catch (fallbackErr) {
-          console.error(`Fallback send also failed to ${uid}:`, fallbackErr.message);
+        const err = res.reason;
+        console.error(`Telegram send failed to ${uid}:`, err?.message, err?.response?.description || '');
+
+        if (err?.response?.error_code === 429) {
+          console.warn('Telegram rate limit 429 hit, preserving remaining queue for next cron');
+          rateLimited = true;
+          unhandled.push(...chunk.slice(j), ...batch.slice(i + CHUNK_SIZE));
+          break;
         }
+
+        // Fallback without keyboard
+        if (err?.message && (err.message.includes('BUTTON') || err.message.includes('reply_markup') || err.message.includes('entities') || err.message.includes('wrong URL'))) {
+          try {
+            await bot.telegram.sendMessage(uid, messageText, { parse_mode: 'HTML' });
+            job.sent_count = (job.sent_count || 0) + 1;
+            sentThisBatch++;
+            continue;
+          } catch (fallbackErr) {
+            console.error(`Fallback send also failed to ${uid}:`, fallbackErr.message);
+          }
+        }
+
+        job.failed_count = (job.failed_count || 0) + 1;
+        failedThisBatch++;
       }
-      // If user blocked bot or invalid ID, record and continue
-      job.failed_count = (job.failed_count || 0) + 1;
-      failedThisBatch++;
     }
-    // Small throttle (~35ms) to respect Telegram 30 msg/sec limit
-    await new Promise(r => setTimeout(r, 35));
+
+    if (rateLimited) break;
+
+    // Small delay between chunks to strictly respect Telegram 30 msg/sec rate limit
+    await new Promise(r => setTimeout(r, 110));
   }
 
   // Put any unhandled users back at the front of the queue
@@ -490,7 +506,7 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   if (job.remaining_user_ids.length === 0) {
     job.status = 'completed';
     job.completed_at = new Date().toISOString();
-    console.log(`🎉 Broadcast job ${job.id} for promo ${code} fully completed! Total sent: ${job.sent_count}`);
+    console.log(`🎉 Broadcast job ${job.id} (${job.type || 'promo'}) fully completed! Total sent: ${job.sent_count}, failed: ${job.failed_count}`);
   }
 
   db.save();
