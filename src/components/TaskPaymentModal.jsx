@@ -424,24 +424,39 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
             </button>
           )}
 
-          {/* Deep link direct transfer to TON wallet */}
-          {tonDeepLink && (
-            <a
-              href={tonDeepLink}
-              onClick={() => triggerHaptic('impact', 'medium')}
+          {/* PRIMARY PAY NOW BUTTON (Prefills Amount & Memo into Wallet) */}
+          {walletAddress && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('impact', 'heavy');
+                const transferUrl = `ton://transfer/${walletAddress}?amount=${nanoTonAmount}&text=${encodeURIComponent(memoText)}`;
+                const tonkeeperUrl = `https://app.tonkeeper.com/transfer/${walletAddress}?amount=${nanoTonAmount}&text=${encodeURIComponent(memoText)}`;
+
+                if (window.Telegram?.WebApp?.openLink) {
+                  window.Telegram.WebApp.openLink(tonkeeperUrl);
+                } else {
+                  window.location.href = transferUrl;
+                  setTimeout(() => {
+                    window.open(tonkeeperUrl, '_blank');
+                  }, 600);
+                }
+              }}
               style={{
-                background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 45%, #d48b11 100%)',
                 borderTop: '1.5px solid #fff2b8',
+                borderLeft: '1px solid #f7bf46',
+                borderRight: '1px solid #f7bf46',
                 borderBottom: '4px solid #7a4b00',
                 color: '#1a0f02',
-                boxShadow: '0 8px 18px rgba(247, 191, 70, 0.35)'
+                boxShadow: '0 8px 22px rgba(247, 191, 70, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.6)'
               }}
-              className="w-full py-3 rounded-[20px] text-xs font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all text-center"
+              className="w-full py-4 rounded-[22px] text-base font-black tracking-wider uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all shadow-lg"
             >
-              <Wallet size={16} />
-              <span>Open TON Wallet ({tonCost.toFixed(2)} TON)</span>
-              <ExternalLink size={14} />
-            </a>
+              <Wallet size={18} />
+              <span>PAY NOW ({tonCost.toFixed(2)} TON)</span>
+              <ArrowRight size={18} />
+            </button>
           )}
 
           {/* Deposit TON to Wallet Button */}
