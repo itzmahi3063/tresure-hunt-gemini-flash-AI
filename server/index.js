@@ -479,11 +479,10 @@ app.post('/api/ton/webhook', async (req, res) => {
         req.query.secret;
 
       if (
-        incomingSecret &&
-        incomingSecret !== expectedSecret &&
-        incomingSecret !== `Bearer ${expectedSecret}`
+        !incomingSecret ||
+        (incomingSecret !== expectedSecret && incomingSecret !== `Bearer ${expectedSecret}`)
       ) {
-        console.warn('⚠️ Rejected TON Webhook: invalid secret header');
+        console.warn('⚠️ Rejected TON Webhook: missing or invalid secret');
         return res.status(401).json({ success: false, error: 'Unauthorized: Invalid webhook secret' });
       }
     }
