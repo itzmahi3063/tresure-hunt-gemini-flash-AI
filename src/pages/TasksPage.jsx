@@ -180,7 +180,7 @@ export default function TasksPage() {
       ? (tasksCache.daily && tasksCache.daily.length > 0)
       : (tasksCache[activeCategory] && tasksCache[activeCategory].length > 0);
 
-    if (!hasCache) {
+    if (!hasCache && activeCategory !== 'partner') {
       setLoadingCategory(prev => ({ ...prev, [activeCategory]: true }));
     }
 
@@ -1050,7 +1050,7 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {loadingCategory[activeCategory] ? (
+          {activeCategory !== 'partner' && loadingCategory[activeCategory] ? (
             <div className="space-y-3 pt-2">
               <div
                 style={{
