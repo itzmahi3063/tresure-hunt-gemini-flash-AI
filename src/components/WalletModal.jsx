@@ -227,7 +227,7 @@ export default function WalletModal() {
     if (res.success) {
       triggerHaptic('notification', 'success');
       setMessage({
-        text: `Converted ${amount.toLocaleString()} GEMS to $${res.conversion.usdt_amount.toFixed(4)} USDT (25% fee applied)!`,
+        text: `Converted ${amount.toLocaleString()} GEMS to $${res.conversion.usdt_amount.toFixed(4)} USDT!`,
         type: 'success'
       });
       setConvertAmount('');
@@ -774,7 +774,7 @@ export default function WalletModal() {
               </div>
 
               <div>
-                <h4 className="text-xs font-black text-yellow-400 uppercase tracking-wider mb-2">Conversions (25% Fee)</h4>
+                <h4 className="text-xs font-black text-yellow-400 uppercase tracking-wider mb-2">Conversions</h4>
                 {history.conversions.length === 0 ? (
                   <p className="text-xs text-gray-500 text-center py-3">No conversion history yet</p>
                 ) : (
@@ -783,7 +783,11 @@ export default function WalletModal() {
                       <div key={c.id} className="bg-[#151928] border border-[#22283C] p-3 rounded-xl flex justify-between items-center text-xs font-mono">
                         <div>
                           <span className="text-cyan-400 font-bold">-{c.diamonds_amount.toLocaleString()} GEMS</span>
-                          <span className="text-[10px] text-gray-500 block">Fee: 25% (-${c.fee_usdt || '0.0000'})</span>
+                          {c.created_at && (
+                            <span className="text-[10px] text-gray-500 block">
+                              {new Date(c.created_at).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
                         <span className="text-emerald-400 font-bold">+${c.usdt_amount} USDT</span>
                       </div>
