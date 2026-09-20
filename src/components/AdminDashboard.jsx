@@ -17,7 +17,8 @@ import {
   Gift,
   Sparkles,
   Trophy,
-  RefreshCw
+  RefreshCw,
+  Save
 } from 'lucide-react';
 import api from '../services/api';
 import { triggerHaptic } from '../services/telegram';
@@ -49,6 +50,7 @@ export default function AdminDashboard() {
 
   const [adsList, setAdsList] = useState([]);
   const [adNetworks, setAdNetworks] = useState([]);
+  const [savingAds, setSavingAds] = useState(false);
 
   const [userQuery, setUserQuery] = useState('');
   const [userResults, setUserResults] = useState([]);
@@ -254,33 +256,59 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleToggleAd = async (adId, currentHidden) => {
-    try {
-      await api.patch(`/admin/ads/${adId}`, { is_hidden: !currentHidden });
-      loadAllAdminData();
-      triggerHaptic('selection');
-    } catch (err) {
-      alert('Failed to update ad');
-    }
+  const handleUpdateAdField = (adId, field, value) => {
+    setAdsList((prev) =>
+      prev.map((ad) => (ad.id === adId ? { ...ad, [field]: value } : ad))
+    );
   };
 
-  const handleUpdateAdReward = async (adId, newReward) => {
-    try {
-      await api.patch(`/admin/ads/${adId}`, { reward_diamonds: Number(newReward) });
-      loadAllAdminData();
-    } catch (err) {
-      alert('Failed to update reward');
-    }
+  const handleToggleAd = (adId) => {
+    setAdsList((prev) =>
+      prev.map((ad) => (ad.id === adId ? { ...ad, is_hidden: !ad.is_hidden } : ad))
+    );
+    triggerHaptic('selection');
   };
 
-  const handleSwapAdNetwork = async (adId, networkId) => {
-    if (!networkId) return;
+  const handleSwapAdNetwork = (adId, networkId) => {
+    const net = adNetworks.find((n) => n.id === networkId);
+    setAdsList((prev) =>
+      prev.map((ad) => {
+        if (ad.id === adId) {
+          return {
+            ...ad,
+            network_id: networkId,
+            name: net ? net.name : ad.name,
+            logo_url: net ? net.logo_url : ad.logo_url,
+            block_id: net && net.block_id ? net.block_id : ad.block_id
+          };
+        }
+        return ad;
+      })
+    );
+    triggerHaptic('selection');
+  };
+
+  const handleSaveAllAds = async () => {
+    setSavingAds(true);
+    setFeedback(null);
     try {
-      await api.post(`/admin/ads/${adId}/network`, { networkId });
-      loadAllAdminData();
-      triggerHaptic('notification', 'success');
+      const res = await api.post('/admin/ads/save-all', { ads: adsList });
+      if (res.data.success) {
+        if (res.data.ads) setAdsList(res.data.ads);
+        setFeedback({
+          type: 'success',
+          text: '✅ All Ads settings and visibility saved to database successfully!'
+        });
+        triggerHaptic('notification', 'success');
+      }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to swap ad network');
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error || 'Failed to save ads settings'
+      });
+      triggerHaptic('notification', 'error');
+    } finally {
+      setSavingAds(false);
     }
   };
 
@@ -796,64 +824,141 @@ export default function AdminDashboard() {
       {/* TAB 5: ADS */}
       {activeAdminTab === 'ads' && (
         <div className="box-3d p-4 space-y-3">
-          <h3 className="text-xs font-black text-yellow-400 uppercase tracking-wider font-heading flex items-center space-x-1.5">
-            <Tv size={15} />
-            <span>Monetization &amp; Ads Control</span>
-          </h3>
-          <p className="text-[11px] text-gray-400">Enable, disable, or adjust reward payouts for watching sponsor ads.</p>
+          <div className="flex items-center justify-between border-b border-[#252535] pb-2">
+            <h3 className="text-xs font-black text-yellow-400 uppercase tracking-wider font-heading flex items-center space-x-1.5">
+              <Tv size={15} />
+              <span>Monetization &amp; Ads Control</span>
+            </h3>
+            <span className="text-[10px] text-gray-400 font-mono">{adsList.length} Slots Configured</span>
+          </div>
+          <p className="text-[11px] text-gray-400">
+            Edit ad network placements, reward amounts, daily limits, or hide/show ads. Click &quot;Save All Ads Settings&quot; below to apply.
+          </p>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {adsList.map((ad) => (
-              <div key={ad.id} className="badge-3d p-3 space-y-2.5 text-xs">
+              <div key={ad.id} className="badge-3d p-3.5 space-y-3 text-xs border border-[#2B2B3D] rounded-2xl bg-[#0D0D14]/80">
+                {/* Slot Header: Logo, Slot ID, and Visibility Status Toggle Button */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
                     <img
                       src={ad.logo_url}
                       alt={ad.name}
-                      className="w-9 h-9 rounded-lg object-cover border border-[#2B2B3D] bg-black/30"
+                      className="w-10 h-10 rounded-xl object-cover border border-[#2B2B3D] bg-black/40 shadow-sm"
                       onError={(e) => { e.target.style.visibility = 'hidden'; }}
                     />
                     <div>
-                      <span className="font-black text-white">{ad.name}</span>
+                      <div className="flex items-center space-x-1.5">
+                        <span className="font-black text-white text-xs">{ad.name}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 font-mono font-bold">{ad.id}</span>
+                      </div>
                       <div className="text-[10px] text-gray-400 font-mono">
-                        Slot: {ad.id} • Limit: {ad.max_daily}/day
+                        Network: <span className="text-cyan-400">{ad.network_id || 'custom'}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      defaultValue={ad.reward_diamonds}
-                      onBlur={(e) => handleUpdateAdReward(ad.id, e.target.value)}
-                      className="w-16 bg-[#0D0D14] border border-[#2B2B3D] rounded-lg px-2 py-1 text-xs text-yellow-400 font-mono text-center"
-                    />
-                    <span className="text-[10px] text-yellow-400">💎</span>
+                  {/* High-visibility Hide / Show Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAd(ad.id)}
+                    className={`flex items-center space-x-1 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
+                      ad.is_hidden
+                        ? 'bg-rose-950/70 border border-rose-500/50 text-rose-300 shadow-sm'
+                        : 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 shadow-sm'
+                    }`}
+                  >
+                    {ad.is_hidden ? (
+                      <>
+                        <EyeOff size={14} />
+                        <span>Hidden</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye size={14} />
+                        <span>Visible</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
-                    <button
-                      onClick={() => handleToggleAd(ad.id, ad.is_hidden)}
-                      className={`p-1.5 rounded-lg ${ad.is_hidden ? 'text-gray-500 bg-gray-800' : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'}`}
+                {/* Network & Name Selection */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#222230]">
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">Ad Network</label>
+                    <select
+                      value={ad.network_id || ''}
+                      onChange={(e) => handleSwapAdNetwork(ad.id, e.target.value)}
+                      className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-white font-bold outline-none focus:border-yellow-400"
                     >
-                      {ad.is_hidden ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
+                      {adNetworks.map((net) => (
+                        <option key={net.id} value={net.id}>{net.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">Display Title</label>
+                    <input
+                      type="text"
+                      value={ad.name || ''}
+                      onChange={(e) => handleUpdateAdField(ad.id, 'name', e.target.value)}
+                      className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-white font-bold outline-none focus:border-yellow-400"
+                    />
                   </div>
                 </div>
 
-                {/* Swap which ad network shows in this slot — reward/hide/limit above stay unchanged */}
-                <div className="flex items-center space-x-2 pt-1 border-t border-[#252535]">
-                  <span className="text-[10px] text-gray-500 uppercase font-bold shrink-0">Network:</span>
-                  <select
-                    value={ad.network_id || ''}
-                    onChange={(e) => handleSwapAdNetwork(ad.id, e.target.value)}
-                    className="flex-1 bg-[#0D0D14] border border-[#2B2B3D] rounded-lg px-2 py-1.5 text-[11px] text-white font-bold outline-none"
-                  >
-                    {adNetworks.map((net) => (
-                      <option key={net.id} value={net.id}>{net.name}</option>
-                    ))}
-                  </select>
+                {/* Placement ID / Zone ID (Supports USL TowerAds, Adsgram, Monetag) */}
+                <div>
+                  <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">
+                    Placement ID / Block ID <span className="text-gray-500 text-[9px]">(USL: plc_... / Monetag: zone)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={ad.block_id || ''}
+                    placeholder="e.g. plc_7c25684decd46576"
+                    onChange={(e) => handleUpdateAdField(ad.id, 'block_id', e.target.value)}
+                    className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono outline-none focus:border-yellow-400"
+                  />
+                </div>
+
+                {/* Reward & Daily Limits */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">Reward (💎 GEMS)</label>
+                    <input
+                      type="number"
+                      value={ad.reward_diamonds ?? 50}
+                      onChange={(e) => handleUpdateAdField(ad.id, 'reward_diamonds', Number(e.target.value))}
+                      className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-yellow-400 font-mono font-bold outline-none focus:border-yellow-400"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">Max Daily Limit</label>
+                    <input
+                      type="number"
+                      value={ad.max_daily ?? 10}
+                      onChange={(e) => handleUpdateAdField(ad.id, 'max_daily', Number(e.target.value))}
+                      className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-gray-200 font-mono font-bold outline-none focus:border-yellow-400"
+                    />
+                  </div>
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Prominent Save All Button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleSaveAllAds}
+              disabled={savingAds}
+              className="w-full py-3.5 btn-3d-gold text-black font-black uppercase text-xs rounded-2xl flex items-center justify-center space-x-2 shadow-gold-glow active:scale-[0.98] transition-all"
+            >
+              <Save size={16} />
+              <span>{savingAds ? 'Saving Changes to Database...' : '💾 Save All Ads Settings'}</span>
+            </button>
           </div>
         </div>
       )}
