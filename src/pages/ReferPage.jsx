@@ -13,24 +13,41 @@ import {
   Award,
   Crown,
   Medal,
-  Clock
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import api from '../services/api';
 import { triggerHaptic, openTelegramLink } from '../services/telegram';
 
 export default function ReferPage() {
   const { user } = useApp();
-  const [refData, setRefData] = useState(null);
+  const [refData, setRefData] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('treasure_referral_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  const [loadingRefData, setLoadingRefData] = useState(() => !sessionStorage.getItem('treasure_referral_cache'));
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(() => !sessionStorage.getItem('treasure_leaderboard_cache'));
+  const [loadingContest, setLoadingContest] = useState(() => !sessionStorage.getItem('treasure_contest_cache'));
   const [copied, setCopied] = useState(false);
 
   // Leaderboard states
   const [activeBoardTab, setActiveBoardTab] = useState('top_referrals'); // 'top_referrals' | 'today' | 'top_earners'
-  const [leaderboards, setLeaderboards] = useState({
-    topReferrers: [],
-    todayReferrers: [],
-    topEarners: []
+  const [leaderboards, setLeaderboards] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('treasure_leaderboard_cache');
+      return cached ? JSON.parse(cached) : { topReferrers: [], todayReferrers: [], topEarners: [] };
+    } catch {
+      return { topReferrers: [], todayReferrers: [], topEarners: [] };
+    }
   });
-  const [weeklyContest, setWeeklyContest] = useState(null);
+  const [weeklyContest, setWeeklyContest] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('treasure_contest_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
   const [contestTimer, setContestTimer] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
   useEffect(() => {
@@ -52,9 +69,12 @@ export default function ReferPage() {
       const res = await api.get('/referrals');
       if (res.data.success) {
         setRefData(res.data);
+        sessionStorage.setItem('treasure_referral_cache', JSON.stringify(res.data));
       }
     } catch (err) {
       console.error('Error fetching referral data:', err);
+    } finally {
+      setLoadingRefData(false);
     }
   };
 
@@ -62,14 +82,18 @@ export default function ReferPage() {
     try {
       const res = await api.get('/referral/leaderboard');
       if (res.data.success) {
-        setLeaderboards({
+        const boardData = {
           topReferrers: res.data.topReferrers || [],
           todayReferrers: res.data.todayReferrers || [],
           topEarners: res.data.topEarners || []
-        });
+        };
+        setLeaderboards(boardData);
+        sessionStorage.setItem('treasure_leaderboard_cache', JSON.stringify(boardData));
       }
     } catch (err) {
       console.warn('Failed to load leaderboards:', err);
+    } finally {
+      setLoadingLeaderboard(false);
     }
   };
 
@@ -78,9 +102,12 @@ export default function ReferPage() {
       const res = await api.get('/referral/weekly-contest');
       if (res.data.success && res.data.contest) {
         setWeeklyContest(res.data.contest);
+        sessionStorage.setItem('treasure_contest_cache', JSON.stringify(res.data.contest));
       }
     } catch (err) {
       console.warn('Failed to load weekly contest:', err);
+    } finally {
+      setLoadingContest(false);
     }
   };
 
@@ -320,7 +347,19 @@ export default function ReferPage() {
           </span>
         </div>
 
-        {(!refData?.referredFriends || refData.referredFriends.length === 0) ? (
+        {loadingRefData ? (
+          <div className="text-center py-6 space-y-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-[#191928] border border-[#2D2D45] flex items-center justify-center mx-auto text-cyan-400">
+              <RefreshCw className="animate-spin" size={20} />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-xs font-black text-white uppercase tracking-wider font-heading">
+                Loading Referred Friends... Please Wait
+              </p>
+              <p className="text-[10px] text-gray-400 font-medium">Syncing your team members and bonuses...</p>
+            </div>
+          </div>
+        ) : (!refData?.referredFriends || refData.referredFriends.length === 0) ? (
           <div className="text-center py-5 space-y-1.5">
             <div className="text-2xl">⏳</div>
             <p className="text-xs font-bold text-gray-300">No Friends Joined Yet</p>
@@ -469,7 +508,15 @@ export default function ReferPage() {
               Current Top Contestants (Min 10 Referrals)
             </h4>
 
-            {(!weeklyContest?.standings || weeklyContest.standings.length === 0) ? (
+            {loadingContest ? (
+              <div className="text-center py-6 bg-[#0E0E16] rounded-2xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
+                <RefreshCw size={22} className="text-yellow-400 animate-spin" />
+                <p className="text-xs font-bold text-yellow-300">Loading Contest Standings... Please Wait</p>
+                <div className="w-28 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
+                  <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
+                </div>
+              </div>
+            ) : (!weeklyContest?.standings || weeklyContest.standings.length === 0) ? (
               <div className="text-center py-6 bg-[#0E0E16] rounded-2xl border border-[#252538]">
                 <p className="text-xs text-gray-400 font-medium">
                   No one has reached 10 referrals yet this week!
@@ -597,7 +644,15 @@ export default function ReferPage() {
 
         {/* Leaderboard Entries List (Top 10) */}
         <div className="box-3d p-3 space-y-2">
-          {currentList.length === 0 ? (
+          {loadingLeaderboard ? (
+            <div className="text-center py-6 bg-[#0E0E16] rounded-2xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
+              <RefreshCw size={22} className="text-yellow-400 animate-spin" />
+              <p className="text-xs font-bold text-yellow-300">Loading Leaderboard... Please Wait</p>
+              <div className="w-28 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
+                <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
+              </div>
+            </div>
+          ) : currentList.length === 0 ? (
             <p className="text-xs text-gray-500 text-center py-6">No data in leaderboard yet</p>
           ) : (
             currentList.map((item) => (

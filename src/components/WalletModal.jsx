@@ -45,15 +45,30 @@ export default function WalletModal() {
   const [walletAddress, setWalletAddress] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
-  const [history, setHistory] = useState({ withdrawals: [], conversions: [] });
+  const [history, setHistory] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('treasure_wallet_history_cache');
+      return cached ? JSON.parse(cached) : { withdrawals: [], conversions: [] };
+    } catch {
+      return { withdrawals: [], conversions: [] };
+    }
+  });
+  const [loadingHistory, setLoadingHistory] = useState(() => !sessionStorage.getItem('treasure_wallet_history_cache'));
   const [showLockConfirmModal, setShowLockConfirmModal] = useState(false);
   const [storeModalOpen, setStoreModalOpen] = useState(false);
   const [tonConfig, setTonConfig] = useState({ walletAddress: '', isConfigured: false });
   const [copiedTonAddress, setCopiedTonAddress] = useState(false);
   const [copiedTonMemo, setCopiedTonMemo] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
-  const [proofs, setProofs] = useState([]);
-  const [loadingProofs, setLoadingProofs] = useState(false);
+  const [proofs, setProofs] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('treasure_wallet_proofs_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loadingProofs, setLoadingProofs] = useState(() => !sessionStorage.getItem('treasure_wallet_proofs_cache'));
   const [requirements, setRequirements] = useState({
     tasksCompleted: 0,
     tasksRequired: 20,
@@ -88,6 +103,7 @@ export default function WalletModal() {
       const res = await api.get('/wallet/proofs');
       if (res.data?.success) {
         setProofs(res.data.proofs || []);
+        sessionStorage.setItem('treasure_wallet_proofs_cache', JSON.stringify(res.data.proofs || []));
       }
     } catch (e) {
       console.warn('Failed to load proofs:', e.message);
@@ -184,16 +200,21 @@ export default function WalletModal() {
   };
 
   const loadHistory = async () => {
+    setLoadingHistory(true);
     try {
       const res = await api.get('/wallet/history');
       if (res.data.success) {
-        setHistory({
+        const histData = {
           withdrawals: res.data.withdrawals || [],
           conversions: res.data.conversions || []
-        });
+        };
+        setHistory(histData);
+        sessionStorage.setItem('treasure_wallet_history_cache', JSON.stringify(histData));
       }
     } catch (e) {
       console.warn('Failed to load wallet history:', e);
+    } finally {
+      setLoadingHistory(false);
     }
   };
 
@@ -750,7 +771,15 @@ export default function WalletModal() {
             <div className="space-y-4">
               <div>
                 <h4 className="text-xs font-black text-yellow-400 uppercase tracking-wider mb-2">Withdrawals</h4>
-                {history.withdrawals.length === 0 ? (
+                {loadingHistory ? (
+                  <div className="p-5 text-center text-xs text-gray-400 bg-[#0E0E16] rounded-xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
+                    <RefreshCw size={18} className="animate-spin text-yellow-400" />
+                    <span className="font-bold text-yellow-300">Loading Withdrawal History... Please Wait</span>
+                    <div className="w-24 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
+                      <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
+                    </div>
+                  </div>
+                ) : history.withdrawals.length === 0 ? (
                   <p className="text-xs text-gray-500 text-center py-3">No withdrawal history yet</p>
                 ) : (
                   <div className="space-y-2">
@@ -775,7 +804,15 @@ export default function WalletModal() {
 
               <div>
                 <h4 className="text-xs font-black text-yellow-400 uppercase tracking-wider mb-2">Conversions</h4>
-                {history.conversions.length === 0 ? (
+                {loadingHistory ? (
+                  <div className="p-5 text-center text-xs text-gray-400 bg-[#0E0E16] rounded-xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
+                    <RefreshCw size={18} className="animate-spin text-yellow-400" />
+                    <span className="font-bold text-yellow-300">Loading Conversion History... Please Wait</span>
+                    <div className="w-24 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
+                      <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
+                    </div>
+                  </div>
+                ) : history.conversions.length === 0 ? (
                   <p className="text-xs text-gray-500 text-center py-3">No conversion history yet</p>
                 ) : (
                   <div className="space-y-2">
@@ -835,9 +872,12 @@ export default function WalletModal() {
                 </h4>
 
                 {loadingProofs && proofs.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-gray-400">
-                    <RefreshCw size={18} className="animate-spin mx-auto mb-2 text-yellow-400" />
-                    <span>Loading verified proofs...</span>
+                  <div className="p-6 text-center text-xs text-gray-400 bg-[#0E0E16] rounded-2xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
+                    <RefreshCw size={22} className="animate-spin text-yellow-400" />
+                    <span className="font-bold text-yellow-300">Loading Verified Proofs... Please Wait</span>
+                    <div className="w-28 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
+                      <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
+                    </div>
                   </div>
                 ) : groupedProofs.length === 0 ? (
                   <div className="p-5 rounded-2xl bg-[#0D101C] border border-[#22283C] text-center space-y-2">

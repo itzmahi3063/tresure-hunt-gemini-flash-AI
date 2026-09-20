@@ -97,11 +97,17 @@ export default function TasksPage() {
     setPaymentModalTask(taskItem);
   };
 
-  const [tasksCache, setTasksCache] = useState({
-    daily: [],
-    social: [],
-    exclusive: [],
-    partner: []
+  const [tasksCache, setTasksCache] = useState(() => {
+    let saved = { daily: [], social: [], exclusive: [], partner: [] };
+    if (typeof window !== 'undefined') {
+      try {
+        const d = JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
+        const s = JSON.parse(sessionStorage.getItem('treasure_tasks_social_cache') || '[]');
+        const p = JSON.parse(sessionStorage.getItem('treasure_tasks_partner_cache') || '[]');
+        saved = { daily: d, social: s, exclusive: [], partner: p };
+      } catch (e) {}
+    }
+    return saved;
   });
 
   // Preload all categories on mount for instant zero-lag tab switching
@@ -126,6 +132,13 @@ export default function TasksPage() {
         partner: partnerRes.data?.tasks || []
       };
       setTasksCache(newCache);
+
+      if (socialRes.data?.tasks?.length) {
+        try { sessionStorage.setItem('treasure_tasks_social_cache', JSON.stringify(socialRes.data.tasks)); } catch (err) {}
+      }
+      if (partnerRes.data?.tasks?.length) {
+        try { sessionStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(partnerRes.data.tasks)); } catch (err) {}
+      }
 
       if (myRes.data?.tasks) setMyTasks(myRes.data.tasks);
 
@@ -1007,7 +1020,55 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {tasks.map((t) => (
+          {tasks.length === 0 ? (
+            <div className="space-y-3 pt-2">
+              <div
+                style={{
+                  background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                  borderTop: '2px solid #664b2d',
+                  borderLeft: '1.5px solid #4a341f',
+                  borderRight: '1.5px solid #4a341f',
+                  borderBottom: '5px solid #140d06',
+                  boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8)'
+                }}
+                className="rounded-[28px] p-6 text-center space-y-3"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-[#1a1108] border border-[#4a341f] flex items-center justify-center mx-auto shadow-inner text-[#f7bf46]">
+                  <RefreshCw className="animate-spin" size={24} />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider font-heading">
+                    Loading {activeCategory === 'social' ? 'Social Tasks' : 'Partner Offers'}... Please Wait
+                  </h4>
+                  <p className="text-xs text-[#a89782]">
+                    Connecting to reward vault and loading bounties...
+                  </p>
+                </div>
+                <div className="w-36 h-1.5 bg-[#140d06] rounded-full mx-auto overflow-hidden border border-[#3d2918]">
+                  <div className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 rounded-full animate-pulse w-full" />
+                </div>
+              </div>
+
+              {/* 3 Animated Skeleton Cards */}
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  style={{
+                    background: 'linear-gradient(180deg, #26180d 0%, #1c1108 100%)',
+                    border: '1px solid #3d2918'
+                  }}
+                  className="rounded-[24px] p-4 flex items-center justify-between opacity-50 animate-pulse"
+                >
+                  <div className="space-y-2 flex-1 pr-4">
+                    <div className="h-4 bg-[#3d2918] rounded-md w-3/5" />
+                    <div className="h-2.5 bg-[#2a1b0e] rounded-md w-2/5" />
+                  </div>
+                  <div className="w-16 h-8 rounded-[16px] bg-[#3d2918]" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            tasks.map((t) => (
             <div
               key={t.id}
               style={{
@@ -1068,7 +1129,7 @@ export default function TasksPage() {
                 {!t.is_completed && !visitedTasks[t.id] && <ExternalLink size={12} className="text-[#a89782]" />}
               </button>
             </div>
-          ))}
+          )))}
 
           {/* 3D How Treasure Vault Rewards Work info box */}
           <div
