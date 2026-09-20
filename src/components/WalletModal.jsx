@@ -52,6 +52,8 @@ export default function WalletModal() {
   const [copiedTonAddress, setCopiedTonAddress] = useState(false);
   const [copiedTonMemo, setCopiedTonMemo] = useState(false);
   const [checkingDeposit, setCheckingDeposit] = useState(false);
+  const [proofs, setProofs] = useState([]);
+  const [loadingProofs, setLoadingProofs] = useState(false);
   const [requirements, setRequirements] = useState({
     tasksCompleted: 0,
     tasksRequired: 20,
@@ -73,11 +75,63 @@ export default function WalletModal() {
       loadHistory();
       loadRequirements();
       loadTonConfig();
+      loadProofs();
       if (user?.wallets && user.wallets[withdrawNetwork]) {
         setWalletAddress(user.wallets[withdrawNetwork]);
       }
     }
   }, [walletModalOpen, walletInitialTab, withdrawNetwork, user]);
+
+  const loadProofs = async () => {
+    setLoadingProofs(true);
+    try {
+      const res = await api.get('/wallet/proofs');
+      if (res.data?.success) {
+        setProofs(res.data.proofs || []);
+      }
+    } catch (e) {
+      console.warn('Failed to load proofs:', e.message);
+    } finally {
+      setLoadingProofs(false);
+    }
+  };
+
+  // Group real approved proofs by day
+  const groupedProofs = React.useMemo(() => {
+    const groups = {};
+    const todayStr = new Date().toISOString().split('T')[0];
+    const yDate = new Date();
+    yDate.setDate(yDate.getDate() - 1);
+    const yesterdayStr = yDate.toISOString().split('T')[0];
+
+    (proofs || []).forEach((p) => {
+      let dayLabel = p.date_str || todayStr;
+      if (p.date_str === todayStr) {
+        dayLabel = 'Today';
+      } else if (p.date_str === yesterdayStr) {
+        dayLabel = 'Yesterday';
+      } else if (p.date_str) {
+        try {
+          const d = new Date(p.date_str);
+          dayLabel = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        } catch (e) {
+          dayLabel = p.date_str;
+        }
+      }
+
+      if (!groups[dayLabel]) {
+        groups[dayLabel] = {
+          label: dayLabel,
+          totalUsdt: 0,
+          items: []
+        };
+      }
+      groups[dayLabel].items.push(p);
+      groups[dayLabel].totalUsdt += Number(p.amount) || 0;
+    });
+
+    return Object.values(groups);
+  }, [proofs]);
 
   const loadTonConfig = async () => {
     try {
@@ -762,39 +816,80 @@ export default function WalletModal() {
                 </a>
               </div>
 
-              {/* Live Confirmed Payout Feed */}
+              {/* Live Confirmed Payout Feed Grouped by Day */}
               <div>
                 <h4 className="text-xs font-black text-yellow-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                  <span>Recent Confirmed Payouts</span>
-                  <span className="text-[10px] text-emerald-400 font-mono flex items-center space-x-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
-                    <span>Live 100% Guaranteed</span>
-                  </span>
+                  <span>Confirmed Payouts by Date</span>
+                  <button
+                    type="button"
+                    onClick={loadProofs}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-mono flex items-center space-x-1 active:scale-95"
+                  >
+                    <RefreshCw size={11} className={loadingProofs ? 'animate-spin' : ''} />
+                    <span>Refresh</span>
+                  </button>
                 </h4>
 
-                <div className="space-y-2">
-                  {[
-                    { uid: '7780***', name: 'Hunter (You)', method: 'Binance Pay', amount: '$5.00 USDT', time: 'Today' },
-                    { uid: '5691***', name: 'Alex M.', method: 'TON Wallet', amount: '$0.50 USDT', time: '1 hr ago' },
-                    { uid: '6124***', name: 'CryptoKing', method: 'Binance Pay', amount: '$3.00 USDT', time: '3 hrs ago' },
-                    { uid: '5092***', name: 'Elena_V', method: 'Binance Pay', amount: '$1.00 USDT', time: '5 hrs ago' },
-                    { uid: '7412***', name: 'Rahim_Pro', method: 'Binance Pay', amount: '$2.00 USDT', time: 'Yesterday' }
-                  ].map((p, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2.5 rounded-xl bg-[#0D101C] border border-[#22283C] flex items-center justify-between text-xs"
-                    >
-                      <div>
-                        <div className="font-bold text-white font-mono">{p.name} ({p.uid})</div>
-                        <div className="text-[10px] text-gray-400 font-mono">{p.method} • {p.time}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-black text-emerald-400 font-numbers">{p.amount}</div>
-                        <div className="text-[9px] text-emerald-500 font-bold">COMPLETED ✅</div>
-                      </div>
+                {loadingProofs && proofs.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-gray-400">
+                    <RefreshCw size={18} className="animate-spin mx-auto mb-2 text-yellow-400" />
+                    <span>Loading verified proofs...</span>
+                  </div>
+                ) : groupedProofs.length === 0 ? (
+                  <div className="p-5 rounded-2xl bg-[#0D101C] border border-[#22283C] text-center space-y-2">
+                    <div className="w-10 h-10 mx-auto rounded-full bg-yellow-500/10 border border-yellow-500/30 flex items-center justify-center text-yellow-400">
+                      <Clock size={18} />
                     </div>
-                  ))}
-                </div>
+                    <h5 className="text-xs font-black text-white uppercase tracking-wider">No Approved Payouts Yet Today</h5>
+                    <p className="text-[11px] text-gray-400 leading-tight">
+                      Withdrawals are verified and approved manually by admin. Once approved, live payment receipts appear here and post to our official channel @treasure_pay!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {groupedProofs.map((group, gIdx) => (
+                      <div key={gIdx} className="space-y-1.5">
+                        <div className="flex items-center justify-between px-1 text-[10px] font-black uppercase tracking-wider text-amber-400 font-mono">
+                          <span>📅 {group.label}</span>
+                          <span className="text-emerald-400 font-bold">
+                            {group.items.length} Payout{group.items.length > 1 ? 's' : ''} (${group.totalUsdt.toFixed(2)} USDT)
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {group.items.map((p) => (
+                            <div
+                              key={p.id}
+                              className="p-2.5 rounded-xl bg-[#0D101C] border border-[#22283C] flex items-center justify-between text-xs hover:border-[#333d5c] transition-all"
+                            >
+                              <div className="space-y-0.5">
+                                <div className="font-bold text-white font-mono flex items-center space-x-1.5">
+                                  <span className="text-cyan-300">{p.username}</span>
+                                  <span className="text-[10px] text-gray-400">({p.user_id})</span>
+                                </div>
+                                <div className="text-[10px] text-gray-400 font-mono flex items-center space-x-1.5">
+                                  <span>{p.currency}</span>
+                                  <span>•</span>
+                                  <span className="text-amber-300 font-bold">{p.address}</span>
+                                  {p.time_str && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-gray-500">{p.time_str}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0 ml-2">
+                                <div className="font-black text-emerald-400 font-numbers">${p.amount} USDT</div>
+                                <div className="text-[9px] text-emerald-500 font-bold tracking-wide">COMPLETED ✅</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Monetization Compliance Note */}
