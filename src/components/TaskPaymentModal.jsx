@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   CreditCard,
@@ -8,7 +8,11 @@ import {
   AlertCircle,
   ExternalLink,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Copy,
+  Check,
+  RefreshCw,
+  Wallet
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import confetti from 'canvas-confetti';
@@ -17,10 +21,116 @@ import api from '../services/api';
 export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSuccess, onTaskCancelled }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [walletAddress, setWalletAddress] = useState('');
+  const [copiedAddress, setCopiedAddress] = useState(false);
+  const [copiedMemo, setCopiedMemo] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const pollIntervalRef = useRef(null);
+
+  const tonCost = task?.ton_cost || Number((((task?.max_users || 100) / 100) * 0.20).toFixed(2));
+  const memoText = task ? `EXCL_${task.id}` : '';
+  const nanoTonAmount = Math.round(tonCost * 1e9);
+
+  // Fetch TON configuration on mount / open
+  useEffect(() => {
+    if (isOpen && task) {
+      api.get('/ton/config')
+        .then(res => {
+          if (res.data?.walletAddress) {
+            setWalletAddress(res.data.walletAddress);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, task]);
+
+  // Real-time payment detection polling every 3 seconds
+  useEffect(() => {
+    if (!isOpen || !task) {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      return;
+    }
+
+    const checkStatus = async () => {
+      try {
+        const res = await api.get('/ton/check-payment', {
+          params: { taskId: task.id, memo: memoText }
+        });
+        if (res.data?.paid) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          confetti({
+            particleCount: 80,
+            spread: 80,
+            origin: { y: 0.6 }
+          });
+          triggerHaptic('notification', 'success');
+          if (onPaymentSuccess) {
+            onPaymentSuccess(res.data.task || task);
+          }
+          onClose();
+        }
+      } catch (err) {
+        // Continue polling silently
+      }
+    };
+
+    // Initial check
+    checkStatus();
+    // 3-second polling
+    pollIntervalRef.current = setInterval(checkStatus, 3000);
+
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [isOpen, task, memoText, onPaymentSuccess, onClose]);
 
   if (!isOpen || !task) return null;
 
-  const tonCost = task.ton_cost || Number(((task.max_users / 100) * 0.20).toFixed(2));
+  const handleCopy = (text, type) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+    }
+    triggerHaptic('selection');
+    if (type === 'address') {
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    } else {
+      setCopiedMemo(true);
+      setTimeout(() => setCopiedMemo(false), 2000);
+    }
+  };
+
+  const handleManualCheck = async () => {
+    setIsVerifying(true);
+    setError(null);
+    triggerHaptic('impact', 'medium');
+
+    try {
+      const res = await api.get('/ton/check-payment', {
+        params: { taskId: task.id, memo: memoText }
+      });
+      if (res.data?.paid) {
+        confetti({
+          particleCount: 70,
+          spread: 75,
+          origin: { y: 0.6 }
+        });
+        triggerHaptic('notification', 'success');
+        if (onPaymentSuccess) {
+          onPaymentSuccess(res.data.task || task);
+        }
+        onClose();
+      } else {
+        setError('Payment not detected on TON blockchain yet. Please wait a few moments after sending.');
+        triggerHaptic('notification', 'warning');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Verification check failed');
+      triggerHaptic('notification', 'error');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handlePayNow = async () => {
     setLoading(true);
@@ -74,6 +184,10 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
       setLoading(false);
     }
   };
+
+  const tonDeepLink = walletAddress
+    ? `ton://transfer/${walletAddress}?amount=${nanoTonAmount}&text=${encodeURIComponent(memoText)}`
+    : '';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">
@@ -166,38 +280,121 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
           </div>
         </div>
 
+        {/* TON Blockchain Payment Details Box */}
+        {walletAddress && (
+          <div className="p-3.5 rounded-[22px] bg-[#0c141c] border border-[#1b3247] space-y-3 mb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black uppercase text-[#00f5ff] flex items-center space-x-1.5">
+                <Wallet size={14} />
+                <span>TON Payment Details</span>
+              </span>
+              <span className="flex items-center space-x-1 text-[10px] text-emerald-400 font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Auto-Scanning</span>
+              </span>
+            </div>
+
+            {/* Recipient Wallet Address */}
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400">Recipient TON Address:</span>
+              <div className="flex items-center justify-between bg-[#060a0f] p-2 rounded-xl border border-[#192b3a]">
+                <span className="text-[11px] font-mono text-cyan-200 truncate mr-2">
+                  {walletAddress}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(walletAddress, 'address')}
+                  className="px-2.5 py-1 rounded-lg bg-[#142331] text-[10px] font-bold text-cyan-300 hover:bg-[#1f374e] active:scale-95 flex items-center space-x-1 shrink-0"
+                >
+                  {copiedAddress ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  <span>{copiedAddress ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Transfer Memo / Comment (CRITICAL) */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-black text-amber-400 flex items-center space-x-1">
+                  <span>⚠️ Required Transfer Comment / Memo:</span>
+                </span>
+                <span className="text-[9px] text-rose-400 font-bold uppercase">Mandatory</span>
+              </div>
+              <div className="flex items-center justify-between bg-[#1f1505] p-2 rounded-xl border border-[#593907]">
+                <span className="text-xs font-mono font-black text-amber-300 select-all">
+                  {memoText}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(memoText, 'memo')}
+                  className="px-2.5 py-1 rounded-lg bg-[#3d2703] text-[10px] font-black text-amber-300 hover:bg-[#523506] active:scale-95 flex items-center space-x-1 shrink-0"
+                >
+                  {copiedMemo ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  <span>{copiedMemo ? 'Copied' : 'Copy Memo'}</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-amber-200/80 leading-tight pt-0.5">
+                Paste <code className="text-amber-300 font-mono font-bold">{memoText}</code> into the comment box in Tonkeeper / Telegram Wallet when sending.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Notice Info */}
         <div className="p-3 rounded-2xl bg-[#121c21] border border-[#1f3f4d] mb-4 space-y-1">
           <div className="flex items-center space-x-1.5 text-cyan-400 text-xs font-bold">
             <Sparkles size={14} />
-            <span>Instant Activation</span>
+            <span>Instant Webhook & 1-Minute Fallback</span>
           </div>
           <p className="text-[11px] text-[#8ea7b3] leading-relaxed">
-            Upon payment confirmation, your task will be instantly <b>Approved</b> and live on the public Exclusive Tasks feed. Once {task.max_users} users complete it, it will automatically fulfill.
+            Your campaign activates automatically within seconds of blockchain confirmation. You will also receive an instant confirmation message on your Telegram Bot!
           </p>
         </div>
 
         {/* Action Buttons */}
         <div className="space-y-2">
+          {/* Deep link direct transfer to TON wallet */}
+          {tonDeepLink && (
+            <a
+              href={tonDeepLink}
+              onClick={() => triggerHaptic('impact', 'medium')}
+              style={{
+                background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 50%, #0077b6 100%)',
+                borderTop: '1.5px solid #a6f4ff',
+                borderLeft: '1px solid #00b4d8',
+                borderRight: '1px solid #00b4d8',
+                borderBottom: '4px solid #004777',
+                color: '#031726',
+                boxShadow: '0 8px 18px rgba(0, 180, 216, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.7)'
+              }}
+              className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all text-center"
+            >
+              <Wallet size={17} />
+              <span>Open TON Wallet ({tonCost.toFixed(2)} TON)</span>
+              <ExternalLink size={15} />
+            </a>
+          )}
+
+          {/* Check Payment Now button */}
           <button
-            onClick={handlePayNow}
-            disabled={loading}
+            type="button"
+            onClick={handleManualCheck}
+            disabled={isVerifying}
             style={{
-              background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 50%, #0077b6 100%)',
-              borderTop: '1.5px solid #a6f4ff',
-              borderLeft: '1px solid #00b4d8',
-              borderRight: '1px solid #00b4d8',
-              borderBottom: '4px solid #004777',
-              color: '#031726',
-              boxShadow: '0 8px 18px rgba(0, 180, 216, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.7)'
+              background: '#14202d',
+              borderTop: '1px solid #233e59',
+              borderBottom: '2.5px solid #080f16',
+              color: '#38bdf8'
             }}
-            className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all"
+            className="w-full py-3 rounded-[20px] text-xs font-black uppercase flex items-center justify-center space-x-2 active:scale-98 transition-all hover:text-sky-300"
           >
-            <span>{loading ? 'Processing...' : `Pay Now · ${tonCost.toFixed(2)} TON`}</span>
-            <ArrowRight size={16} />
+            <RefreshCw size={14} className={isVerifying ? 'animate-spin' : ''} />
+            <span>{isVerifying ? 'Checking Blockchain...' : 'I Have Paid · Verify Now'}</span>
           </button>
 
+          {/* Fallback Pay / Cancel Buttons */}
           <button
+            type="button"
             onClick={handleCancelTask}
             disabled={loading}
             style={{
