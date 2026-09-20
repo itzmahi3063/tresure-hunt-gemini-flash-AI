@@ -70,11 +70,14 @@ export default function DeviceBlockedScreen({ linkedUser, onRetry, onSwitched })
         </div>
 
         <div className="space-y-3">
-          <h1 className="text-2xl font-black text-[#00E5FF] tracking-tight font-heading drop-shadow-[0_0_15px_rgba(0,229,255,0.4)]">
-            Device Already In Use
+          <h1 className="text-2xl font-black text-rose-500 tracking-tight font-heading drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]">
+            Your Account Has Been Suspended
           </h1>
+          <p className="text-xs font-bold text-rose-400 max-w-xs mx-auto leading-relaxed font-heading">
+            ⚠️ Multiple accounts detected on this device
+          </p>
           <p className="text-xs text-[#8E95A5] max-w-xs mx-auto leading-relaxed">
-            This device is already linked to another account. Log in with that account, or claim this device for this one below.
+            Your account has been suspended because this device is already registered with another account. Only one account per device is permitted.
           </p>
         </div>
 
