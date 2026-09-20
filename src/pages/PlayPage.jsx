@@ -16,6 +16,8 @@ import { triggerHaptic } from '../services/telegram';
 import { formatGems, formatUsdt } from '../utils/format';
 import api from '../services/api';
 import confetti from 'canvas-confetti';
+import { showMonetagInterstitial } from '../services/ads';
+import { armAdexiumAutoMode, setAdexiumGameInProgress } from '../services/adexium';
 
 // ==========================================
 // UNBEATABLE MINIMAX ALGORITHM FOR AI BOT
@@ -162,6 +164,7 @@ export default function PlayPage() {
         setDifficultyMode(session.difficultyMode || 'hard');
         setIsPlayerTurn(session.isPlayerTurn ?? true);
         setCurrentView('tictactoe_in_game');
+        setAdexiumGameInProgress(true);
 
         // Check if game was already finished when app was closed/reloaded
         const winner = checkWinnerState(currentBoard);
@@ -197,6 +200,9 @@ export default function PlayPage() {
     triggerHaptic('impact', 'medium');
 
     try {
+      // Monetag interstitial plays before the paid match starts.
+      await showMonetagInterstitial();
+
       const res = await api.post('/game/tictactoe/start');
       if (res.data.success) {
         if (res.data.user) setUser(res.data.user);
@@ -207,12 +213,13 @@ export default function PlayPage() {
         setGameOverResult(null);
         setShowPayConfirmModal(false);
         setCurrentView('tictactoe_in_game');
+        setAdexiumGameInProgress(true); // suppress Adexium auto-ads while playing
         triggerHaptic('notification', 'success');
         fetchGameStats();
       }
     } catch (err) {
       triggerHaptic('notification', 'error');
-      alert(err.response?.data?.error || 'Failed to start game');
+      alert(err.response?.data?.error || err.message || 'Failed to start game');
     } finally {
       setIsProcessingPayment(false);
     }
@@ -264,6 +271,8 @@ export default function PlayPage() {
     else if (winner === 'draw') outcome = 'draw';
 
     setGameOverResult(outcome);
+    setAdexiumGameInProgress(false);
+    armAdexiumAutoMode(); // safe to show Adexium auto-ads again now that the game has ended
 
     if (outcome === 'win') {
       confetti({ particleCount: 80, spread: 70, origin: { y: 0.5 } });
@@ -290,6 +299,8 @@ export default function PlayPage() {
 
   const handleReturnToPlay = async () => {
     triggerHaptic('selection');
+    setAdexiumGameInProgress(false);
+    armAdexiumAutoMode();
     if (currentView === 'tictactoe_in_game' && !gameOverResult) {
       try {
         await api.post('/game/tictactoe/finish', {
@@ -317,6 +328,7 @@ export default function PlayPage() {
     }
     resetLuckyDraw();
     setCurrentView('lucky_draw_modal');
+    setAdexiumGameInProgress(true); // suppress Adexium auto-ads while playing
   };
 
   const handlePickLuckyCard = async (index) => {
@@ -328,13 +340,15 @@ export default function PlayPage() {
     try {
       const res = await api.post('/game/luckydraw/play');
       if (res.data.success) {
-        setTimeout(() => {
+        setTimeout(async () => {
           setDrawOutcome({
             reward: res.data.reward,
             otherCards: res.data.otherCards || ['Empty Card', '10 GEMS']
           });
           if (res.data.user) setUser(res.data.user);
           setDrawing(false);
+          setAdexiumGameInProgress(false);
+          armAdexiumAutoMode();
 
           if (res.data.reward?.amount > 0) {
             confetti({ particleCount: 75, spread: 70, origin: { y: 0.6 } });
@@ -343,6 +357,15 @@ export default function PlayPage() {
             triggerHaptic('notification', 'warning');
           }
           fetchGameStats();
+
+          // Monetag ad plays right after the reward is revealed. The
+          // reward is already credited above, so this doesn't gate
+          // anything — it's just shown after the win, as requested.
+          try {
+            await showMonetagInterstitial();
+          } catch {
+            // Ad failed/skipped — reward was already granted, nothing to undo.
+          }
         }, 850);
       }
     } catch (err) {
@@ -356,6 +379,7 @@ export default function PlayPage() {
     setSelectedCardIdx(null);
     setDrawOutcome(null);
     setDrawing(false);
+    setAdexiumGameInProgress(true); // suppress Adexium auto-ads for the next pick
   };
 
   // Helper to get card display text
@@ -878,7 +902,11 @@ export default function PlayPage() {
         <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-[#151928] border border-purple-500/40 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative animate-scaleUp text-center my-auto">
             <button
-              onClick={() => setCurrentView('list')}
+              onClick={() => {
+                setAdexiumGameInProgress(false);
+                armAdexiumAutoMode();
+                setCurrentView('list');
+              }}
               className="absolute top-4 right-4 text-gray-400 hover:text-white p-1"
             >
               <X size={20} />
@@ -983,6 +1011,3 @@ export default function PlayPage() {
     </div>
   );
 }
-
-
-
