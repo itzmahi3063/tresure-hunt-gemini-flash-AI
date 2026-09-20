@@ -13,6 +13,14 @@ import { authMiddleware, adminMiddleware } from './auth.js';
 // runs on the server, on every request to these routes — so it can't be
 // skipped by calling the API directly instead of going through the app's UI.
 function blockIfDeviceConflict(req, res, next) {
+  // If Maintenance Mode is enabled and user is NOT admin, block with 503
+  if (db.data?.maintenance_mode && !req.isAdmin) {
+    return res.status(503).json({
+      success: false,
+      maintenance: true,
+      error: db.data?.maintenance_message || 'System maintenance in progress. The application is temporarily closed for updates.'
+    });
+  }
   const user = db.getUser(req.user.id);
   if (user && user.device_conflict) {
     return res.status(403).json({
@@ -156,6 +164,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Public System Maintenance Status Check
+app.get('/api/maintenance', (req, res) => {
+  res.json({
+    success: true,
+    maintenance: Boolean(db.data?.maintenance_mode),
+    message: db.data?.maintenance_message || ''
+  });
+});
+
 // Telegram Webhook Handler (for Serverless Vercel & Webhook setups)
 app.post('/api/webhook', async (req, res) => {
   try {
@@ -209,6 +226,8 @@ app.get('/api/user/me', authMiddleware, (req, res) => {
       success: true,
       user,
       isAdmin: req.isAdmin,
+      isMaintenance: Boolean(db.data?.maintenance_mode && !req.isAdmin),
+      maintenanceMessage: db.data?.maintenance_message || '',
       settings: {
         rate: db.data.settings.diamond_to_usd_rate,
         commission: db.data.settings.referral_commission_rate,
@@ -233,6 +252,8 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
       isIpDuplicate: !!user.ip_conflict,
       ipLinkedUsers: user.ip_conflict_linked || [],
       isAdmin: req.isAdmin,
+      isMaintenance: Boolean(db.data?.maintenance_mode && !req.isAdmin),
+      maintenanceMessage: db.data?.maintenance_message || '',
       settings: {
         rate: db.data.settings.diamond_to_usd_rate,
         commission: db.data.settings.referral_commission_rate,
@@ -1406,6 +1427,34 @@ app.post('/api/admin/broadcast/daily-reset', authMiddleware, adminMiddleware, as
     }
     const broadcastResult = await processBroadcastQueue(35, 4500);
     res.json({ success: true, job, broadcast: broadcastResult });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Maintenance Mode Controls
+app.get('/api/admin/maintenance', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    res.json({
+      success: true,
+      ...db.getMaintenanceStatus()
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/maintenance', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const { enabled, message } = req.body;
+    const isEnabled = Boolean(enabled);
+    const msg = typeof message === 'string' ? message : '';
+    const updated = db.setMaintenanceMode(isEnabled, msg);
+    res.json({
+      success: true,
+      maintenance: updated.maintenance,
+      message: updated.message
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -39,6 +39,8 @@ api.interceptors.response.use(
         window.dispatchEvent(new CustomEvent('device-conflict', { detail: data.linkedUser || null }));
       } else if (data?.ipConflict) {
         window.dispatchEvent(new CustomEvent('ip-conflict', { detail: data.linkedUsers || [] }));
+      } else if (data?.maintenance) {
+        window.dispatchEvent(new CustomEvent('app-maintenance', { detail: data }));
       }
     }
     return Promise.reject(error);

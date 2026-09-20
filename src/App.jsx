@@ -20,6 +20,7 @@ import DeviceBlockedScreen from './components/DeviceBlockedScreen';
 import IpBlockedScreen from './components/IpBlockedScreen';
 import SyncErrorScreen from './components/SyncErrorScreen';
 import TelegramOnlyScreen from './components/TelegramOnlyScreen';
+import MaintenanceScreen from './components/MaintenanceScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { isInsideTelegram } from './services/telegram';
 
@@ -27,6 +28,7 @@ export default function App() {
   const {
     user,
     setUser,
+    isAdmin,
     activeTab,
     loading,
     isTransitioning,
@@ -44,7 +46,9 @@ export default function App() {
     languageModalOpen,
     setLanguageModalOpen,
     isTonConnectModalOpen,
-    setIsTonConnectModalOpen
+    setIsTonConnectModalOpen,
+    maintenanceActive,
+    maintenanceMessage
   } = useApp();
 
   const [splashFinished, setSplashFinished] = React.useState(false);
@@ -70,7 +74,17 @@ export default function App() {
     return <SplashScreen loading={loading} onFinish={() => setSplashFinished(true)} />;
   }
 
-  // 3b. Sync genuinely failed (auth/network) — show a real error instead of
+  // 3b. Maintenance Mode Check (Admin UID is strictly exempt)
+  if (maintenanceActive && !isAdmin) {
+    return (
+      <MaintenanceScreen
+        message={maintenanceMessage}
+        onRefresh={fetchUserProfile}
+      />
+    );
+  }
+
+  // 3c. Sync genuinely failed (auth/network) — show a real error instead of
   // silently rendering the app with `user` missing/incomplete, which
   // several screens would otherwise display as a fake "0 balance".
   if (syncError && !user) {

@@ -238,7 +238,9 @@ const initialData = {
   ton_processed_txs: [], // Array of processed TON tx hashes for idempotency
   ton_transactions: [], // Audit history of TON payments and deposits
   broadcast_queue: [], // Persistent queue for batch broadcast messages to 20k-30k users
-  last_daily_reset_broadcast: null // Tracks last date (YYYY-MM-DD) daily reset broadcast was triggered
+  last_daily_reset_broadcast: null, // Tracks last date (YYYY-MM-DD) daily reset broadcast was triggered
+  maintenance_mode: false, // Global system maintenance mode toggle
+  maintenance_message: '' // Optional custom English announcement text
 };
 
 class Database {
@@ -516,6 +518,23 @@ class Database {
     // 9:00 AM BST = 03:00 UTC. Subtracting 3 hours aligns the rollover with 9:00 AM Bangladesh Time.
     const offsetTime = new Date(d.getTime() - 3 * 60 * 60 * 1000);
     return offsetTime.toISOString().split('T')[0];
+  }
+
+  // System Maintenance Mode
+  getMaintenanceStatus() {
+    return {
+      maintenance: Boolean(this.data?.maintenance_mode),
+      message: this.data?.maintenance_message || ''
+    };
+  }
+
+  setMaintenanceMode(enabled, message = '') {
+    this.data.maintenance_mode = Boolean(enabled);
+    if (typeof message === 'string') {
+      this.data.maintenance_message = message;
+    }
+    this.save();
+    return this.getMaintenanceStatus();
   }
 
   // User Management

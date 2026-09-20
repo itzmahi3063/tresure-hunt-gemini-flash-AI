@@ -18,7 +18,10 @@ import {
   Sparkles,
   Trophy,
   RefreshCw,
-  Save
+  Save,
+  Wrench,
+  Power,
+  ShieldAlert
 } from 'lucide-react';
 import api from '../services/api';
 import { triggerHaptic } from '../services/telegram';
@@ -26,6 +29,11 @@ import { triggerHaptic } from '../services/telegram';
 export default function AdminDashboard() {
   const { setActiveTab, isAdmin } = useApp();
   const [activeAdminTab, setActiveAdminTab] = useState('tasks');
+
+  // Maintenance Mode State
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [maintenanceNotice, setMaintenanceNotice] = useState('');
+  const [updatingMaintenance, setUpdatingMaintenance] = useState(false);
 
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState(null);
@@ -78,13 +86,14 @@ export default function AdminDashboard() {
 
   const loadAllAdminData = async () => {
     try {
-      const [tasksRes, adsRes, networksRes, wdRes, promoRes, usersRes] = await Promise.all([
+      const [tasksRes, adsRes, networksRes, wdRes, promoRes, usersRes, maintRes] = await Promise.all([
         api.get('/tasks'),
         api.get('/admin/ads'),
         api.get('/admin/ad-networks'),
         api.get('/admin/withdrawals'),
         api.get('/admin/promo'),
-        api.get('/admin/users')
+        api.get('/admin/users'),
+        api.get('/admin/maintenance').catch(() => ({ data: { success: false } }))
       ]);
 
       if (tasksRes.data.success) setTasksList(tasksRes.data.tasks || []);
@@ -93,8 +102,40 @@ export default function AdminDashboard() {
       if (wdRes.data.success) setWithdrawalsList(wdRes.data.withdrawals || []);
       if (promoRes.data.success) setPromoList(promoRes.data.promoCodes || []);
       if (usersRes.data.success) setUserResults(usersRes.data.users || []);
+      if (maintRes?.data?.success) {
+        setMaintenanceMode(Boolean(maintRes.data.maintenance));
+        setMaintenanceNotice(maintRes.data.message || '');
+      }
     } catch (err) {
       console.error('Error loading admin data:', err);
+    }
+  };
+
+  const handleToggleMaintenance = async (targetEnabled = !maintenanceMode) => {
+    setUpdatingMaintenance(true);
+    try {
+      const res = await api.post('/admin/maintenance', {
+        enabled: targetEnabled,
+        message: maintenanceNotice.trim()
+      });
+      if (res.data.success) {
+        setMaintenanceMode(res.data.maintenance);
+        setFeedback({
+          type: 'success',
+          text: res.data.maintenance
+            ? '🔴 Maintenance Mode ACTIVATED! All normal users are now redirected to the Maintenance Screen. Your Admin account (UID 7780774047) remains completely unrestricted.'
+            : '🟢 Maintenance Mode DEACTIVATED! All users can now access and play the app normally.'
+        });
+        triggerHaptic('notification', 'success');
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err.response?.data?.error || 'Failed to update maintenance mode'
+      });
+      triggerHaptic('notification', 'error');
+    } finally {
+      setUpdatingMaintenance(false);
     }
   };
 
@@ -427,8 +468,49 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* 3D Admin Subtabs with Contest tab */}
-      <div className="grid grid-cols-7 gap-1 bg-[#12121A] p-1.5 rounded-2xl border-b-2 border-[#252535]">
+      {/* Pinned Maintenance Mode Quick Control Card */}
+      <div className={`p-3 rounded-2xl border-2 flex items-center justify-between transition-all ${
+        maintenanceMode
+          ? 'bg-gradient-to-r from-rose-950/80 via-red-900/60 to-rose-950/80 border-rose-500/60 shadow-[0_0_20px_rgba(244,63,94,0.25)]'
+          : 'bg-[#101420] border-[#222A3E]'
+      }`}>
+        <div className="flex items-center space-x-2.5">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black ${
+            maintenanceMode ? 'bg-rose-500 text-white animate-pulse' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+          }`}>
+            <Wrench size={16} />
+          </div>
+          <div>
+            <div className="flex items-center space-x-1.5">
+              <span className={`text-[11px] font-black uppercase font-heading ${
+                maintenanceMode ? 'text-rose-300' : 'text-emerald-400'
+              }`}>
+                {maintenanceMode ? '● Maintenance Mode Active' : '● System Online (Live)'}
+              </span>
+            </div>
+            <p className="text-[9px] text-gray-400">
+              {maintenanceMode ? 'Regular users are blocked • Admin exempt' : 'All players can access normally'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => handleToggleMaintenance()}
+          disabled={updatingMaintenance}
+          className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all tracking-wider font-heading flex items-center space-x-1 ${
+            maintenanceMode
+              ? 'btn-3d-green text-white'
+              : 'btn-3d-dark text-rose-400 border border-rose-500/40 hover:bg-rose-950/40'
+          }`}
+        >
+          <Power size={11} />
+          <span>{updatingMaintenance ? 'Saving...' : maintenanceMode ? 'Turn OFF' : 'Turn ON'}</span>
+        </button>
+      </div>
+
+      {/* 3D Admin Subtabs with System Maintenance tab (2 rows of 4 for mobile comfort) */}
+      <div className="grid grid-cols-4 gap-1.5 bg-[#12121A] p-1.5 rounded-2xl border-b-2 border-[#252535]">
         {[
           { id: 'tasks', label: 'Task', icon: PlusCircle },
           { id: 'promo', label: 'Promo', icon: Gift },
@@ -436,7 +518,8 @@ export default function AdminDashboard() {
           { id: 'broadcast', label: 'Cast', icon: Send },
           { id: 'ads', label: 'Ads', icon: Tv },
           { id: 'users', label: 'Users', icon: Users },
-          { id: 'withdrawals', label: 'Pay', icon: CreditCard }
+          { id: 'withdrawals', label: 'Pay', icon: CreditCard },
+          { id: 'maintenance', label: 'System', icon: ShieldAlert }
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeAdminTab === tab.id;
@@ -1342,6 +1425,129 @@ export default function AdminDashboard() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 8: SYSTEM MAINTENANCE CONTROL */}
+      {activeAdminTab === 'maintenance' && (
+        <div className="space-y-4">
+          <div className="box-3d p-4 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#252535] pb-2.5">
+              <h3 className="text-xs font-black text-yellow-400 uppercase tracking-wider font-heading flex items-center space-x-2">
+                <Wrench size={16} />
+                <span>System Maintenance Control</span>
+              </h3>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase font-heading ${
+                maintenanceMode
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+              }`}>
+                {maintenanceMode ? 'ACTIVE (LOCKED)' : 'LIVE (OPEN)'}
+              </span>
+            </div>
+
+            {/* Big Status Banner */}
+            <div className={`p-4 rounded-2xl border-2 transition-all ${
+              maintenanceMode
+                ? 'bg-rose-950/40 border-rose-500/50 text-rose-200'
+                : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+            }`}>
+              <div className="flex items-center space-x-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                  maintenanceMode
+                    ? 'bg-rose-500/20 border border-rose-500/40 text-rose-400 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
+                    : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400'
+                }`}>
+                  {maintenanceMode ? <ShieldAlert size={26} /> : <CheckCircle2 size={26} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-black uppercase font-heading">
+                    {maintenanceMode ? 'Maintenance Mode is Active' : 'Application is Online & Live'}
+                  </h4>
+                  <p className="text-[11px] text-gray-400 leading-snug mt-0.5">
+                    {maintenanceMode
+                      ? 'All standard users are blocked by the 3D Maintenance Screen. Only your Admin session (UID: 7780774047) can bypass and test.'
+                      : 'All players can freely log in, complete tasks, open chests, play games, and manage wallets.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Instant Switch Button */}
+              <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-300">Toggle Maintenance State:</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleMaintenance()}
+                  disabled={updatingMaintenance}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider font-heading flex items-center space-x-1.5 active:scale-95 transition-all ${
+                    maintenanceMode
+                      ? 'btn-3d-green text-white shadow-lg'
+                      : 'btn-3d-dark text-rose-400 border border-rose-500/50 hover:bg-rose-950/50'
+                  }`}
+                >
+                  <Power size={14} />
+                  <span>
+                    {updatingMaintenance
+                      ? 'Updating...'
+                      : maintenanceMode
+                      ? 'Deactivate (Open App)'
+                      : 'Activate (Lock App)'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Notice Message Configuration */}
+            <div className="space-y-2 pt-1">
+              <label className="block text-[11px] text-gray-400 font-bold uppercase tracking-wider">
+                Maintenance Notice Message (English)
+              </label>
+              <textarea
+                rows={3}
+                value={maintenanceNotice}
+                onChange={(e) => setMaintenanceNotice(e.target.value)}
+                placeholder="e.g. We are upgrading server infrastructure to add new game modes and features! Please stay tuned in our community."
+                className="w-full bg-[#0D0D14] border border-[#2B2B3D] rounded-xl p-3 text-xs text-white placeholder-gray-500 outline-none focus:border-yellow-500 resize-none font-medium"
+              />
+              <p className="text-[10px] text-gray-400 leading-normal">
+                This message is displayed directly on the 3D Maintenance Screen to all blocked users in English.
+              </p>
+
+              <div className="pt-2 flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleToggleMaintenance(maintenanceMode)}
+                  disabled={updatingMaintenance}
+                  className="flex-1 btn-3d-gold py-2.5 rounded-xl text-xs font-black uppercase flex items-center justify-center space-x-1.5"
+                >
+                  <Save size={14} />
+                  <span>{updatingMaintenance ? 'Saving...' : 'Save Notice Message'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Admin Guidance / Explainer Box */}
+            <div className="bg-[#121624] border border-[#222C42] rounded-2xl p-3.5 space-y-2 text-xs">
+              <div className="flex items-center space-x-1.5 text-yellow-400 font-black uppercase text-[10px]">
+                <Sparkles size={13} />
+                <span>How Maintenance Mode Works</span>
+              </div>
+              <ul className="space-y-1.5 text-[11px] text-gray-300 list-disc list-inside">
+                <li>
+                  <strong className="text-white">Admin Exemption:</strong> Your admin ID (<span className="font-mono text-yellow-300">7780774047</span>) will NEVER be blocked. You can test new updates inside the Mini App.
+                </li>
+                <li>
+                  <strong className="text-white">3D Lock Screen:</strong> Regular users see an eye-catching English maintenance screen with official Telegram community buttons.
+                </li>
+                <li>
+                  <strong className="text-white">Auto-Unlock:</strong> As soon as you click <span className="text-emerald-400 font-bold">Deactivate</span>, users' screens will auto-refresh and open without requiring manual reinstall.
+                </li>
+                <li>
+                  <strong className="text-white">Safety:</strong> All user balances, diamonds, keys, and tasks remain 100% safe in the database.
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       )}
     </div>

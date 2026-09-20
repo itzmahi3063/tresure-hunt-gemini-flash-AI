@@ -28,6 +28,8 @@ export function AppProvider({ children }) {
   const [duplicateLinkedUser, setDuplicateLinkedUser] = useState(null);
   const [ipConflictUsers, setIpConflictUsers] = useState(null);
   const [syncError, setSyncError] = useState(null);
+  const [maintenanceActive, setMaintenanceActive] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
 
   // Multi-Language State (Default: saved language or 'en')
   const [language, setLanguageState] = useState(() => {
@@ -144,6 +146,14 @@ export function AppProvider({ children }) {
         if (res.data.settings) {
           setSettings(res.data.settings);
         }
+        if (res.data.isMaintenance) {
+          setMaintenanceActive(true);
+        } else {
+          setMaintenanceActive(false);
+        }
+        if (res.data.maintenanceMessage) {
+          setMaintenanceMessage(res.data.maintenanceMessage);
+        }
         setSyncError(null);
       }
     } catch (err) {
@@ -154,6 +164,12 @@ export function AppProvider({ children }) {
       // failure instead of masking it with a fake zero.
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
+      if (err?.response?.data?.maintenance) {
+        setMaintenanceActive(true);
+        if (err.response.data.error || err.response.data.message) {
+          setMaintenanceMessage(err.response.data.error || err.response.data.message);
+        }
+      }
       setSyncError({
         status: status || null,
         message: serverMsg || err.message || 'Could not load your profile. Please check your connection and try again.'
@@ -166,12 +182,19 @@ export function AppProvider({ children }) {
   };
 
   useEffect(() => {
-    // Catches a device-conflict 403 from ANY action (chest open, tasks,
+    // Catches a device-conflict 403 or maintenance 503 from ANY action (chest open, tasks,
     // wallet, games...), not just the initial sync — see services/api.js.
     const handleDeviceConflict = (e) => setDuplicateLinkedUser(e.detail || {});
     const handleIpConflict = (e) => setIpConflictUsers(e.detail || []);
+    const handleMaintenance = (e) => {
+      setMaintenanceActive(true);
+      if (e.detail?.message || e.detail?.error) {
+        setMaintenanceMessage(e.detail.message || e.detail.error);
+      }
+    };
     window.addEventListener('device-conflict', handleDeviceConflict);
     window.addEventListener('ip-conflict', handleIpConflict);
+    window.addEventListener('app-maintenance', handleMaintenance);
 
     initTelegram();
     fetchUserProfile();
@@ -188,6 +211,7 @@ export function AppProvider({ children }) {
     return () => {
       window.removeEventListener('device-conflict', handleDeviceConflict);
       window.removeEventListener('ip-conflict', handleIpConflict);
+      window.removeEventListener('app-maintenance', handleMaintenance);
     };
   }, []);
 
@@ -312,7 +336,11 @@ export function AppProvider({ children }) {
         connectTonWallet,
         disconnectTonWallet,
         isTonConnectModalOpen,
-        setIsTonConnectModalOpen
+        setIsTonConnectModalOpen,
+        maintenanceActive,
+        setMaintenanceActive,
+        maintenanceMessage,
+        setMaintenanceMessage
       }}
     >
       {children}
