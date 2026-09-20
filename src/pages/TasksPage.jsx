@@ -15,7 +15,8 @@ import {
   TrendingUp,
   AlertCircle,
   Edit3,
-  Rocket
+  Rocket,
+  Wallet
 } from 'lucide-react';
 import api from '../services/api';
 import { openExternalLink, openTelegramLink, triggerHaptic } from '../services/telegram';
