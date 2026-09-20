@@ -67,7 +67,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
   useEffect(() => {
     if (isOpen && timeLeft === 0) {
       triggerHaptic('notification', 'warning');
-      alert('⏳ পেমেন্টের ১৫ মিনিট সময় শেষ হয়ে গেছে! অনুগ্রহ করে পুনরায় "Pay now" বাটনে ক্লিক করে নতুন সেশন শুরু করুন।');
+      alert('⏳ Payment session (15 minutes) expired! Please click "Pay now" again to start a new session.');
       onClose();
     }
   }, [timeLeft, isOpen, onClose]);
@@ -173,7 +173,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
         }
         onClose();
       } else {
-        setError('পেমেন্ট এখনও ব্লকচেইনে কনফার্ম হয়নি। টাকা পাঠিয়ে থাকলে ২-৩ মিনিট অপেক্ষা করুন, অথবা ট্রানজ্যাকশন সম্পন্ন করুন।');
+        setError('Payment not confirmed on the blockchain yet. If you have already sent TON, please wait 2–3 minutes or complete the transfer.');
         triggerHaptic('notification', 'warning');
       }
     } catch (err) {
@@ -280,11 +280,11 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
           </div>
           <div>
             <h3 className="text-lg font-black text-white tracking-wide">Campaign Payment</h3>
-            <p className="text-xs text-[#a89782] font-medium">পেমেন্ট সম্পন্ন করে পোস্ট অ্যাক্টিভ করুন</p>
+            <p className="text-xs text-[#a89782] font-medium">Complete payment to activate campaign post</p>
           </div>
         </div>
 
-        {/* PROMINENT BENGALI NOTICE BANNER (REQUIRED BY USER) */}
+        {/* PROMINENT PAYMENT NOTICE BANNER */}
         <div
           style={{
             background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.22) 0%, rgba(180, 83, 9, 0.3) 100%)',
@@ -295,13 +295,13 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
         >
           <div className="flex items-center justify-center space-x-1.5 text-amber-300">
             <AlertTriangle size={18} className="text-amber-400 shrink-0" />
-            <span className="text-xs font-black uppercase tracking-wider text-amber-300">জরুরি পেমেন্ট নির্দেশিকা</span>
+            <span className="text-xs font-black uppercase tracking-wider text-amber-300">IMPORTANT PAYMENT NOTICE</span>
           </div>
           <p className="text-sm font-black text-amber-100 leading-snug px-1 drop-shadow-sm">
-            “পেমেন্ট করে থাকলে ২-৩ মিনিট অপেক্ষা করুন, স্বয়ংক্রিয়ভাবে অ্যাপ্রুভ হয়ে যাবে। যদি পেমেন্ট না করে থাকেন তাহলে পেমেন্ট সম্পন্ন করুন।”
+            "If you have already made the payment, please wait 2–3 minutes for automatic verification. If you have not paid yet, please complete the payment below."
           </p>
           <p className="text-[11px] text-amber-200/90 font-bold pt-0.5">
-            টাকা পাঠানোর সময় অবশ্যই নিচে উল্লেখিত <span className="underline text-amber-300">Comment / Memo</span> টি দিন।
+            When sending TON, you MUST include the <span className="underline text-amber-300">Comment / Memo</span> shown below.
           </p>
         </div>
 
@@ -546,7 +546,7 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
                 <span className="text-[10px] uppercase font-bold text-gray-400">Payment Session Timer</span>
               </div>
               <p className="text-[11px] font-bold text-gray-200">
-                {timeLeft > 0 ? 'পেমেন্ট সম্পন্ন করার বাকি সময়' : 'সময় শেষ হয়ে গেছে!'}
+                {timeLeft > 0 ? 'Time remaining to complete payment' : 'Payment session expired!'}
               </p>
             </div>
           </div>
