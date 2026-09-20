@@ -369,7 +369,7 @@ app.post('/api/tasks/exclusive/create', authMiddleware, async (req, res) => {
   }
 });
 
-// Confirm & Pay for Exclusive Task Campaign
+// Confirm & Pay for Exclusive Task Campaign (Strict TON Blockchain & Balance Verification)
 app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
     const { taskId } = req.body;
@@ -377,16 +377,43 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, asyn
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Task campaign not found' });
     }
-    // Re-check right before the task actually goes live — closes the gap
-    // where the bot could have been removed as admin between creation and
-    // payment approval.
-    await assertBotVerifiedIfRequired({
-      verification_type: existing.verification_type,
-      chat_id: existing.chat_id,
-      link: existing.link
+
+    // 1. If already approved via TonConsole webhook or blockchain scan
+    if (existing.status === 'approved' || existing.is_active) {
+      return res.json({ success: true, task: existing });
+    }
+
+    // 2. Trigger immediate real-time scan on TON blockchain for memo EXCL_<taskId>
+    await verifyPendingTonPayments(true);
+
+    const recheck = db.getTaskById(taskId);
+    if (recheck && (recheck.status === 'approved' || recheck.is_active)) {
+      return res.json({ success: true, task: recheck });
+    }
+
+    // 3. Alternatively allow payment from user's deposited TON balance
+    const user = db.getUser(req.user.id);
+    const tonCost = existing.ton_cost || Number(((existing.max_users / 100) * 0.20).toFixed(2));
+    if (user && (user.ton_balance || 0) >= tonCost) {
+      await assertBotVerifiedIfRequired({
+        verification_type: existing.verification_type,
+        chat_id: existing.chat_id,
+        link: existing.link
+      });
+      user.ton_balance = Number(((user.ton_balance || 0) - tonCost).toFixed(4));
+      const task = db.payUserExclusiveTask(req.user.id, taskId);
+      task.paid_amount_ton = tonCost;
+      task.paid_at = new Date().toISOString();
+      db.save();
+      await db.flush();
+      return res.json({ success: true, task, paidFromBalance: true });
+    }
+
+    // 4. Reject unpaid attempts strictly
+    return res.status(400).json({
+      success: false,
+      error: `TON payment not detected on blockchain yet! Please send ${tonCost.toFixed(2)} TON with comment/memo EXCL_${taskId} to approve your post.`
     });
-    const task = db.payUserExclusiveTask(req.user.id, taskId);
-    res.json({ success: true, task });
   } catch (err) {
     res.status(err.statusCode || 400).json({ success: false, error: err.message });
   }
