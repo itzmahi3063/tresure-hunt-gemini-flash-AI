@@ -225,7 +225,7 @@ app.post('/api/chest/open', authMiddleware, blockIfDeviceConflict, (req, res) =>
   try {
     const { watchStartedAt } = req.body;
     if (isAdWatchTooShort(watchStartedAt)) {
-      return res.status(400).json({ success: false, error: 'Please watch the full ad before opening the chest.' });
+      return res.status(400).json({ success: false, error: 'Please watch the full ad for at least 5 seconds before opening the chest.' });
     }
     const result = db.openChest(req.user.id);
     res.json({
@@ -478,7 +478,7 @@ app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, (req, res) => 
     const userId = req.user.id;
 
     if (isAdWatchTooShort(watchStartedAt)) {
-      return res.status(400).json({ success: false, error: 'Please watch the full ad before claiming this reward.' });
+      return res.status(400).json({ success: false, error: 'Please watch the full ad for at least 5 seconds before claiming this reward.' });
     }
 
     const count = db.getDailyAdCount(userId, adId);
@@ -566,7 +566,7 @@ app.post('/api/daily-rewards/claim', authMiddleware, blockIfDeviceConflict, (req
   try {
     const { watchStartedAt } = req.body;
     if (isAdWatchTooShort(watchStartedAt)) {
-      return res.status(400).json({ success: false, error: 'Please watch the full ad before claiming your daily reward.' });
+      return res.status(400).json({ success: false, error: 'Please watch the full ad for at least 5 seconds before claiming your daily reward.' });
     }
     const result = db.claimDailyReward(req.user.id);
     res.json({ success: true, ...result });
