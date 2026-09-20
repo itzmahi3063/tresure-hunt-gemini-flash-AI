@@ -369,6 +369,39 @@ app.post('/api/tasks/exclusive/create', authMiddleware, async (req, res) => {
   }
 });
 
+// Cancel / Reject Unpaid Task Campaign Draft
+app.post('/api/tasks/exclusive/cancel', authMiddleware, async (req, res) => {
+  try {
+    const { taskId } = req.body;
+    if (!taskId) {
+      return res.status(400).json({ success: false, error: 'taskId is required' });
+    }
+
+    const task = db.getTaskById(taskId);
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task draft not found or already deleted' });
+    }
+
+    const adminId = String(process.env.ADMIN_ID || '7780774047');
+    if (String(task.creator_id) !== String(req.user.id) && String(req.user.id) !== adminId) {
+      return res.status(403).json({ success: false, error: 'Unauthorized to delete this task draft' });
+    }
+
+    if (task.status === 'approved' && task.tx_hash) {
+      return res.status(400).json({ success: false, error: 'Cannot delete an active, paid task campaign' });
+    }
+
+    db.deleteTask(taskId);
+    db.save();
+    await db.flush();
+    console.log(`🗑️ Task draft "${task.title}" (${taskId}) deleted by user ${req.user.id}`);
+    res.json({ success: true, message: 'Task draft deleted successfully', taskId });
+  } catch (err) {
+    console.error('Cancel task error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Confirm & Pay for Exclusive Task Campaign (Strict TON Blockchain & Balance Verification)
 app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
@@ -437,6 +470,24 @@ app.get('/api/ton/config', (req, res) => {
 // Webhook for TonConsole / TonAPI real-time transaction notifications
 app.post('/api/ton/webhook', async (req, res) => {
   try {
+    const expectedSecret = process.env.TON_WEBHOOK_SECRET;
+    if (expectedSecret) {
+      const incomingSecret =
+        req.headers['x-tonconsole-secret'] ||
+        req.headers['x-webhook-secret'] ||
+        req.headers['authorization'] ||
+        req.query.secret;
+
+      if (
+        incomingSecret &&
+        incomingSecret !== expectedSecret &&
+        incomingSecret !== `Bearer ${expectedSecret}`
+      ) {
+        console.warn('⚠️ Rejected TON Webhook: invalid secret header');
+        return res.status(401).json({ success: false, error: 'Unauthorized: Invalid webhook secret' });
+      }
+    }
+
     console.log('📥 Incoming TON Webhook received:', JSON.stringify(req.body).slice(0, 180));
     const result = await handleWebhookPayload(req.body);
     res.json({ success: true, result });
