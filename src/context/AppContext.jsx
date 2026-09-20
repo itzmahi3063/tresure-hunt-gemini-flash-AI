@@ -55,6 +55,26 @@ export function AppProvider({ children }) {
   const [contactAdminModalOpen, setContactAdminModalOpen] = useState(false);
   const [chestModalData, setChestModalData] = useState(null);
 
+  // TON Connect Global State
+  const [connectedTonWallet, setConnectedTonWallet] = useState(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem('treasure_ton_connected_wallet')) || null;
+  });
+  const [isTonConnectModalOpen, setIsTonConnectModalOpen] = useState(false);
+
+  const connectTonWallet = (address) => {
+    setConnectedTonWallet(address);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('treasure_ton_connected_wallet', address);
+    }
+  };
+
+  const disconnectTonWallet = () => {
+    setConnectedTonWallet(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('treasure_ton_connected_wallet');
+    }
+  };
+
   const navigateTab = (newTab) => {
     if (newTab === activeTab) return;
     setTransitionTab(newTab);
@@ -287,7 +307,12 @@ export function AppProvider({ children }) {
         contactAdminModalOpen,
         setContactAdminModalOpen,
         chestModalData,
-        setChestModalData
+        setChestModalData,
+        connectedTonWallet,
+        connectTonWallet,
+        disconnectTonWallet,
+        isTonConnectModalOpen,
+        setIsTonConnectModalOpen
       }}
     >
       {children}
