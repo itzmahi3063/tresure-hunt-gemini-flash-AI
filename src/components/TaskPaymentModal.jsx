@@ -212,28 +212,36 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
   };
 
   const handleCancelTask = async () => {
-    if (!window.confirm('Are you sure you want to cancel and delete this unpaid post draft?')) {
-      return;
-    }
+    const doCancel = async () => {
+      setLoading(true);
+      setError(null);
+      triggerHaptic('impact', 'light');
 
-    setLoading(true);
-    setError(null);
-    triggerHaptic('impact', 'light');
-
-    try {
-      const res = await api.post('/tasks/exclusive/cancel', { taskId: task.id });
-      if (res.data.success) {
-        triggerHaptic('notification', 'success');
-        if (onTaskCancelled) {
-          onTaskCancelled(task.id);
+      try {
+        const res = await api.post('/tasks/exclusive/cancel', { taskId: task.id });
+        if (res.data.success) {
+          triggerHaptic('notification', 'success');
+          if (onTaskCancelled) {
+            onTaskCancelled(task.id);
+          }
+          onClose();
         }
-        onClose();
+      } catch (err) {
+        setError(err.response?.data?.error || 'Failed to cancel task');
+        triggerHaptic('notification', 'error');
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to cancel task');
-      triggerHaptic('notification', 'error');
-    } finally {
-      setLoading(false);
+    };
+
+    if (window.Telegram?.WebApp?.showConfirm) {
+      window.Telegram.WebApp.showConfirm('Are you sure you want to cancel and delete this unpaid post draft?', (confirmed) => {
+        if (confirmed) {
+          doCancel();
+        }
+      });
+    } else if (window.confirm('Are you sure you want to cancel and delete this unpaid post draft?')) {
+      doCancel();
     }
   };
 
