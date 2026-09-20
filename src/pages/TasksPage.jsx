@@ -52,15 +52,7 @@ export default function TasksPage() {
   const [boostModalTask, setBoostModalTask] = useState(null);
 
   const handlePayNowClick = (taskItem) => {
-    if (!connectedTonWallet) {
-      triggerHaptic('notification', 'warning');
-      setStatusMessage({
-        type: 'error',
-        text: '⚠️ Please connect your wallet first before making payment!'
-      });
-      setIsTonConnectModalOpen(true);
-      return;
-    }
+    triggerHaptic('impact', 'light');
     setPaymentModalTask(taskItem);
   };
 
@@ -519,70 +511,6 @@ export default function TasksPage() {
             </div>
           </div>
 
-          {/* CONNECT WALLET BAR (Replaces Deposit Bar) */}
-          <div
-            style={{
-              background: 'linear-gradient(180deg, #151922 0%, #0d1017 100%)',
-              border: '1.5px solid #232d3f',
-              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.5)'
-            }}
-            className="rounded-[22px] p-3 flex items-center justify-between shadow-md"
-          >
-            <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-xl bg-[#1e2638] flex items-center justify-center text-[#0098ea] shrink-0">
-                <Wallet size={16} />
-              </div>
-              <div>
-                {connectedTonWallet ? (
-                  <div className="space-y-0.5">
-                    <div className="flex items-center space-x-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">TON Connected</span>
-                    </div>
-                    <p className="text-xs font-mono font-bold text-cyan-200 truncate max-w-[150px]">
-                      {typeof connectedTonWallet === 'string' && connectedTonWallet.length > 14
-                        ? `${connectedTonWallet.slice(0, 6)}...${connectedTonWallet.slice(-4)}`
-                        : String(connectedTonWallet || '')}
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <span className="text-xs font-bold text-gray-200">Wallet not connected</span>
-                    <p className="text-[10px] text-gray-400">Connect TON to pay & activate posts</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {connectedTonWallet ? (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('selection');
-                  disconnectTonWallet();
-                }}
-                className="px-3 py-1.5 rounded-full text-[11px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 active:scale-95 transition-all shrink-0"
-              >
-                Disconnect
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('impact', 'medium');
-                  setIsTonConnectModalOpen(true);
-                }}
-                style={{
-                  background: 'linear-gradient(180deg, #0098ea 0%, #0077c5 100%)',
-                  boxShadow: '0 4px 12px rgba(0, 152, 234, 0.4)'
-                }}
-                className="px-4 py-2 rounded-full text-xs font-bold text-white uppercase tracking-wide active:scale-95 transition-all shadow shrink-0"
-              >
-                Connect Wallet
-              </button>
-            )}
-          </div>
-
           {/* Sub Filters: All Tasks vs My Tasks */}
           <div className="flex space-x-2 pt-1">
             <button
@@ -1037,7 +965,7 @@ export default function TasksPage() {
           setExclusiveSubTab('my');
           setStatusMessage({
             type: 'success',
-            text: '🎉 পোস্ট সফলভাবে তৈরি হয়েছে! উপরে Connect Wallet করুন এবং নিচে আপনার পোস্টের "Pay now" বাটনে ক্লিক করুন।'
+            text: '🎉 Campaign post created! Click "Pay now" on your post below to complete payment and activate it.'
           });
           loadTasksAndAds();
         }}
