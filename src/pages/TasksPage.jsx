@@ -25,7 +25,7 @@ import TaskPaymentModal from '../components/TaskPaymentModal';
 import BoostTaskModal from '../components/BoostTaskModal';
 
 export default function TasksPage() {
-  const { user, setUser, setContactAdminModalOpen } = useApp();
+  const { user, setUser, setContactAdminModalOpen, openWallet } = useApp();
   const [activeCategory, setActiveCategory] = useState('daily');
   const [exclusiveSubTab, setExclusiveSubTab] = useState('all'); // 'all' | 'my'
   const [tasks, setTasks] = useState([]);
@@ -495,6 +495,38 @@ export default function TasksPage() {
               <span className="text-[11px] font-black text-[#f7bf46] uppercase">Create</span>
               <ChevronRight className="text-[#f7bf46]" size={18} />
             </div>
+          </div>
+
+          {/* TON Balance & Deposit Quick Bar in Exclusive Tasks */}
+          <div className="rounded-[22px] p-3 bg-[#111923] border border-[#1b3447] flex items-center justify-between shadow-md">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                <CreditCard size={16} />
+              </div>
+              <div>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Your TON Balance</span>
+                <p className="text-xs font-black text-[#00f5ff] font-mono leading-none mt-0.5">
+                  {(user?.ton_balance || 0).toFixed(4)} TON
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('impact', 'medium');
+                openWallet('deposit');
+              }}
+              style={{
+                background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 100%)',
+                borderTop: '1px solid #a6f4ff',
+                borderBottom: '2.5px solid #004777',
+                color: '#031726'
+              }}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase flex items-center space-x-1 active:scale-95 transition-all shadow-sm"
+            >
+              <PlusCircle size={13} />
+              <span>Deposit TON</span>
+            </button>
           </div>
 
           {/* Sub Filters: All Tasks vs My Tasks */}
