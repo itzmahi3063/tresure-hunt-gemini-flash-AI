@@ -15,7 +15,11 @@ import {
   AlertTriangle,
   Clock,
   ShoppingBag,
-  Sparkles
+  Sparkles,
+  Download,
+  Copy,
+  Check,
+  ExternalLink
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import { formatGems, formatUsdt } from '../utils/format';
@@ -44,6 +48,10 @@ export default function WalletModal() {
   const [history, setHistory] = useState({ withdrawals: [], conversions: [] });
   const [showLockConfirmModal, setShowLockConfirmModal] = useState(false);
   const [storeModalOpen, setStoreModalOpen] = useState(false);
+  const [tonConfig, setTonConfig] = useState({ walletAddress: '', isConfigured: false });
+  const [copiedTonAddress, setCopiedTonAddress] = useState(false);
+  const [copiedTonMemo, setCopiedTonMemo] = useState(false);
+  const [checkingDeposit, setCheckingDeposit] = useState(false);
   const [requirements, setRequirements] = useState({
     tasksCompleted: 0,
     tasksRequired: 20,
@@ -64,11 +72,51 @@ export default function WalletModal() {
       setMessage({ text: '', type: '' });
       loadHistory();
       loadRequirements();
+      loadTonConfig();
       if (user?.wallets && user.wallets[withdrawNetwork]) {
         setWalletAddress(user.wallets[withdrawNetwork]);
       }
     }
   }, [walletModalOpen, walletInitialTab, withdrawNetwork, user]);
+
+  const loadTonConfig = async () => {
+    try {
+      const res = await api.get('/ton/config');
+      if (res.data?.walletAddress) {
+        setTonConfig({
+          walletAddress: res.data.walletAddress,
+          isConfigured: res.data.isConfigured
+        });
+      }
+    } catch (e) {}
+  };
+
+  const handleCheckDeposit = async () => {
+    if (!user) return;
+    setCheckingDeposit(true);
+    triggerHaptic('impact', 'medium');
+    try {
+      const res = await api.get('/ton/check-payment', {
+        params: { userId: user.id, memo: `DEP_${user.id}` }
+      });
+      if (res.data?.paid && res.data.user) {
+        setUser(prev => ({
+          ...prev,
+          diamonds: res.data.user.diamonds,
+          ton_balance: res.data.user.ton_balance
+        }));
+        triggerHaptic('notification', 'success');
+        setMessage({ text: 'TON Deposit verified! Gems credited to your balance.', type: 'success' });
+      } else {
+        triggerHaptic('notification', 'warning');
+        setMessage({ text: 'No new deposit found yet. Webhook or cron will auto-credit once confirmed on blockchain.', type: 'error' });
+      }
+    } catch (err) {
+      setMessage({ text: 'Failed to check deposit. Try again in a minute.', type: 'error' });
+    } finally {
+      setCheckingDeposit(false);
+    }
+  };
 
   const loadRequirements = async () => {
     try {
@@ -268,41 +316,50 @@ export default function WalletModal() {
         </div>
 
         {/* 3D Tab Selector */}
-        <div className="grid grid-cols-4 gap-1.5 bg-[#090C14] p-1.5 mx-4 mt-3 rounded-2xl border border-[#1E2336]">
+        <div className="grid grid-cols-5 gap-1 bg-[#090C14] p-1.5 mx-3 mt-3 rounded-2xl border border-[#1E2336]">
+          <button
+            onClick={() => { setActiveTab('deposit'); setMessage({ text: '', type: '' }); }}
+            className={`py-2 text-[10px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
+              activeTab === 'deposit' ? 'btn-3d-gold' : 'btn-3d-dark text-gray-400'
+            }`}
+          >
+            <Download size={12} />
+            <span>Deposit</span>
+          </button>
           <button
             onClick={() => { setActiveTab('convert'); setMessage({ text: '', type: '' }); }}
-            className={`py-2 text-[11px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
+            className={`py-2 text-[10px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
               activeTab === 'convert' ? 'btn-3d-gold' : 'btn-3d-dark text-gray-400'
             }`}
           >
-            <ArrowRightLeft size={13} />
+            <ArrowRightLeft size={12} />
             <span>Convert</span>
           </button>
           <button
             onClick={() => { setActiveTab('withdraw'); setMessage({ text: '', type: '' }); }}
-            className={`py-2 text-[11px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
+            className={`py-2 text-[10px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
               activeTab === 'withdraw' ? 'btn-3d-gold' : 'btn-3d-dark text-gray-400'
             }`}
           >
-            <Send size={13} />
+            <Send size={12} />
             <span>Withdraw</span>
           </button>
           <button
             onClick={() => { setActiveTab('history'); setMessage({ text: '', type: '' }); }}
-            className={`py-2 text-[11px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
+            className={`py-2 text-[10px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
               activeTab === 'history' ? 'btn-3d-gold' : 'btn-3d-dark text-gray-400'
             }`}
           >
-            <History size={13} />
+            <History size={12} />
             <span>History</span>
           </button>
           <button
             onClick={() => { setActiveTab('proofs'); setMessage({ text: '', type: '' }); }}
-            className={`py-2 text-[11px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
+            className={`py-2 text-[10px] font-black rounded-xl flex items-center justify-center space-x-1 uppercase transition-all ${
               activeTab === 'proofs' ? 'btn-3d-gold' : 'btn-3d-dark text-gray-400'
             }`}
           >
-            <ShieldCheck size={13} />
+            <ShieldCheck size={12} />
             <span>Proofs</span>
           </button>
         </div>
@@ -319,6 +376,134 @@ export default function WalletModal() {
 
         {/* Tab Contents */}
         <div className="p-4 overflow-y-auto flex-1 space-y-4">
+          
+          {/* TAB 0: DEPOSIT (TON Blockchain via TonConsole) */}
+          {activeTab === 'deposit' && (
+            <div className="space-y-4">
+              {/* Balance Summary Box */}
+              <div className="bg-[#151928] border border-[#22283C] p-3.5 rounded-2xl shadow-inner space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Your Balance</span>
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase">1 TON ≈ 125,000 GEMS</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#1e2438]">
+                  <div>
+                    <span className="text-[10px] text-gray-400">GEMS:</span>
+                    <p className="text-base font-black text-cyan-400 font-mono">
+                      {(user.diamonds || 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-gray-400">TON:</span>
+                    <p className="text-base font-black text-[#00f5ff] font-mono">
+                      {(user.ton_balance || 0).toFixed(4)} TON
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* TON Deposit Instructions */}
+              <div className="bg-[#0c141c] border border-[#1b3247] p-3.5 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase text-[#00f5ff] flex items-center space-x-1.5">
+                    <Sparkles size={14} />
+                    <span>TON Deposit Address</span>
+                  </span>
+                  <span className="flex items-center space-x-1 text-[10px] text-emerald-400 font-mono">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>Active</span>
+                  </span>
+                </div>
+
+                {/* Recipient Address */}
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Send TON to this Address:</span>
+                  <div className="flex items-center justify-between bg-[#060a0f] p-2 rounded-xl border border-[#192b3a]">
+                    <span className="text-[11px] font-mono text-cyan-200 truncate mr-2">
+                      {tonConfig.walletAddress || 'UQCfk1W0sMbGDj_vAUjmC3hTO4W_W8GR-9-3Qen4xtm-lwo0'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const addr = tonConfig.walletAddress || 'UQCfk1W0sMbGDj_vAUjmC3hTO4W_W8GR-9-3Qen4xtm-lwo0';
+                        if (navigator.clipboard) navigator.clipboard.writeText(addr);
+                        triggerHaptic('selection');
+                        setCopiedTonAddress(true);
+                        setTimeout(() => setCopiedTonAddress(false), 2000);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#142331] text-[10px] font-bold text-cyan-300 hover:bg-[#1f374e] active:scale-95 flex items-center space-x-1 shrink-0"
+                    >
+                      {copiedTonAddress ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                      <span>{copiedTonAddress ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mandatory Memo */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-black text-amber-400">
+                      ⚠️ Required Transfer Memo / Comment:
+                    </span>
+                    <span className="text-[9px] text-rose-400 font-bold uppercase">Mandatory</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-[#1f1505] p-2 rounded-xl border border-[#593907]">
+                    <span className="text-xs font-mono font-black text-amber-300 select-all">
+                      DEP_{user.id}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const memo = `DEP_${user.id}`;
+                        if (navigator.clipboard) navigator.clipboard.writeText(memo);
+                        triggerHaptic('selection');
+                        setCopiedTonMemo(true);
+                        setTimeout(() => setCopiedTonMemo(false), 2000);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#3d2703] text-[10px] font-black text-amber-300 hover:bg-[#523506] active:scale-95 flex items-center space-x-1 shrink-0"
+                    >
+                      {copiedTonMemo ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                      <span>{copiedTonMemo ? 'Copied' : 'Copy Memo'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-amber-200/80 leading-tight pt-0.5">
+                    You MUST paste <code className="text-amber-300 font-mono font-bold">DEP_{user.id}</code> into the comment box in your wallet so our system credits your account!
+                  </p>
+                </div>
+
+                {/* One Click Deep Link */}
+                {tonConfig.walletAddress && (
+                  <a
+                    href={`ton://transfer/${tonConfig.walletAddress}?amount=1000000000&text=${encodeURIComponent('DEP_' + user.id)}`}
+                    onClick={() => triggerHaptic('impact', 'medium')}
+                    className="w-full py-2.5 rounded-xl btn-3d-cyan text-xs font-black uppercase flex items-center justify-center space-x-2 active:scale-98 transition-all"
+                  >
+                    <span>Open in TON Wallet</span>
+                    <ExternalLink size={13} />
+                  </a>
+                )}
+
+                {/* Manual Check Button */}
+                <button
+                  type="button"
+                  onClick={handleCheckDeposit}
+                  disabled={checkingDeposit}
+                  className="w-full py-2.5 rounded-xl btn-3d-dark text-xs font-black uppercase text-gray-300 hover:text-white flex items-center justify-center space-x-2 active:scale-98 transition-all"
+                >
+                  <RefreshCw size={13} className={checkingDeposit ? 'animate-spin' : ''} />
+                  <span>{checkingDeposit ? 'Checking Blockchain...' : 'Verify Deposit Now'}</span>
+                </button>
+              </div>
+
+              {/* Information Note */}
+              <div className="p-3 rounded-xl bg-[#111622] border border-[#1e2638] text-[11px] text-gray-400 space-y-1">
+                <p className="font-bold text-gray-300">⚡ Instant Webhook & 1-Minute Fallback:</p>
+                <p>
+                  Deposits are credited automatically via TonConsole webhook within seconds. If the network delays, our automatic blockchain scanner confirms it within 1 minute.
+                </p>
+              </div>
+            </div>
+          )}
           
           {/* TAB 1: CONVERT (With 25% Fee Breakdown matching screenshot) */}
           {activeTab === 'convert' && (
