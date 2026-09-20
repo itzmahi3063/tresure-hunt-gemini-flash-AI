@@ -17,7 +17,7 @@ function blockIfDeviceConflict(req, res, next) {
   if (user && user.device_conflict) {
     return res.status(403).json({
       success: false,
-      error: 'This device is already linked to another account. Open the app to resolve this before continuing.',
+      error: 'Your account has been suspended',
       deviceConflict: true,
       linkedUser: user.device_conflict_linked || null
     });
@@ -25,7 +25,7 @@ function blockIfDeviceConflict(req, res, next) {
   if (user && user.ip_conflict) {
     return res.status(403).json({
       success: false,
-      error: 'Too many accounts are already using this connection. Open the app to resolve this before continuing.',
+      error: 'alada Network / Vpn use kore account ta calaite hobe',
       ipConflict: true,
       linkedUsers: user.ip_conflict_linked || []
     });
