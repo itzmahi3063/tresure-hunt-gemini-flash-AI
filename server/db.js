@@ -586,6 +586,7 @@ class Database {
         last_daily_reset: today,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString(),
         device_conflict: false,
         device_conflict_linked: null,
         ip_conflict: false,
@@ -612,6 +613,7 @@ class Database {
         u.last_daily_reset = today;
       }
       u.updated_at = new Date().toISOString();
+      u.last_active_at = new Date().toISOString();
       this.save();
     }
 
@@ -1513,6 +1515,9 @@ class Database {
 
   // Automatic check invoked every minute by cron
   checkAndTriggerDailyResetBroadcast() {
+    // Automatically trigger daily storage cleanup (TTL purge)
+    this.checkAndTriggerStorageAutoCleanup();
+
     const today = this.getDailyDate();
     if (this.data.last_daily_reset_broadcast === today) return null;
 
@@ -1527,6 +1532,167 @@ class Database {
     this.data.last_daily_reset_broadcast = today;
     this.save();
     return this.enqueueDailyResetBroadcast();
+  }
+
+  // =========================================================================
+  // TTL & DATABASE STORAGE AUTO-CLEANUP ENGINE
+  // =========================================================================
+
+  getStorageStats() {
+    const now = Date.now();
+    const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+    const adminId = String(this.data.settings?.admin_telegram_id || process.env.ADMIN_ID || '7780774047');
+    const pendingWithdrawalUserIds = new Set(
+      (this.data.withdrawals || [])
+        .filter(w => w.status === 'pending')
+        .map(w => String(w.user_id))
+    );
+
+    let totalUsers = 0;
+    let activeUsers = 0;
+    let inactiveUsers = 0;
+
+    if (this.data.users) {
+      for (const [uid, u] of Object.entries(this.data.users)) {
+        totalUsers++;
+        if (uid === adminId) {
+          activeUsers++;
+          continue;
+        }
+        const lastActive = new Date(u.last_active_at || u.updated_at || u.created_at).getTime();
+        if (!isNaN(lastActive) && (now - lastActive) > SIXTY_DAYS_MS && !pendingWithdrawalUserIds.has(uid)) {
+          inactiveUsers++;
+        } else {
+          activeUsers++;
+        }
+      }
+    }
+
+    const adLogsCount = Object.keys(this.data.daily_ads_completed || {}).length;
+    const broadcastQueueCount = (this.data.broadcast_queue || []).length;
+    const taskCompletionsCount = Object.keys(this.data.task_completions || {}).length;
+    const tonTxsCount = (this.data.ton_processed_txs || []).length;
+    const lastCleanup = this.data.last_storage_cleanup || 'Never';
+
+    const rawJson = JSON.stringify(this.data);
+    const sizeInKb = (Buffer.byteLength(rawJson, 'utf8') / 1024).toFixed(2);
+
+    return {
+      totalUsers,
+      activeUsers,
+      inactiveUsers,
+      adLogsCount,
+      broadcastQueueCount,
+      taskCompletionsCount,
+      tonTxsCount,
+      lastCleanup,
+      sizeInKb
+    };
+  }
+
+  performStorageAutoCleanup() {
+    const stats = {
+      purged_ad_logs: 0,
+      purged_broadcasts: 0,
+      purged_inactive_users: 0,
+      purged_task_completions: 0,
+      purged_tx_hashes: 0,
+      timestamp: new Date().toISOString()
+    };
+
+    const now = Date.now();
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+    const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+
+    // 1. Purge Daily Ad Logs older than 7 days
+    if (this.data.daily_ads_completed) {
+      for (const key of Object.keys(this.data.daily_ads_completed)) {
+        const parts = key.split('_');
+        const dateStr = parts[parts.length - 1];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          const logDate = new Date(dateStr).getTime();
+          if (!isNaN(logDate) && (now - logDate) > SEVEN_DAYS_MS) {
+            delete this.data.daily_ads_completed[key];
+            stats.purged_ad_logs++;
+          }
+        }
+      }
+    }
+
+    // 2. Purge Completed / Failed Broadcast Queue entries older than 3 days
+    if (Array.isArray(this.data.broadcast_queue)) {
+      const initialBcCount = this.data.broadcast_queue.length;
+      this.data.broadcast_queue = this.data.broadcast_queue.filter(job => {
+        if (job.status === 'completed' || job.status === 'failed') {
+          const jobTime = new Date(job.completed_at || job.created_at).getTime();
+          if (!isNaN(jobTime) && (now - jobTime) > THREE_DAYS_MS) {
+            return false;
+          }
+        }
+        return true;
+      });
+      stats.purged_broadcasts = initialBcCount - this.data.broadcast_queue.length;
+    }
+
+    // 3. Purge Processed TON Tx Hashes beyond the latest 500
+    if (Array.isArray(this.data.ton_processed_txs) && this.data.ton_processed_txs.length > 500) {
+      const excess = this.data.ton_processed_txs.length - 500;
+      this.data.ton_processed_txs = this.data.ton_processed_txs.slice(-500);
+      stats.purged_tx_hashes = excess;
+    }
+
+    // 4. Purge Users Inactive for 60 Days (2 Months)
+    // Protected: Admin account and users with pending withdrawal requests
+    const adminId = String(this.data.settings?.admin_telegram_id || process.env.ADMIN_ID || '7780774047');
+    const pendingWithdrawalUserIds = new Set(
+      (this.data.withdrawals || [])
+        .filter(w => w.status === 'pending')
+        .map(w => String(w.user_id))
+    );
+
+    const inactiveUserIds = [];
+    if (this.data.users) {
+      for (const [uid, u] of Object.entries(this.data.users)) {
+        if (uid === adminId) continue;
+        if (pendingWithdrawalUserIds.has(uid)) continue;
+
+        const lastActive = new Date(u.last_active_at || u.updated_at || u.created_at).getTime();
+        if (!isNaN(lastActive) && (now - lastActive) > SIXTY_DAYS_MS) {
+          inactiveUserIds.push(uid);
+        }
+      }
+
+      for (const uid of inactiveUserIds) {
+        delete this.data.users[uid];
+        stats.purged_inactive_users++;
+
+        // Clean up task completions for purged user
+        if (this.data.task_completions) {
+          for (const tKey of Object.keys(this.data.task_completions)) {
+            if (tKey.startsWith(`${uid}_`)) {
+              delete this.data.task_completions[tKey];
+              stats.purged_task_completions++;
+            }
+          }
+        }
+      }
+    }
+
+    this.data.last_storage_cleanup = stats.timestamp;
+    this.save();
+    console.log('🧹 [Storage Auto-Cleanup TTL] Purged junk:', JSON.stringify(stats));
+    return stats;
+  }
+
+  checkAndTriggerStorageAutoCleanup() {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+    const lastCleanup = this.data.last_storage_cleanup ? new Date(this.data.last_storage_cleanup).getTime() : 0;
+    if (now - lastCleanup > TWENTY_FOUR_HOURS_MS) {
+      return this.performStorageAutoCleanup();
+    }
+    return null;
   }
 
   getNextBroadcastJob() {

@@ -546,12 +546,22 @@ app.get('/api/ton/cron', async (req, res) => {
       console.log('🌅 Enqueued 9:00 AM BST Daily Reset Broadcast:', triggeredDailyJob.id);
     }
 
+    // Check & trigger storage auto-cleanup (TTL: 60d inactive users, 7d ad logs, 3d broadcasts)
+    const storageCleanupResult = db.checkAndTriggerStorageAutoCleanup();
+
     // Process queued broadcast messages in small batches (35 users per run)
     const broadcastResult = await processBroadcastQueue(35, 4500).catch(err => {
       console.error('Error processing broadcast queue in cron:', err);
       return null;
     });
-    res.json({ success: true, timestamp: new Date().toISOString(), result, triggeredDailyJob, broadcast: broadcastResult });
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      result,
+      triggeredDailyJob,
+      storageCleanup: storageCleanupResult,
+      broadcast: broadcastResult
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1455,6 +1465,26 @@ app.post('/api/admin/maintenance', authMiddleware, adminMiddleware, async (req, 
       maintenance: updated.maintenance,
       message: updated.message
     });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Storage & TTL Auto-Cleanup Controls
+app.get('/api/admin/storage/stats', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const stats = db.getStorageStats();
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/admin/storage/cleanup', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const result = db.performStorageAutoCleanup();
+    const stats = db.getStorageStats();
+    res.json({ success: true, result, stats });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

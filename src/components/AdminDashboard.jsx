@@ -21,7 +21,9 @@ import {
   Save,
   Wrench,
   Power,
-  ShieldAlert
+  ShieldAlert,
+  Database,
+  HardDrive
 } from 'lucide-react';
 import api from '../services/api';
 import { triggerHaptic } from '../services/telegram';
@@ -34,6 +36,11 @@ export default function AdminDashboard() {
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceNotice, setMaintenanceNotice] = useState('');
   const [updatingMaintenance, setUpdatingMaintenance] = useState(false);
+
+  // Storage & TTL Engine State
+  const [storageStats, setStorageStats] = useState(null);
+  const [cleaningStorage, setCleaningStorage] = useState(false);
+  const [storageFeedback, setStorageFeedback] = useState(null);
 
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState(null);
@@ -86,14 +93,15 @@ export default function AdminDashboard() {
 
   const loadAllAdminData = async () => {
     try {
-      const [tasksRes, adsRes, networksRes, wdRes, promoRes, usersRes, maintRes] = await Promise.all([
+      const [tasksRes, adsRes, networksRes, wdRes, promoRes, usersRes, maintRes, storageRes] = await Promise.all([
         api.get('/tasks'),
         api.get('/admin/ads'),
         api.get('/admin/ad-networks'),
         api.get('/admin/withdrawals'),
         api.get('/admin/promo'),
         api.get('/admin/users'),
-        api.get('/admin/maintenance').catch(() => ({ data: { success: false } }))
+        api.get('/admin/maintenance').catch(() => ({ data: { success: false } })),
+        api.get('/admin/storage/stats').catch(() => ({ data: { success: false } }))
       ]);
 
       if (tasksRes.data.success) setTasksList(tasksRes.data.tasks || []);
@@ -106,8 +114,37 @@ export default function AdminDashboard() {
         setMaintenanceMode(Boolean(maintRes.data.maintenance));
         setMaintenanceNotice(maintRes.data.message || '');
       }
+      if (storageRes?.data?.success) {
+        setStorageStats(storageRes.data.stats);
+      }
     } catch (err) {
       console.error('Error loading admin data:', err);
+    }
+  };
+
+  const handleTriggerStorageCleanup = async () => {
+    if (cleaningStorage) return;
+    setCleaningStorage(true);
+    setStorageFeedback(null);
+    try {
+      const res = await api.post('/admin/storage/cleanup');
+      if (res.data.success) {
+        setStorageStats(res.data.stats);
+        const { purged_inactive_users, purged_ad_logs, purged_broadcasts } = res.data.result;
+        setStorageFeedback({
+          type: 'success',
+          text: `Storage cleanup complete! Purged ${purged_inactive_users} inactive users (60d+), ${purged_ad_logs} old ad logs, and ${purged_broadcasts} old broadcasts.`
+        });
+        triggerHaptic('notification', 'success');
+      }
+    } catch (err) {
+      setStorageFeedback({
+        type: 'error',
+        text: err.response?.data?.error || 'Storage cleanup failed'
+      });
+      triggerHaptic('notification', 'error');
+    } finally {
+      setCleaningStorage(false);
     }
   };
 
@@ -1546,6 +1583,76 @@ export default function AdminDashboard() {
                   <strong className="text-white">Safety:</strong> All user balances, diamonds, keys, and tasks remain 100% safe in the database.
                 </li>
               </ul>
+            </div>
+
+            {/* MongoDB Storage & TTL Auto-Cleanup Control Card */}
+            <div className="bg-[#121624] border border-[#222C42] rounded-2xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-cyan-400 font-black uppercase text-xs">
+                  <Database size={16} />
+                  <span>Database Storage & Auto-Cleanup (TTL)</span>
+                </div>
+                {storageStats && (
+                  <span className="text-[10px] font-mono text-gray-400 font-bold bg-[#0A0D18] px-2 py-0.5 rounded border border-[#1E2638]">
+                    {storageStats.sizeInKb} KB
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[11px] text-gray-300 leading-relaxed">
+                Automated TTL keeps MongoDB storage lean and fast. Active users' balances and coins are 100% safe. Users offline for <strong>2 months (60 days)</strong> are automatically purged; if they return, their profile starts fresh as a new user.
+              </p>
+
+              {/* Stats Grid */}
+              {storageStats ? (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-[#0A0D18] p-2.5 rounded-xl border border-[#1E2638]">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase block">Active Users (60d)</span>
+                    <span className="text-sm font-black text-emerald-400 font-numbers">{storageStats.activeUsers}</span>
+                  </div>
+
+                  <div className="bg-[#0A0D18] p-2.5 rounded-xl border border-[#1E2638]">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase block">Inactive Users (&gt;60d)</span>
+                    <span className="text-sm font-black text-amber-400 font-numbers">{storageStats.inactiveUsers}</span>
+                  </div>
+
+                  <div className="bg-[#0A0D18] p-2.5 rounded-xl border border-[#1E2638]">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase block">Ad Logs (&gt;7d Purged)</span>
+                    <span className="text-sm font-black text-cyan-300 font-numbers">{storageStats.adLogsCount}</span>
+                  </div>
+
+                  <div className="bg-[#0A0D18] p-2.5 rounded-xl border border-[#1E2638]">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase block">Broadcast Queue</span>
+                    <span className="text-sm font-black text-purple-300 font-numbers">{storageStats.broadcastQueueCount}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-3 text-xs text-gray-400">Loading storage statistics...</div>
+              )}
+
+              {storageFeedback && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 ${
+                  storageFeedback.type === 'success' ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'
+                }`}>
+                  <Sparkles size={14} />
+                  <span>{storageFeedback.text}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleTriggerStorageCleanup}
+                disabled={cleaningStorage}
+                className="w-full btn-3d-cyan py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center space-x-2 text-black"
+              >
+                <Trash2 size={14} className={cleaningStorage ? 'animate-spin' : ''} />
+                <span>{cleaningStorage ? 'Cleaning Storage...' : 'Clean Inactive Users & Junk Storage Now'}</span>
+              </button>
+
+              <div className="flex items-center justify-between text-[10px] text-gray-400 pt-1 font-mono">
+                <span>Last auto-cleanup:</span>
+                <span className="text-gray-300">{storageStats?.lastCleanup ? (storageStats.lastCleanup === 'Never' ? 'Daily at 9:00 AM BST' : new Date(storageStats.lastCleanup).toLocaleTimeString()) : 'Daily at 9:00 AM BST'}</span>
+              </div>
             </div>
           </div>
         </div>
