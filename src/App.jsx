@@ -17,6 +17,7 @@ import MandatoryGateScreen from './components/MandatoryGateScreen';
 import SplashScreen from './components/SplashScreen';
 import DeviceBlockedScreen from './components/DeviceBlockedScreen';
 import IpBlockedScreen from './components/IpBlockedScreen';
+import SyncErrorScreen from './components/SyncErrorScreen';
 import TelegramOnlyScreen from './components/TelegramOnlyScreen';
 import ErrorBoundary from './components/ErrorBoundary';
 import { isInsideTelegram } from './services/telegram';
@@ -35,6 +36,7 @@ export default function App() {
     setDuplicateLinkedUser,
     ipConflictUsers,
     setIpConflictUsers,
+    syncError,
     fetchUserProfile,
     language,
     setLanguage,
@@ -62,7 +64,14 @@ export default function App() {
 
   // 3. Initial 3D Cover Splash Screen with 0%-100% dynamic loading progress
   if (!splashFinished || loading) {
-    return <SplashScreen onFinish={() => setSplashFinished(true)} />;
+    return <SplashScreen loading={loading} onFinish={() => setSplashFinished(true)} />;
+  }
+
+  // 3b. Sync genuinely failed (auth/network) — show a real error instead of
+  // silently rendering the app with `user` missing/incomplete, which
+  // several screens would otherwise display as a fake "0 balance".
+  if (syncError && !user) {
+    return <SyncErrorScreen error={syncError} onRetry={fetchUserProfile} />;
   }
 
   // 4. Anti-Cheat: Device Already In Use Detection Screen (matching UI)
