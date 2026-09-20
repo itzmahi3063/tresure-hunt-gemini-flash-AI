@@ -465,7 +465,7 @@ export default function TasksPage() {
                 className="rounded-[28px] p-6 text-center space-y-3"
               >
                 <div className="w-12 h-12 rounded-2xl bg-[#1a1108] border border-[#4a341f] flex items-center justify-center mx-auto shadow-inner text-[#f7bf46]">
-                  <RefreshCw className="animate-spin" size={24} />
+                  <RefreshCw className="spin-smooth" size={24} />
                 </div>
                 <div className="space-y-1">
                   <h4 className="text-sm font-black text-white uppercase tracking-wider font-heading">

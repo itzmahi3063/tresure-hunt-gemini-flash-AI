@@ -249,6 +249,21 @@
   100% { transform: rotate(360deg); }
 }
 
+@keyframes spinSmooth {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spin-smooth {
+  animation: spinSmooth 1s linear infinite !important;
+  transform-origin: center center !important;
+  display: inline-block;
+}
+
 .animate-rayRotate {
   animation: rayRotate 20s linear infinite;
 }

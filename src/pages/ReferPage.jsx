@@ -350,7 +350,7 @@ export default function ReferPage() {
         {loadingRefData ? (
           <div className="text-center py-6 space-y-2.5">
             <div className="w-10 h-10 rounded-2xl bg-[#191928] border border-[#2D2D45] flex items-center justify-center mx-auto text-cyan-400">
-              <RefreshCw className="animate-spin" size={20} />
+              <RefreshCw className="spin-smooth" size={20} />
             </div>
             <div className="space-y-0.5">
               <p className="text-xs font-black text-white uppercase tracking-wider font-heading">
@@ -510,7 +510,7 @@ export default function ReferPage() {
 
             {loadingContest ? (
               <div className="text-center py-6 bg-[#0E0E16] rounded-2xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
-                <RefreshCw size={22} className="text-yellow-400 animate-spin" />
+                <RefreshCw size={22} className="text-yellow-400 spin-smooth" />
                 <p className="text-xs font-bold text-yellow-300">Loading Contest Standings... Please Wait</p>
                 <div className="w-28 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
                   <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>
@@ -646,7 +646,7 @@ export default function ReferPage() {
         <div className="box-3d p-3 space-y-2">
           {loadingLeaderboard ? (
             <div className="text-center py-6 bg-[#0E0E16] rounded-2xl border border-yellow-500/20 flex flex-col items-center justify-center space-y-2">
-              <RefreshCw size={22} className="text-yellow-400 animate-spin" />
+              <RefreshCw size={22} className="text-yellow-400 spin-smooth" />
               <p className="text-xs font-bold text-yellow-300">Loading Leaderboard... Please Wait</p>
               <div className="w-28 h-1 bg-yellow-950/60 rounded-full overflow-hidden mt-1">
                 <div className="h-full bg-gradient-to-r from-yellow-500 to-amber-300 animate-pulse rounded-full w-2/3"></div>

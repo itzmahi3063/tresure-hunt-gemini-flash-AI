@@ -49,35 +49,40 @@ export default function SectionLoader({ tab = 'play', isInitial = false }) {
     <div className="fixed inset-0 z-50 bg-[#0A0A0E] flex flex-col items-center justify-center text-center p-6 select-none animate-fadeIn">
       {/* Circular Progress Ring with Centered Icon */}
       <div className="relative w-36 h-36 flex items-center justify-center mb-6">
-        {/* SVG Spinning Glowing Arc */}
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+        {/* Static Background Ring */}
+        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
           <circle
             cx="50"
             cy="50"
             r="42"
             stroke="#1A1D2B"
-            strokeWidth="4.5"
+            strokeWidth="5"
             fill="none"
-          />
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            stroke="#A855F7"
-            strokeWidth="4.5"
-            strokeLinecap="round"
-            strokeDasharray="264"
-            strokeDashoffset="170"
-            fill="none"
-            className="animate-spin origin-center drop-shadow-[0_0_10px_rgba(168,85,247,0.8)]"
-            style={{ animationDuration: '1.2s' }}
           />
         </svg>
 
+        {/* Spinning Glowing Foreground Arc */}
+        <div className="absolute inset-0 w-full h-full spin-smooth">
+          <svg className="w-full h-full" viewBox="0 0 100 100">
+            <circle
+              cx="50"
+              cy="50"
+              r="42"
+              stroke="#A855F7"
+              strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray="264"
+              strokeDashoffset="170"
+              fill="none"
+              className="drop-shadow-[0_0_12px_rgba(168,85,247,0.9)]"
+            />
+          </svg>
+        </div>
+
         {/* Center Glow + Icon */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="absolute w-16 h-16 bg-purple-600/20 rounded-full blur-xl animate-pulse" />
-          <div className="relative z-10 drop-shadow-[0_0_12px_rgba(168,85,247,0.5)]">
+        <div className="relative z-10 flex items-center justify-center pointer-events-none">
+          <div className="absolute w-16 h-16 bg-purple-600/25 rounded-full blur-xl animate-pulse" />
+          <div className="relative z-10 drop-shadow-[0_0_14px_rgba(168,85,247,0.6)]">
             {icon}
           </div>
         </div>
