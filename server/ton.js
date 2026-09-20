@@ -9,6 +9,12 @@ const TON_WALLET_ADDRESS = process.env.TON_WALLET_ADDRESS || '';
 const TONCONSOLE_API_KEY = process.env.TONCONSOLE_API_KEY || '';
 const TON_API_BASE = 'https://tonapi.io/v2';
 
+// High-Concurrency Mutex & Throttling Guards
+const inFlightTxHashes = new Set();
+let lastScanPromise = null;
+let lastScanTime = 0;
+const SCAN_THROTTLE_MS = 3000; // Throttle to max 1 blockchain call per 3s across all 10k-20k concurrent users
+
 export function getTonConfig() {
   return {
     walletAddress: TON_WALLET_ADDRESS,
@@ -17,9 +23,9 @@ export function getTonConfig() {
 }
 
 /**
- * Fetch recent incoming transactions from TonAPI / TonConsole
+ * Fetch recent incoming transactions from TonAPI / TonConsole (up to 100 max)
  */
-export async function fetchRecentTransactions(limit = 25) {
+export async function fetchRecentTransactions(limit = 100) {
   if (!TON_WALLET_ADDRESS || !TONCONSOLE_API_KEY) {
     return [];
   }
@@ -77,16 +83,19 @@ export async function processTonTransaction(tx, source = 'webhook') {
 
   const txHash = tx.hash;
 
-  // Idempotent guard: never process the same transaction twice
-  if (db.isTonTxProcessed(txHash)) {
+  // Idempotent & Mutex guard: never process the same transaction twice even with 10k concurrent requests
+  if (db.isTonTxProcessed(txHash) || inFlightTxHashes.has(txHash)) {
     return { ignored: true, reason: 'already_processed', txHash };
   }
 
-  const inMsg = tx.in_msg;
-  if (!inMsg) return { ignored: true, reason: 'no_incoming_msg', txHash };
+  inFlightTxHashes.add(txHash);
 
-  const rawValue = Number(inMsg.value) || 0;
-  const amountTon = Number((rawValue / 1e9).toFixed(4));
+  try {
+    const inMsg = tx.in_msg;
+    if (!inMsg) return { ignored: true, reason: 'no_incoming_msg', txHash };
+
+    const rawValue = Number(inMsg.value) || 0;
+    const amountTon = Number((rawValue / 1e9).toFixed(4));
   const memo = extractMemo(inMsg);
   const senderAddress = inMsg.source?.address || '';
 
@@ -204,6 +213,9 @@ export async function processTonTransaction(tx, source = 'webhook') {
   await db.flush();
 
   return { success: true, type: 'unmatched', txHash };
+  } finally {
+    inFlightTxHashes.delete(txHash);
+  }
 }
 
 /**
@@ -270,29 +282,49 @@ export async function handleWebhookPayload(payload) {
 }
 
 /**
- * 1-Minute Fallback Cron & On-Demand Payment Verifier
- * Scans recent blockchain transactions and auto-confirms any matching pending orders
+ * 1-Minute Fallback Cron & High-Concurrency On-Demand Payment Verifier
+ * Scans recent blockchain transactions (up to 100) and auto-confirms matching orders.
+ * Automatically throttles concurrent requests within 3 seconds so 10k users share 1 scan.
  */
-export async function verifyPendingTonPayments() {
-  const pendingTasks = db.data.tasks.filter(t => t.category === 'exclusive' && t.status === 'pending_payment');
-  
-  // Fetch latest 30 transactions from TonAPI
-  const txs = await fetchRecentTransactions(30);
-  if (!txs || txs.length === 0) {
-    return { verifiedCount: 0, pendingTasksCount: pendingTasks.length };
+export async function verifyPendingTonPayments(force = false) {
+  const now = Date.now();
+  // If thousands of users call this concurrently within 3 seconds, reuse active scan promise
+  if (!force && lastScanPromise && (now - lastScanTime < SCAN_THROTTLE_MS)) {
+    return await lastScanPromise;
   }
 
-  let verifiedCount = 0;
-  for (const tx of txs) {
+  lastScanTime = now;
+  lastScanPromise = (async () => {
     try {
-      const result = await processTonTransaction(tx, 'cron');
-      if (result.success && result.type !== 'unmatched') {
-        verifiedCount++;
-      }
-    } catch (err) {
-      console.error('Error processing transaction in cron:', err.message);
-    }
-  }
+      const pendingTasks = db.data.tasks.filter(t => t.category === 'exclusive' && t.status === 'pending_payment');
 
-  return { verifiedCount, pendingTasksCount: pendingTasks.length };
+      // Fetch latest 100 transactions from TonAPI
+      const txs = await fetchRecentTransactions(100);
+      if (!txs || txs.length === 0) {
+        return { verifiedCount: 0, pendingTasksCount: pendingTasks.length };
+      }
+
+      let verifiedCount = 0;
+      for (const tx of txs) {
+        try {
+          const result = await processTonTransaction(tx, 'cron');
+          if (result.success && result.type !== 'unmatched') {
+            verifiedCount++;
+          }
+        } catch (err) {
+          console.error('Error processing transaction in cron:', err.message);
+        }
+      }
+
+      return { verifiedCount, pendingTasksCount: pendingTasks.length };
+    } finally {
+      setTimeout(() => {
+        if (Date.now() - lastScanTime >= SCAN_THROTTLE_MS) {
+          lastScanPromise = null;
+        }
+      }, SCAN_THROTTLE_MS);
+    }
+  })();
+
+  return await lastScanPromise;
 }
