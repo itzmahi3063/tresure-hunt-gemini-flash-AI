@@ -68,13 +68,18 @@ export default function IpBlockedScreen({ linkedUsers, onRetry, onSwitched }) {
 
         <div className="space-y-3">
           <h1 className="text-2xl font-black text-[#00E5FF] tracking-tight font-heading drop-shadow-[0_0_15px_rgba(0,229,255,0.4)]">
-            Device Already In Use — Same IP
+            Same IP Detected
           </h1>
-          <p className="text-xs font-bold text-amber-400 max-w-xs mx-auto leading-relaxed">
-            If you want to run this account, you need to connect using a VPN.
-          </p>
+          <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+            <p className="text-sm font-black text-amber-300 max-w-xs mx-auto leading-relaxed font-heading">
+              ⚠️ alada Network / Vpn use kore account ta calaite hobe
+            </p>
+            <p className="text-[11px] text-gray-300 mt-1">
+              (You must use a different Network or VPN to run this account)
+            </p>
+          </div>
           <p className="text-xs text-[#8E95A5] max-w-xs mx-auto leading-relaxed">
-            This device is already linked to another account. Log in with that account, or claim this device for this one below.
+            Another account is already using this IP connection. Switch your WiFi/Data or connect using a secure VPN to proceed.
           </p>
         </div>
 
