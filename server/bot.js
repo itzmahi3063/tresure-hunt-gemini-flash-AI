@@ -215,3 +215,88 @@ export async function broadcastToUsers(messageText) {
 
   return { total: userIds.length, sent: sentCount };
 }
+
+/**
+ * Post withdrawal proof to the official channel (@treasure_pay)
+ * with a high-definition branded banner and safe HTML text formatting
+ */
+export async function postWithdrawalProofToChannel(withdrawal, user) {
+  if (!bot || !bot.telegram) {
+    console.warn('Bot instance not ready for channel posting');
+    return false;
+  }
+
+  const channelId = process.env.PAYMENT_CHANNEL || '@treasure_pay';
+  const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
+  const bannerUrl = `${webappUrl}/payment_proof_banner.jpg`;
+
+  // Safe HTML Escaping (prevents < > & from breaking HTML)
+  const escapeHtml = (str) => {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
+
+  // Mask address: First 3 and last 3 letters, asterisks in middle: UXA*****YAD
+  const maskAddress = (addr) => {
+    if (!addr || typeof addr !== 'string') return '***';
+    const clean = addr.trim();
+    if (clean.length <= 6) return clean;
+    const first3 = clean.slice(0, 3);
+    const last3 = clean.slice(-3);
+    return `${first3}*****${last3}`;
+  };
+
+  const rawUsername = user?.username ? `@${user.username}` : (user?.first_name || 'Hunter');
+  const safeUsername = escapeHtml(rawUsername);
+  const safeUid = escapeHtml(String(user?.id || withdrawal?.user_id || ''));
+  const amount = Number(withdrawal.amount_usdt || 0).toFixed(2);
+
+  let currencyLabel = 'USDT';
+  const network = (withdrawal.network || '').toUpperCase();
+  if (network.includes('TON')) {
+    currencyLabel = 'TON (Tonkeeper)';
+  } else if (network.includes('BINANCE')) {
+    currencyLabel = 'USDT (Binance Pay)';
+  } else {
+    currencyLabel = `${escapeHtml(withdrawal.network || 'USDT')}`;
+  }
+
+  const maskedAddress = maskAddress(String(withdrawal.wallet_address || ''));
+  const safeMaskedAddress = escapeHtml(maskedAddress);
+
+  // Exact structure requested by user:
+  // withdraw successful
+  // username: @user (UID: 12345)
+  // withdraw amount: $X.XX (tonkeeper)
+  // address: UXA*****YAD
+  const caption =
+    `🎉 <b>Withdrawal Successful</b>\n\n` +
+    `👤 <b>Username:</b> ${safeUsername} (${safeUid})\n` +
+    `💰 <b>Withdraw Amount:</b> $${amount} (${currencyLabel})\n` +
+    `📍 <b>Address:</b> <code>${safeMaskedAddress}</code>\n\n` +
+    `💎 <i>Treasure Hunt Official Verified Payout</i>`;
+
+  // Direct attempt: send photo banner with caption using HTML parse mode (immune to _ and / parsing errors!)
+  try {
+    await bot.telegram.sendPhoto(channelId, bannerUrl, {
+      caption,
+      parse_mode: 'HTML'
+    });
+    console.log(`✅ Payout proof photo posted to ${channelId} for UID ${safeUid}`);
+    return true;
+  } catch (photoErr) {
+    console.warn('sendPhoto via URL failed, attempting direct text fallback:', photoErr.message);
+    try {
+      await bot.telegram.sendMessage(channelId, caption, {
+        parse_mode: 'HTML'
+      });
+      console.log(`✅ Payout proof text fallback posted to ${channelId} for UID ${safeUid}`);
+      return true;
+    } catch (msgErr) {
+      console.error('Failed to post payment proof to channel:', msgErr.message);
+      return false;
+    }
+  }
+}
