@@ -378,8 +378,8 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, asyn
       return res.status(404).json({ success: false, error: 'Task campaign not found' });
     }
 
-    // 1. If already approved via TonConsole webhook or blockchain scan
-    if (existing.status === 'approved' || existing.is_active) {
+    // 1. If already approved via TonConsole webhook or blockchain scan (with genuine tx_hash)
+    if (existing.status === 'approved' && existing.tx_hash) {
       return res.json({ success: true, task: existing });
     }
 
@@ -387,7 +387,7 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, asyn
     await verifyPendingTonPayments(true);
 
     const recheck = db.getTaskById(taskId);
-    if (recheck && (recheck.status === 'approved' || recheck.is_active)) {
+    if (recheck && recheck.status === 'approved' && recheck.tx_hash) {
       return res.json({ success: true, task: recheck });
     }
 
@@ -404,6 +404,7 @@ app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, asyn
       const task = db.payUserExclusiveTask(req.user.id, taskId);
       task.paid_amount_ton = tonCost;
       task.paid_at = new Date().toISOString();
+      task.tx_hash = `internal_balance_${Date.now()}`;
       db.save();
       await db.flush();
       return res.json({ success: true, task, paidFromBalance: true });
@@ -463,18 +464,21 @@ app.get('/api/ton/check-payment', async (req, res) => {
     // Trigger instant blockchain scan so user doesn't wait for next interval
     await verifyPendingTonPayments();
 
-    // 1. Check if Exclusive Task has been approved
+    // 1. Check if Exclusive Task has genuine blockchain payment confirmation
     if (taskId) {
       const task = db.getTaskById(taskId);
-      if (task && (task.status === 'approved' || task.is_active)) {
+      // STRICT: Must have real blockchain tx_hash to confirm payment
+      if (task && task.status === 'approved' && task.tx_hash) {
         return res.json({ success: true, paid: true, type: 'task', task });
       }
+      // If checking for a task and it's not confirmed yet, DO NOT fall through to loose memo matching
+      return res.json({ success: true, paid: false, message: 'Task payment pending confirmation' });
     }
 
-    // 2. Check if user deposit or memo processed
+    // 2. Check if user deposit processed
     if (userId) {
       const user = db.getUser(userId);
-      const isPaid = db.data.ton_transactions?.some(t => t.userId === String(userId) || (memo && t.memo === memo));
+      const isPaid = db.data.ton_transactions?.some(t => t.userId === String(userId) && t.tx_hash);
       return res.json({
         success: true,
         paid: Boolean(isPaid),
@@ -483,9 +487,10 @@ app.get('/api/ton/check-payment', async (req, res) => {
       });
     }
 
-    // 3. Check if memo is found in ton_transactions
-    if (memo) {
-      const found = db.data.ton_transactions?.find(t => t.memo === memo || (t.memo && t.memo.includes(memo)));
+    // 3. Check if specific memo is found in ton_transactions (exact match and valid tx_hash)
+    if (memo && String(memo).trim().length > 3) {
+      const cleanMemo = String(memo).trim();
+      const found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
       if (found) {
         return res.json({ success: true, paid: true, transaction: found });
       }
