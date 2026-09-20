@@ -164,7 +164,7 @@ const initialData = {
       id: 'usl',
       name: 'USL 👾',
       logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
-      block_id: 'sample-usl-zone'
+      block_id: 'plc_7c25684decd46576'
     }
   ],
   // 4 fixed Daily-tab ad SLOTS in exact requested order:
@@ -205,7 +205,7 @@ const initialData = {
       network_id: 'usl',
       name: 'USL 👾',
       logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
-      block_id: 'sample-usl-zone',
+      block_id: 'plc_7c25684decd46576',
       reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
@@ -363,31 +363,31 @@ class Database {
     let changed = false;
     const currentSlots = this.data.ads_config;
 
-    // Ensure all 4 default slots exist and match the ordered definitions
+    // Ensure all default slots exist without resetting user's is_hidden or custom configuration
     const updatedSlots = defaultSlots.map((ds) => {
       let existing = currentSlots.find(a => a.id === ds.id);
       if (!existing) {
         changed = true;
         return { ...ds };
       }
-      let slotChanged = false;
-      if (existing.is_hidden) {
-        existing.is_hidden = false;
-        slotChanged = true;
+      // Upgrade any placeholder sample-usl-zone to the real USL placementId
+      if (existing.network_id === 'usl' && (!existing.block_id || existing.block_id === 'sample-usl-zone')) {
+        existing.block_id = 'plc_7c25684decd46576';
+        changed = true;
       }
-      if (existing.name !== ds.name || existing.logo_url !== ds.logo_url) {
-        existing.name = ds.name;
-        existing.logo_url = ds.logo_url;
-        existing.network_id = ds.network_id;
-        slotChanged = true;
-      }
-      if (slotChanged) changed = true;
       return existing;
     });
 
-    if (changed || this.data.ads_config.length !== 4) {
+    // Keep any other custom slots if they exist
+    for (const slot of currentSlots) {
+      if (!updatedSlots.some(s => s.id === slot.id)) {
+        updatedSlots.push(slot);
+        changed = true;
+      }
+    }
+
+    if (changed) {
       this.data.ads_config = updatedSlots;
-      this.data.ad_networks = JSON.parse(JSON.stringify(initialData.ad_networks));
       this.save();
     }
   }
@@ -919,17 +919,35 @@ class Database {
   updateAdConfig(adId, updates) {
     const ad = this.data.ads_config.find(a => a.id === adId);
     if (ad) {
-      // reward_diamonds / is_hidden / max_daily are the only things this
-      // generic updater should touch — swapping the network itself always
-      // goes through assignAdNetworkToSlot so name/logo/block_id stay in
-      // sync with the catalog and can't drift out of sync with each other.
-      const { reward_diamonds, is_hidden, max_daily } = updates;
+      const { reward_diamonds, is_hidden, max_daily, block_id, name, network_id, logo_url } = updates;
       if (reward_diamonds !== undefined) ad.reward_diamonds = Math.max(0, Number(reward_diamonds) || 0);
-      if (is_hidden !== undefined) ad.is_hidden = !!is_hidden;
+      if (is_hidden !== undefined) ad.is_hidden = Boolean(is_hidden);
       if (max_daily !== undefined) ad.max_daily = Math.max(1, Number(max_daily) || 10);
+      if (block_id !== undefined) ad.block_id = String(block_id).trim();
+      if (name !== undefined) ad.name = String(name).trim();
+      if (network_id !== undefined) ad.network_id = String(network_id).trim();
+      if (logo_url !== undefined) ad.logo_url = String(logo_url).trim();
       this.save();
     }
     return ad;
+  }
+
+  updateAllAdsConfig(newAdsList) {
+    if (!Array.isArray(newAdsList)) return this.data.ads_config;
+    for (const incoming of newAdsList) {
+      const existing = this.data.ads_config.find(a => a.id === incoming.id);
+      if (existing) {
+        if (incoming.reward_diamonds !== undefined) existing.reward_diamonds = Math.max(0, Number(incoming.reward_diamonds) || 0);
+        if (incoming.is_hidden !== undefined) existing.is_hidden = Boolean(incoming.is_hidden);
+        if (incoming.max_daily !== undefined) existing.max_daily = Math.max(1, Number(incoming.max_daily) || 10);
+        if (incoming.block_id !== undefined) existing.block_id = String(incoming.block_id).trim();
+        if (incoming.name !== undefined) existing.name = String(incoming.name).trim();
+        if (incoming.network_id !== undefined) existing.network_id = String(incoming.network_id).trim();
+        if (incoming.logo_url !== undefined) existing.logo_url = String(incoming.logo_url).trim();
+      }
+    }
+    this.save();
+    return this.data.ads_config;
   }
 
   getAdNetworks() {
