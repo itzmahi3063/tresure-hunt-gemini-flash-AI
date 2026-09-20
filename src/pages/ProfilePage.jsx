@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Zap, Banknote, Gift, Gamepad2, Copy, Check, ShieldCheck, ExternalLink } from 'lucide-react';
+import { Zap, Banknote, Gift, Gamepad2, Copy, Check, ShieldCheck, ExternalLink, PlusCircle } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import { formatGems, formatUsdt } from '../utils/format';
 
@@ -127,36 +127,52 @@ export default function ProfilePage() {
       </div>
 
       {/* 3. THREE ACTION BUTTONS ROW */}
-      <div className="grid grid-cols-3 gap-3">
-        {/* Button 1: Earn XP */}
+      <div className="grid grid-cols-4 gap-2">
+        {/* Button 0: Deposit TON */}
         <button
           onClick={() => {
-            triggerHaptic('selection');
-            setActiveTab('tasks');
+            triggerHaptic('impact', 'medium');
+            openWallet('deposit');
           }}
-          className="bg-gradient-to-b from-[#7C3AED] to-[#6D28D9] border border-[#8B5CF6]/40 rounded-2xl p-4 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(124,58,237,0.35)] active:scale-95 transition-all"
+          className="bg-gradient-to-b from-[#00b4d8] to-[#0077b6] border border-[#00e5ff]/40 rounded-2xl p-3 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(0,180,216,0.35)] active:scale-95 transition-all"
         >
-          <div className="w-8 h-8 flex items-center justify-center mb-1.5">
-            <Zap size={22} className="text-white fill-white" />
+          <div className="w-8 h-8 flex items-center justify-center mb-1">
+            <PlusCircle size={20} className="text-white" />
           </div>
-          <span className="text-white font-bold text-xs leading-tight">
-            Earn<br />GEMS
+          <span className="text-white font-black text-xs leading-tight">
+            Deposit<br />TON
           </span>
         </button>
 
-        {/* Button 2: Withdraw */}
+        {/* Button 1: Withdraw */}
         <button
           onClick={() => {
             triggerHaptic('selection');
             openWallet('withdraw');
           }}
-          className="bg-gradient-to-b from-[#059669] to-[#047857] border border-[#10B981]/40 rounded-2xl p-4 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(5,150,105,0.35)] active:scale-95 transition-all"
+          className="bg-gradient-to-b from-[#059669] to-[#047857] border border-[#10B981]/40 rounded-2xl p-3 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(5,150,105,0.35)] active:scale-95 transition-all"
         >
-          <div className="w-8 h-8 flex items-center justify-center mb-1.5">
-            <Banknote size={22} className="text-white" />
+          <div className="w-8 h-8 flex items-center justify-center mb-1">
+            <Banknote size={20} className="text-white" />
           </div>
           <span className="text-white font-bold text-xs leading-tight">
             Withdraw
+          </span>
+        </button>
+
+        {/* Button 2: Earn GEMS */}
+        <button
+          onClick={() => {
+            triggerHaptic('selection');
+            setActiveTab('tasks');
+          }}
+          className="bg-gradient-to-b from-[#7C3AED] to-[#6D28D9] border border-[#8B5CF6]/40 rounded-2xl p-3 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(124,58,237,0.35)] active:scale-95 transition-all"
+        >
+          <div className="w-8 h-8 flex items-center justify-center mb-1">
+            <Zap size={20} className="text-white fill-white" />
+          </div>
+          <span className="text-white font-bold text-xs leading-tight">
+            Earn<br />GEMS
           </span>
         </button>
 
@@ -166,10 +182,10 @@ export default function ProfilePage() {
             triggerHaptic('selection');
             setActiveTab('refer');
           }}
-          className="bg-gradient-to-b from-[#4F46E5] to-[#4338CA] border border-[#6366F1]/40 rounded-2xl p-4 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(79,70,229,0.35)] active:scale-95 transition-all"
+          className="bg-gradient-to-b from-[#4F46E5] to-[#4338CA] border border-[#6366F1]/40 rounded-2xl p-3 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(79,70,229,0.35)] active:scale-95 transition-all"
         >
-          <div className="w-8 h-8 flex items-center justify-center mb-1.5">
-            <Gift size={22} className="text-white" />
+          <div className="w-8 h-8 flex items-center justify-center mb-1">
+            <Gift size={20} className="text-white" />
           </div>
           <span className="text-white font-bold text-xs leading-tight">
             Refer &amp;<br />Earn
