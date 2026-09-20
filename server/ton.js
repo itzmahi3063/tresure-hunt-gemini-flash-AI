@@ -164,12 +164,11 @@ export async function processTonTransaction(tx, source = 'webhook') {
     const user = db.getUser(userId);
 
     if (user) {
-      user.ton_balance = Number(((user.ton_balance || 0) + amountTon).toFixed(4));
       // Conversion to diamonds: 1 TON ≈ 125,000 GEMS
       const diamondsCredit = Math.round(amountTon * 125000);
-      user.diamonds += diamondsCredit;
 
-      db.recordTonTx({
+      // Atomic execution guarantees safe credit even if 20,000 users deposit simultaneously
+      await db.creditTonDepositAtomic(user.id, amountTon, diamondsCredit, {
         hash: txHash,
         type: 'deposit',
         userId: user.id,
@@ -193,8 +192,6 @@ export async function processTonTransaction(tx, source = 'webhook') {
           .catch(err => console.warn('Deposit bot notification error:', err.message));
       }
 
-      db.save();
-      await db.flush();
       console.log(`✅ User ${user.id} credited with ${amountTon} TON / ${diamondsCredit} GEMS`);
       return { success: true, type: 'deposit', userId: user.id, amountTon };
     }
