@@ -13,6 +13,7 @@ import GiftClaimModal from './components/GiftClaimModal';
 import ThreeCanvas from './components/ThreeCanvas';
 import SectionLoader from './components/SectionLoader';
 import LanguageModal from './components/LanguageModal';
+import TonConnectModal from './components/TonConnectModal';
 import MandatoryGateScreen from './components/MandatoryGateScreen';
 import SplashScreen from './components/SplashScreen';
 import DeviceBlockedScreen from './components/DeviceBlockedScreen';
@@ -41,7 +42,9 @@ export default function App() {
     language,
     setLanguage,
     languageModalOpen,
-    setLanguageModalOpen
+    setLanguageModalOpen,
+    isTonConnectModalOpen,
+    setIsTonConnectModalOpen
   } = useApp();
 
   const [splashFinished, setSplashFinished] = React.useState(false);
@@ -137,6 +140,10 @@ export default function App() {
           onClose={() => setLanguageModalOpen(false)}
           currentLang={language}
           onSelectLang={setLanguage}
+        />
+        <TonConnectModal
+          isOpen={isTonConnectModalOpen}
+          onClose={() => setIsTonConnectModalOpen(false)}
         />
       </div>
     </ErrorBoundary>
