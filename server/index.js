@@ -842,6 +842,17 @@ app.post('/api/admin/ads/:id/network', authMiddleware, adminMiddleware, (req, re
   }
 });
 
+// Save all ad configurations at once
+app.post('/api/admin/ads/save-all', authMiddleware, adminMiddleware, (req, res) => {
+  try {
+    const { ads } = req.body;
+    const updated = db.updateAllAdsConfig(ads);
+    res.json({ success: true, ads: updated, message: 'All ad configurations saved successfully!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // User Management
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
   try {
