@@ -68,6 +68,55 @@ export async function showAdsgram(blockId) {
   return { watchStartedAt: startedAt };
 }
 
+// USL TowerAds — used for the "USL" Daily Watch & Earn slot.
+export async function showTowerAd(placementId = 'plc_7c25684decd46576') {
+  const startedAt = Date.now();
+  const pId = placementId || 'plc_7c25684decd46576';
+
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve({ watchStartedAt: startedAt });
+      return;
+    }
+
+    if (window.TowerAds) {
+      try {
+        let earnedReward = false;
+        const tower = new window.TowerAds({
+          apiKey: 'YOUR_API_KEY',
+          placementId: pId,
+          onRewardEarned(reward) {
+            console.log('TowerAds reward:', reward);
+            earnedReward = true;
+          },
+          onError(error) {
+            console.error('TowerAds error:', error);
+          }
+        });
+
+        tower.loadAndShow()
+          .then(async () => {
+            await enforceMinWatch(startedAt);
+            resolve({ watchStartedAt: startedAt, earned: earnedReward });
+          })
+          .catch(async (error) => {
+            console.error('TowerAds show error:', error);
+            await enforceMinWatch(startedAt);
+            resolve({ watchStartedAt: startedAt });
+          });
+        return;
+      } catch (err) {
+        console.error('TowerAds initialization error:', err);
+      }
+    }
+
+    // Fallback if TowerAds script is still loading or blocked
+    enforceMinWatch(startedAt).then(() => {
+      resolve({ watchStartedAt: startedAt });
+    });
+  });
+}
+
 // Dispatch by the ad slot's configured network_id.
 export async function showAdForNetwork(ad) {
   switch (ad.network_id) {
@@ -76,6 +125,8 @@ export async function showAdForNetwork(ad) {
     case 'adsgram':
     case 'adsgram_cat':
       return showAdsgram(ad.block_id);
+    case 'usl':
+      return showTowerAd(ad.block_id || 'plc_7c25684decd46576');
     default:
       // Unconfigured network (e.g. a slot added later with no SDK wired
       // yet) — don't hard-crash the button, just enforce the same timed
