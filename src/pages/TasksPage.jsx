@@ -51,6 +51,12 @@ export default function TasksPage() {
     }
   });
   const [loading, setLoading] = useState(false);
+  const [loadingCategory, setLoadingCategory] = useState({
+    daily: false,
+    social: false,
+    partner: false,
+    exclusive: false
+  });
   const [verifyingTaskId, setVerifyingTaskId] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
 
@@ -163,19 +169,30 @@ export default function TasksPage() {
   const loadTasksAndAds = async () => {
     // Instant switch from cache (0 delay)
     if (activeCategory === 'daily') {
-      if (tasksCache.daily.length > 0) setAds(tasksCache.daily);
+      if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
     } else if (tasksCache[activeCategory]?.length > 0) {
       setTasks(tasksCache[activeCategory]);
+    } else {
+      setTasks([]);
+    }
+
+    const hasCache = activeCategory === 'daily'
+      ? (tasksCache.daily && tasksCache.daily.length > 0)
+      : (tasksCache[activeCategory] && tasksCache[activeCategory].length > 0);
+
+    if (!hasCache) {
+      setLoadingCategory(prev => ({ ...prev, [activeCategory]: true }));
     }
 
     try {
       if (activeCategory === 'daily') {
         const res = await api.get('/ads');
         if (res.data.success) {
-          setAds(res.data.ads);
-          setTasksCache(prev => ({ ...prev, daily: res.data.ads }));
+          const fetchedAds = res.data.ads || [];
+          setAds(fetchedAds);
+          setTasksCache(prev => ({ ...prev, daily: fetchedAds }));
           try {
-            sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(res.data.ads));
+            sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(fetchedAds));
           } catch (err) {}
         }
       } else if (activeCategory === 'exclusive') {
@@ -184,19 +201,26 @@ export default function TasksPage() {
           api.get('/tasks/my')
         ]);
         if (tasksRes.data.success) {
-          setTasks(tasksRes.data.tasks);
-          setTasksCache(prev => ({ ...prev, exclusive: tasksRes.data.tasks }));
+          const fetchedTasks = tasksRes.data.tasks || [];
+          setTasks(fetchedTasks);
+          setTasksCache(prev => ({ ...prev, exclusive: fetchedTasks }));
         }
-        if (myRes.data.success) setMyTasks(myRes.data.tasks);
+        if (myRes.data.success) setMyTasks(myRes.data.tasks || []);
       } else {
         const res = await api.get(`/tasks?category=${activeCategory}`);
         if (res.data.success) {
-          setTasks(res.data.tasks);
-          setTasksCache(prev => ({ ...prev, [activeCategory]: res.data.tasks }));
+          const fetchedTasks = res.data.tasks || [];
+          setTasks(fetchedTasks);
+          setTasksCache(prev => ({ ...prev, [activeCategory]: fetchedTasks }));
+          try {
+            sessionStorage.setItem(`treasure_tasks_${activeCategory}_cache`, JSON.stringify(fetchedTasks));
+          } catch (err) {}
         }
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);
+    } finally {
+      setLoadingCategory(prev => ({ ...prev, [activeCategory]: false }));
     }
   };
 
@@ -427,7 +451,7 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {ads.length === 0 ? (
+          {loadingCategory.daily ? (
             <div className="space-y-3 pt-2">
               <div
                 style={{
@@ -476,6 +500,12 @@ export default function TasksPage() {
                   <div className="w-20 h-9 rounded-[18px] bg-[#3d2918]" />
                 </div>
               ))}
+            </div>
+          ) : ads.length === 0 ? (
+            <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-2">
+              <Sparkles size={28} className="mx-auto text-[#f7bf46]" />
+              <p className="text-xs text-white font-bold">No daily ad slots available right now.</p>
+              <p className="text-[11px] text-[#a89782]">Please check back in a little while!</p>
             </div>
           ) : (
             ads.map((ad) => {
@@ -1020,7 +1050,7 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {tasks.length === 0 ? (
+          {loadingCategory[activeCategory] ? (
             <div className="space-y-3 pt-2">
               <div
                 style={{
@@ -1066,6 +1096,12 @@ export default function TasksPage() {
                   <div className="w-16 h-8 rounded-[16px] bg-[#3d2918]" />
                 </div>
               ))}
+            </div>
+          ) : tasks.length === 0 ? (
+            <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-2">
+              <Sparkles size={28} className="mx-auto text-[#f7bf46]" />
+              <p className="text-xs text-white font-bold">No {activeCategory === 'social' ? 'social' : 'partner'} tasks available right now.</p>
+              <p className="text-[11px] text-[#a89782]">Check back soon for new bounty offers!</p>
             </div>
           ) : (
             tasks.map((t) => (
