@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { triggerHaptic } from '../services/telegram';
 import { Sparkles } from 'lucide-react';
 
-export default function SplashScreen({ onFinish }) {
+export default function SplashScreen({ onFinish, loading }) {
   const [progress, setProgress] = useState(5);
   const [statusText, setStatusText] = useState('Initializing 3D Realm...');
 
@@ -33,15 +33,49 @@ export default function SplashScreen({ onFinish }) {
     return () => clearInterval(interval);
   }, []);
 
+  // The 5%->100% bar above is a fixed-time animation, purely cosmetic — it
+  // isn't tied to whether the real profile data has actually finished
+  // loading. Previously, once it hit 100% it called onFinish() right away
+  // regardless, so if the real sync call was still in flight (a slightly
+  // slower cold start, a retrying Mongo connection, etc.) the screen would
+  // just sit frozen at "100% / Entering Treasure Hunt..." with nothing
+  // visibly happening. Now: if the real load is still going once the bar
+  // finishes, switch to a "Please wait..." message instead of freezing,
+  // and only actually hand off once loading genuinely completes.
+  const [waitingOnServer, setWaitingOnServer] = useState(false);
+
   useEffect(() => {
-    if (progress === 100) {
+    if (progress !== 100) return;
+
+    if (!loading) {
       triggerHaptic('impact', 'medium');
       const timer = setTimeout(() => {
         if (onFinish) onFinish();
       }, 450);
       return () => clearTimeout(timer);
     }
-  }, [progress, onFinish]);
+
+    // Bar is full but the real data hasn't come back yet — give it a short
+    // grace period before admitting we're still waiting, so a normally-fast
+    // load doesn't flash an extra message unnecessarily.
+    const graceTimer = setTimeout(() => setWaitingOnServer(true), 1200);
+    return () => clearTimeout(graceTimer);
+  }, [progress, loading, onFinish]);
+
+  // Once the real data finally arrives while we were in the "please wait"
+  // state, hand off immediately rather than waiting on another grace period.
+  useEffect(() => {
+    if (progress === 100 && !loading && waitingOnServer) {
+      triggerHaptic('impact', 'medium');
+      const timer = setTimeout(() => {
+        if (onFinish) onFinish();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, progress, waitingOnServer, onFinish]);
+
+  const displayText = waitingOnServer ? 'Please wait...' : statusText;
+  const displayProgress = waitingOnServer ? 100 : progress;
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#050508] flex items-center justify-center p-0 sm:p-4 select-none overflow-hidden animate-fadeIn">
@@ -72,10 +106,10 @@ export default function SplashScreen({ onFinish }) {
           <div className="w-full flex justify-between items-center text-xs px-1">
             <div className="flex items-center space-x-1.5 text-yellow-300 font-bold drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
               <Sparkles size={14} className="text-yellow-400 animate-spin drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" style={{ animationDuration: '3s' }} />
-              <span className="tracking-wide text-[12px] font-sans drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">{statusText}</span>
+              <span className="tracking-wide text-[12px] font-sans drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">{displayText}</span>
             </div>
             <span className="text-cyan-300 font-mono font-black text-sm drop-shadow-[0_0_10px_rgba(0,229,255,0.9)]">
-              {progress}%
+              {displayProgress}%
             </span>
           </div>
 
@@ -93,7 +127,7 @@ export default function SplashScreen({ onFinish }) {
             {/* Progress Fill */}
             <div
               style={{
-                width: `${progress}%`,
+                width: `${displayProgress}%`,
                 background: 'linear-gradient(90deg, #d97706 0%, #f59e0b 35%, #00e5ff 80%, #a855f7 100%)',
                 boxShadow: '0 0 16px rgba(0, 229, 255, 0.9), inset 0 1px 1px rgba(255, 255, 255, 0.9)'
               }}
