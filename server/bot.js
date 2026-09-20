@@ -365,28 +365,58 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   }
 
   const batch = job.remaining_user_ids.splice(0, batchSize);
-  const code = String(job.promo_code || '').trim().toUpperCase();
-  const amount = job.amount || 20;
-  const unit = (job.reward_type || 'diamonds') === 'usdt' ? 'USDT' : 'GEMS';
+  const isDailyReset = job.type === 'daily_reset';
+  const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
+  const dailyBannerUrl = `${webappUrl}/daily_reset_banner.jpg`;
 
-  // Exact requested template:
-  const messageText =
-    `🎉 <b>Congratulations!</b> 🎉\n\n` +
-    `You have received <b>${amount} ${unit}</b> ✅🎁\n\n` +
-    `🔴 Redeem Code: <code>${code}</code>\n` +
-    `📌 <i>Tap the code to copy it instantly.</i>\n\n` +
-    `Don't miss it! 🚀`;
+  let messageText = '';
+  let keyboard = null;
 
-  const keyboard = {
-    inline_keyboard: [
-      [
-        {
-          text: '🎁 Claim Promo Code',
-          url: `https://t.me/treasure_hunt12_bot/Play?startapp=promo_${encodeURIComponent(code)}`
-        }
+  if (isDailyReset) {
+    messageText =
+      `⚡ <b>DAILY QUESTS RELOADED!</b> 🏴‍☠️\n\n` +
+      `💎 <b>New Day, New Rewards — Everything is Fresh!</b>\n\n` +
+      `🔥 <b>Ready for You Today:</b>\n` +
+      `🎁 <b>Daily Check-in:</b> Claim your streak reward & Keys!\n` +
+      `📺 <b>Video Ads:</b> 40+ high-reward ads are ready to watch!\n` +
+      `🎲 <b>Lucky Draw:</b> 10 fresh spins waiting for Jackpots!\n` +
+      `🎮 <b>Tic-Tac-Toe:</b> 10 games reloaded — test your skills!\n` +
+      `🗝️ <b>Treasure Chest:</b> Use your keys to win USDT!\n\n` +
+      `🚀 <i>Tap the button below and start hunting right now!</i>`;
+
+    keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '🏴‍☠️ HUNT',
+            url: 'https://t.me/treasure_hunt12_bot/Play'
+          }
+        ]
       ]
-    ]
-  };
+    };
+  } else {
+    const code = String(job.promo_code || '').trim().toUpperCase();
+    const amount = job.amount || 20;
+    const unit = (job.reward_type || 'diamonds') === 'usdt' ? 'USDT' : 'GEMS';
+
+    messageText =
+      `🎉 <b>Congratulations!</b> 🎉\n\n` +
+      `You have received <b>${amount} ${unit}</b> ✅🎁\n\n` +
+      `🔴 Redeem Code: <code>${code}</code>\n` +
+      `📌 <i>Tap the code to copy it instantly.</i>\n\n` +
+      `Don't miss it! 🚀`;
+
+    keyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '🎁 Claim Promo Code',
+            url: `https://t.me/treasure_hunt12_bot/Play?startapp=promo_${encodeURIComponent(code)}`
+          }
+        ]
+      ]
+    };
+  }
 
   let sentThisBatch = 0;
   let failedThisBatch = 0;
@@ -403,10 +433,26 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
     }
 
     try {
-      await bot.telegram.sendMessage(uid, messageText, {
-        parse_mode: 'HTML',
-        reply_markup: keyboard
-      });
+      if (isDailyReset) {
+        try {
+          await bot.telegram.sendPhoto(uid, dailyBannerUrl, {
+            caption: messageText,
+            parse_mode: 'HTML',
+            reply_markup: keyboard
+          });
+        } catch (photoErr) {
+          // If photo send fails, fallback to message
+          await bot.telegram.sendMessage(uid, messageText, {
+            parse_mode: 'HTML',
+            reply_markup: keyboard
+          });
+        }
+      } else {
+        await bot.telegram.sendMessage(uid, messageText, {
+          parse_mode: 'HTML',
+          reply_markup: keyboard
+        });
+      }
       job.sent_count = (job.sent_count || 0) + 1;
       sentThisBatch++;
     } catch (err) {

@@ -237,7 +237,8 @@ const initialData = {
   promo_redemptions: {}, // key: `${userId}_${codeUpper}` -> { redeemed_at, reward }
   ton_processed_txs: [], // Array of processed TON tx hashes for idempotency
   ton_transactions: [], // Audit history of TON payments and deposits
-  broadcast_queue: [] // Persistent queue for batch broadcast messages to 20k-30k users
+  broadcast_queue: [], // Persistent queue for batch broadcast messages to 20k-30k users
+  last_daily_reset_broadcast: null // Tracks last date (YYYY-MM-DD) daily reset broadcast was triggered
 };
 
 class Database {
@@ -1460,6 +1461,45 @@ class Database {
     this.data.broadcast_queue.push(queueItem);
     this.save();
     return queueItem;
+  }
+
+  // Enqueue a daily reset broadcast to notify all users at 9:00 AM Bangladesh Time
+  enqueueDailyResetBroadcast(force = false) {
+    if (!this.data.broadcast_queue) this.data.broadcast_queue = [];
+    const today = this.getDailyDate();
+
+    if (!force) {
+      const alreadyQueued = this.data.broadcast_queue.some(
+        q => q.type === 'daily_reset' && q.cycle_date === today
+      );
+      if (alreadyQueued) return null;
+    }
+
+    const allUserIds = Object.keys(this.data.users || {}).filter(uid => /^\d+$/.test(uid));
+    const queueItem = {
+      id: `bc_daily_${today}_${Date.now()}`,
+      type: 'daily_reset',
+      cycle_date: today,
+      remaining_user_ids: [...allUserIds],
+      total_users: allUserIds.length,
+      sent_count: 0,
+      failed_count: 0,
+      status: allUserIds.length > 0 ? 'pending' : 'completed',
+      created_at: new Date().toISOString()
+    };
+    this.data.broadcast_queue.push(queueItem);
+    this.save();
+    return queueItem;
+  }
+
+  // Automatic check invoked every minute by cron
+  checkAndTriggerDailyResetBroadcast() {
+    const today = this.getDailyDate();
+    if (this.data.last_daily_reset_broadcast === today) return null;
+
+    this.data.last_daily_reset_broadcast = today;
+    this.save();
+    return this.enqueueDailyResetBroadcast();
   }
 
   getNextBroadcastJob() {

@@ -29,6 +29,7 @@ export default function AdminDashboard() {
 
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState(null);
+  const [dailyBroadcasting, setDailyBroadcasting] = useState(false);
 
   const [taskCategory, setTaskCategory] = useState('social');
   const [taskType, setTaskType] = useState('channel');
@@ -178,6 +179,27 @@ export default function AdminDashboard() {
       triggerHaptic('notification', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleTriggerDailyBroadcast = async () => {
+    if (dailyBroadcasting) return;
+    setDailyBroadcasting(true);
+    setBroadcastStatus(null);
+    try {
+      const res = await api.post('/admin/broadcast/daily-reset');
+      if (res.data.success) {
+        setBroadcastStatus({
+          type: 'success',
+          text: `Daily Reload Broadcast queued & sent! Delivered ${res.data.broadcast?.sentThisBatch || 0} users in initial batch. Remaining users will be processed safely via cron.`
+        });
+        triggerHaptic('notification', 'success');
+      }
+    } catch (err) {
+      setBroadcastStatus({ type: 'error', text: err.response?.data?.error || 'Failed to trigger daily broadcast' });
+      triggerHaptic('notification', 'error');
+    } finally {
+      setDailyBroadcasting(false);
     }
   };
 
@@ -818,6 +840,33 @@ export default function AdminDashboard() {
               <span>{loading ? 'Sending...' : 'Send Broadcast to All Users'}</span>
             </button>
           </form>
+
+          {/* 9:00 AM Daily Reload Broadcast Card */}
+          <div className="mt-4 pt-4 border-t border-[#252535] space-y-3">
+            <div className="flex items-center space-x-2">
+              <Sparkles size={16} className="text-yellow-400" />
+              <h4 className="text-xs font-black text-white uppercase font-heading">
+                9:00 AM Daily Reload Broadcast
+              </h4>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Sends the branded &quot;DAILY RELOADED&quot; poster with <b>🏴‍☠️ HUNT</b> button to notify all users that streaks, ads, and games have refreshed. Automatically runs every day at 9:00 AM BST, or trigger manually below:
+            </p>
+
+            <div className="rounded-xl overflow-hidden border border-[#2B2B3D] max-w-xs mx-auto">
+              <img src="/daily_reset_banner.jpg" alt="Daily Reset Banner" className="w-full object-cover" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTriggerDailyBroadcast}
+              disabled={dailyBroadcasting}
+              className="w-full btn-3d-cyan py-3 rounded-xl text-xs uppercase font-black text-black flex items-center justify-center space-x-2 shadow-lg"
+            >
+              <Sparkles size={14} />
+              <span>{dailyBroadcasting ? 'Queueing & Delivering...' : 'Trigger Daily Reload Broadcast Now'}</span>
+            </button>
+          </div>
         </div>
       )}
 

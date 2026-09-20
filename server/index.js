@@ -518,12 +518,19 @@ app.post('/api/ton/webhook', async (req, res) => {
 app.get('/api/ton/cron', async (req, res) => {
   try {
     const result = await verifyPendingTonPayments();
-    // Also process queued broadcast messages in small batches (40 users per run)
-    const broadcastResult = await processBroadcastQueue(40).catch(err => {
+
+    // Check & trigger 9:00 AM Bangladesh Time Daily Reset Broadcast
+    const triggeredDailyJob = db.checkAndTriggerDailyResetBroadcast();
+    if (triggeredDailyJob) {
+      console.log('🌅 Enqueued 9:00 AM BST Daily Reset Broadcast:', triggeredDailyJob.id);
+    }
+
+    // Process queued broadcast messages in small batches (35 users per run)
+    const broadcastResult = await processBroadcastQueue(35, 4500).catch(err => {
       console.error('Error processing broadcast queue in cron:', err);
       return null;
     });
-    res.json({ success: true, timestamp: new Date().toISOString(), result, broadcast: broadcastResult });
+    res.json({ success: true, timestamp: new Date().toISOString(), result, triggeredDailyJob, broadcast: broadcastResult });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -532,8 +539,9 @@ app.get('/api/ton/cron', async (req, res) => {
 // Dedicated broadcast queue processor cron endpoint
 app.get('/api/broadcast/cron', async (req, res) => {
   try {
-    const result = await processBroadcastQueue(50);
-    res.json({ success: true, timestamp: new Date().toISOString(), result });
+    const triggeredDailyJob = db.checkAndTriggerDailyResetBroadcast();
+    const result = await processBroadcastQueue(40, 5000);
+    res.json({ success: true, timestamp: new Date().toISOString(), triggeredDailyJob, result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1384,6 +1392,20 @@ app.post('/api/admin/broadcast', authMiddleware, adminMiddleware, async (req, re
 
     const result = await broadcastToUsers(message.trim());
     res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin Manual Trigger for 9:00 AM Daily Reset Broadcast
+app.post('/api/admin/broadcast/daily-reset', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    const job = db.enqueueDailyResetBroadcast(true); // force = true
+    if (!job) {
+      return res.status(400).json({ success: false, error: 'Could not enqueue daily reset broadcast' });
+    }
+    const broadcastResult = await processBroadcastQueue(35, 4500);
+    res.json({ success: true, job, broadcast: broadcastResult });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
