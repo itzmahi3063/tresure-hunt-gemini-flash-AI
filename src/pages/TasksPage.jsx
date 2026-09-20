@@ -977,10 +977,13 @@ export default function TasksPage() {
           setEditModalTask(null);
         }}
         onTaskCreated={(newTask) => {
+          setCreateModalOpen(false);
+          setEditModalTask(null);
           setExclusiveSubTab('my');
+          setPaymentModalTask(newTask);
           setStatusMessage({
-            type: 'success',
-            text: '🎉 Campaign post ready! Please click "Pay now" to activate and approve it.'
+            type: 'info',
+            text: '📢 পোস্ট তৈরি হয়েছে! অ্যাপ্রুভ করার জন্য অনুগ্রহ করে পেমেন্ট সম্পন্ন করুন।'
           });
           loadTasksAndAds();
         }}
