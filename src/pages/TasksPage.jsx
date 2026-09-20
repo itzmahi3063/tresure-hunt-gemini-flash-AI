@@ -50,6 +50,19 @@ export default function TasksPage() {
   const [paymentModalTask, setPaymentModalTask] = useState(null);
   const [boostModalTask, setBoostModalTask] = useState(null);
 
+  const handlePayNowClick = (taskItem) => {
+    if (!connectedTonWallet) {
+      triggerHaptic('notification', 'warning');
+      setStatusMessage({
+        type: 'error',
+        text: '⚠️ Please connect your wallet first before making payment!'
+      });
+      setIsTonConnectModalOpen(true);
+      return;
+    }
+    setPaymentModalTask(taskItem);
+  };
+
   const [tasksCache, setTasksCache] = useState({
     daily: [],
     social: [],
@@ -505,36 +518,68 @@ export default function TasksPage() {
             </div>
           </div>
 
-          {/* TON Balance & Deposit Quick Bar in Exclusive Tasks */}
-          <div className="rounded-[22px] p-3 bg-[#111923] border border-[#1b3447] flex items-center justify-between shadow-md">
+          {/* CONNECT WALLET BAR (Replaces Deposit Bar) */}
+          <div
+            style={{
+              background: 'linear-gradient(180deg, #151922 0%, #0d1017 100%)',
+              border: '1.5px solid #232d3f',
+              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.5)'
+            }}
+            className="rounded-[22px] p-3 flex items-center justify-between shadow-md"
+          >
             <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-                <CreditCard size={16} />
+              <div className="w-8 h-8 rounded-xl bg-[#1e2638] flex items-center justify-center text-[#0098ea] shrink-0">
+                <Wallet size={16} />
               </div>
               <div>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wide">Your TON Balance</span>
-                <p className="text-xs font-black text-[#00f5ff] font-mono leading-none mt-0.5">
-                  {(user?.ton_balance || 0).toFixed(4)} TON
-                </p>
+                {connectedTonWallet ? (
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">TON Connected</span>
+                    </div>
+                    <p className="text-xs font-mono font-bold text-cyan-200 truncate max-w-[150px]">
+                      {typeof connectedTonWallet === 'string' && connectedTonWallet.length > 14
+                        ? `${connectedTonWallet.slice(0, 6)}...${connectedTonWallet.slice(-4)}`
+                        : String(connectedTonWallet || '')}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-xs font-bold text-gray-200">Wallet not connected</span>
+                    <p className="text-[10px] text-gray-400">Connect TON to pay & activate posts</p>
+                  </div>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('impact', 'medium');
-                openWallet('deposit');
-              }}
-              style={{
-                background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 100%)',
-                borderTop: '1px solid #a6f4ff',
-                borderBottom: '2.5px solid #004777',
-                color: '#031726'
-              }}
-              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase flex items-center space-x-1 active:scale-95 transition-all shadow-sm"
-            >
-              <PlusCircle size={13} />
-              <span>Deposit TON</span>
-            </button>
+
+            {connectedTonWallet ? (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('selection');
+                  disconnectTonWallet();
+                }}
+                className="px-3 py-1.5 rounded-full text-[11px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 active:scale-95 transition-all shrink-0"
+              >
+                Disconnect
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('impact', 'medium');
+                  setIsTonConnectModalOpen(true);
+                }}
+                style={{
+                  background: 'linear-gradient(180deg, #0098ea 0%, #0077c5 100%)',
+                  boxShadow: '0 4px 12px rgba(0, 152, 234, 0.4)'
+                }}
+                className="px-4 py-2 rounded-full text-xs font-bold text-white uppercase tracking-wide active:scale-95 transition-all shadow shrink-0"
+              >
+                Connect Wallet
+              </button>
+            )}
           </div>
 
           {/* Sub Filters: All Tasks vs My Tasks */}
@@ -693,67 +738,6 @@ export default function TasksPage() {
           {/* VIEW 2: MY TASKS (User Campaigns with Pay Now, Reject, Approved, Completed) */}
           {exclusiveSubTab === 'my' && (
             <div className="space-y-3">
-              {/* CONNECT WALLET BAR (Matches User Screenshot 1) */}
-              <div
-                style={{
-                  background: 'linear-gradient(180deg, #161b24 0%, #0d1017 100%)',
-                  border: '1.5px solid #253346',
-                  boxShadow: '0 6px 20px rgba(0, 0, 0, 0.6)'
-                }}
-                className="p-3.5 rounded-[24px] flex items-center justify-between"
-              >
-                <div className="flex items-center space-x-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#1d2738] flex items-center justify-center text-[#0098ea]">
-                    <Wallet size={16} />
-                  </div>
-                  <div>
-                    {connectedTonWallet ? (
-                      <div className="space-y-0.5">
-                        <div className="flex items-center space-x-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">TON Connected</span>
-                        </div>
-                        <p className="text-xs font-mono font-bold text-cyan-200">
-                          {connectedTonWallet.length > 14
-                            ? `${connectedTonWallet.slice(0, 6)}...${connectedTonWallet.slice(-4)}`
-                            : connectedTonWallet}
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <p className="text-xs font-bold text-gray-200">Wallet not connected</p>
-                        <p className="text-[10px] text-gray-400">Connect TON to pay & approve posts</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {connectedTonWallet ? (
-                  <button
-                    onClick={() => {
-                      triggerHaptic('selection');
-                      disconnectTonWallet();
-                    }}
-                    className="px-3 py-1.5 rounded-full text-[11px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 active:scale-95 transition-all"
-                  >
-                    Disconnect
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      triggerHaptic('impact', 'medium');
-                      setIsTonConnectModalOpen(true);
-                    }}
-                    style={{
-                      background: 'linear-gradient(180deg, #0098ea 0%, #0077c5 100%)',
-                      boxShadow: '0 4px 12px rgba(0, 152, 234, 0.4)'
-                    }}
-                    className="px-4 py-2 rounded-full text-xs font-bold text-white uppercase tracking-wide active:scale-95 transition-all shadow"
-                  >
-                    Connect Wallet
-                  </button>
-                )}
-              </div>
 
               {myTasks.length === 0 ? (
                 <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-3">
@@ -899,7 +883,7 @@ export default function TasksPage() {
 
                             {/* Pay Now */}
                             <button
-                              onClick={() => setPaymentModalTask(t)}
+                              onClick={() => handlePayNowClick(t)}
                               style={{
                                 background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 50%, #0077b6 100%)',
                                 borderTop: '1px solid #a6f4ff',
