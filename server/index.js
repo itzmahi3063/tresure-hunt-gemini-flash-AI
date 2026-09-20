@@ -128,9 +128,24 @@ app.use((req, res, next) => {
 // storage.mode is "local_json_fallback", balances WILL reset on the next
 // cold serverless instance because MONGO_URI is missing/invalid.
 app.get('/api/health', (req, res) => {
+  const allUserKeys = Object.keys(db.data?.users || {});
+  const numericUserKeys = allUserKeys.filter(uid => /^\d+$/.test(uid));
+  const queue = db.data?.broadcast_queue || [];
   res.json({
     status: 'ok',
     time: new Date().toISOString(),
+    totalUsers: allUserKeys.length,
+    numericUsers: numericUserKeys.length,
+    queueCount: queue.length,
+    recentQueue: queue.slice(-3).map(q => ({
+      id: q.id,
+      code: q.promo_code,
+      total: q.total_users,
+      remaining: q.remaining_user_ids?.length,
+      sent: q.sent_count,
+      failed: q.failed_count,
+      status: q.status
+    })),
     storage: {
       mode: db.isMongoConnected ? 'mongodb' : 'local_json_fallback',
       mongoConnected: db.isMongoConnected,
@@ -1333,16 +1348,18 @@ app.post('/api/admin/promo', authMiddleware, adminMiddleware, async (req, res) =
     }
 
     // 2. Post promo code announcement with branded photo banner to official channel
-    postPromoCodeToChannel(promo).catch(e => {
+    await postPromoCodeToChannel(promo).catch(e => {
       console.error('Channel promo broadcast error:', e);
+      return false;
     });
 
-    // 3. Kick off immediate batch for prompt delivery
-    processBroadcastQueue(35).catch(e => {
+    // 3. Immediately process first batch of bot users before request terminates!
+    const broadcastResult = await processBroadcastQueue(35, 4500).catch(e => {
       console.error('Immediate broadcast batch error:', e);
+      return null;
     });
 
-    res.json({ success: true, promo });
+    res.json({ success: true, promo, broadcast: broadcastResult });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }

@@ -410,11 +410,23 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
       job.sent_count = (job.sent_count || 0) + 1;
       sentThisBatch++;
     } catch (err) {
+      console.error(`Telegram send failed to ${uid}:`, err.message, err.response?.description || '');
       // If Telegram rate limit (429) hit, preserve remaining queue and break
       if (err?.response?.error_code === 429) {
         console.warn('Telegram rate limit 429 hit, preserving queue for next cron run');
         unhandled.push(...batch.slice(i));
         break;
+      }
+      // If error might be due to keyboard url or markup, try without keyboard
+      if (err.message && (err.message.includes('BUTTON') || err.message.includes('reply_markup') || err.message.includes('entities') || err.message.includes('wrong URL'))) {
+        try {
+          await bot.telegram.sendMessage(uid, messageText, { parse_mode: 'HTML' });
+          job.sent_count = (job.sent_count || 0) + 1;
+          sentThisBatch++;
+          continue;
+        } catch (fallbackErr) {
+          console.error(`Fallback send also failed to ${uid}:`, fallbackErr.message);
+        }
       }
       // If user blocked bot or invalid ID, record and continue
       job.failed_count = (job.failed_count || 0) + 1;
