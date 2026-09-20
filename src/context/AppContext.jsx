@@ -4,7 +4,7 @@ import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartPar
 import { armAdexiumAutoMode } from '../services/adexium';
 import { getTranslation, LANGUAGES } from '../utils/translations';
 import confetti from 'canvas-confetti';
-
+ 
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
