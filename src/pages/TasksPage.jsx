@@ -16,7 +16,9 @@ import {
   AlertCircle,
   Edit3,
   Rocket,
-  Wallet
+  Wallet,
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import api from '../services/api';
 import { openExternalLink, openTelegramLink, triggerHaptic } from '../services/telegram';
@@ -40,7 +42,14 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState([]);
   const [myTasks, setMyTasks] = useState([]);
   const [visitedTasks, setVisitedTasks] = useState({});
-  const [ads, setAds] = useState([]);
+  const [ads, setAds] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      return JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
+    } catch (e) {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [verifyingTaskId, setVerifyingTaskId] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -121,8 +130,14 @@ export default function TasksPage() {
       if (myRes.data?.tasks) setMyTasks(myRes.data.tasks);
 
       // Display currently active tab from fresh fetch
-      if (activeCategory === 'daily' && adsRes.data?.ads) setAds(adsRes.data.ads);
-      else if (newCache[activeCategory]) setTasks(newCache[activeCategory]);
+      if (activeCategory === 'daily' && adsRes.data?.ads) {
+        setAds(adsRes.data.ads);
+        try {
+          sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(adsRes.data.ads));
+        } catch (err) {}
+      } else if (newCache[activeCategory]) {
+        setTasks(newCache[activeCategory]);
+      }
     } catch (e) {
       console.warn('Preload tasks notice:', e);
     }
@@ -146,6 +161,9 @@ export default function TasksPage() {
         if (res.data.success) {
           setAds(res.data.ads);
           setTasksCache(prev => ({ ...prev, daily: res.data.ads }));
+          try {
+            sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(res.data.ads));
+          } catch (err) {}
         }
       } else if (activeCategory === 'exclusive') {
         const [tasksRes, myRes] = await Promise.all([
@@ -396,7 +414,58 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {ads.map((ad) => {
+          {ads.length === 0 ? (
+            <div className="space-y-3 pt-2">
+              <div
+                style={{
+                  background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                  borderTop: '2px solid #664b2d',
+                  borderLeft: '1.5px solid #4a341f',
+                  borderRight: '1.5px solid #4a341f',
+                  borderBottom: '5px solid #140d06',
+                  boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8)'
+                }}
+                className="rounded-[28px] p-6 text-center space-y-3"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-[#1a1108] border border-[#4a341f] flex items-center justify-center mx-auto shadow-inner text-[#f7bf46]">
+                  <RefreshCw className="animate-spin" size={24} />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider font-heading">
+                    Loading Daily Ad Slots... Please Wait
+                  </h4>
+                  <p className="text-xs text-[#a89782]">
+                    Syncing your daily watch limits and reward slots...
+                  </p>
+                </div>
+                <div className="w-36 h-1.5 bg-[#140d06] rounded-full mx-auto overflow-hidden border border-[#3d2918]">
+                  <div className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 rounded-full animate-pulse w-full" />
+                </div>
+              </div>
+
+              {/* 3 Animated Skeleton Slots while loading */}
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  style={{
+                    background: 'linear-gradient(180deg, #26180d 0%, #1c1108 100%)',
+                    border: '1px solid #3d2918'
+                  }}
+                  className="rounded-[24px] p-4 flex items-center justify-between opacity-50 animate-pulse"
+                >
+                  <div className="flex items-center space-x-3.5 flex-1">
+                    <div className="w-[52px] h-[52px] rounded-[18px] bg-[#140d06] border border-[#2e1d0f]" />
+                    <div className="space-y-2 flex-1 pr-4">
+                      <div className="h-4 bg-[#3d2918] rounded-md w-3/4" />
+                      <div className="h-2.5 bg-[#2a1b0e] rounded-md w-1/2" />
+                    </div>
+                  </div>
+                  <div className="w-20 h-9 rounded-[18px] bg-[#3d2918]" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            ads.map((ad) => {
             const watched = ad.watched_today || 0;
             const max = ad.max_daily || 10;
             const percentage = Math.min(100, Math.round((watched / max) * 100));
@@ -529,7 +598,7 @@ export default function TasksPage() {
                 </button>
               </div>
             );
-          })}
+          }))}
         </div>
       )}
 
