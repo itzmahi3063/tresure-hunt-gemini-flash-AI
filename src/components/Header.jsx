@@ -77,7 +77,7 @@ export default function Header() {
           className="btn-3d-gold px-3.5 py-2 rounded-xl text-xs flex items-center space-x-1.5 font-heading"
         >
           <Wallet size={14} />
-          <span>{t('nav_wallet').toUpperCase()}</span>
+          <span>{(t('nav_wallet') || 'WALLET').toUpperCase()}</span>
         </button>
       </div>
 
