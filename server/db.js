@@ -234,7 +234,9 @@ const initialData = {
       created_at: new Date().toISOString()
     }
   ],
-  promo_redemptions: {} // key: `${userId}_${codeUpper}` -> { redeemed_at, reward }
+  promo_redemptions: {}, // key: `${userId}_${codeUpper}` -> { redeemed_at, reward }
+  ton_processed_txs: [], // Array of processed TON tx hashes for idempotency
+  ton_transactions: [] // Audit history of TON payments and deposits
 };
 
 class Database {
@@ -2280,6 +2282,36 @@ class Database {
 
     this.save();
     return user;
+  }
+
+  // --- TON Blockchain Payment & Deposit Helpers ---
+  isTonTxProcessed(hash) {
+    if (!hash) return false;
+    if (!this.data.ton_processed_txs) this.data.ton_processed_txs = [];
+    return this.data.ton_processed_txs.some(t => (typeof t === 'string' ? t === hash : t.hash === hash));
+  }
+
+  recordTonTx(txData) {
+    if (!this.data.ton_processed_txs) this.data.ton_processed_txs = [];
+    if (!this.data.ton_transactions) this.data.ton_transactions = [];
+
+    const hash = txData.hash;
+    if (hash && !this.data.ton_processed_txs.some(t => (typeof t === 'string' ? t === hash : t.hash === hash))) {
+      this.data.ton_processed_txs.push(hash);
+    }
+
+    this.data.ton_transactions.unshift({
+      id: `ton_tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      ...txData,
+      created_at: new Date().toISOString()
+    });
+
+    if (this.data.ton_transactions.length > 10000) {
+      this.data.ton_transactions.pop();
+    }
+
+    this.save();
+    return true;
   }
 }
 
