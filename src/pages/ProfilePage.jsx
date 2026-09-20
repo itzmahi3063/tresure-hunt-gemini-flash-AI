@@ -127,22 +127,7 @@ export default function ProfilePage() {
       </div>
 
       {/* 3. THREE ACTION BUTTONS ROW */}
-      <div className="grid grid-cols-4 gap-2">
-        {/* Button 0: Deposit TON */}
-        <button
-          onClick={() => {
-            triggerHaptic('impact', 'medium');
-            openWallet('deposit');
-          }}
-          className="bg-gradient-to-b from-[#00b4d8] to-[#0077b6] border border-[#00e5ff]/40 rounded-2xl p-3 flex flex-col items-center justify-center text-center shadow-[0_6px_20px_rgba(0,180,216,0.35)] active:scale-95 transition-all"
-        >
-          <div className="w-8 h-8 flex items-center justify-center mb-1">
-            <PlusCircle size={20} className="text-white" />
-          </div>
-          <span className="text-white font-black text-xs leading-tight">
-            Deposit<br />TON
-          </span>
-        </button>
+      <div className="grid grid-cols-3 gap-2">
 
         {/* Button 1: Withdraw */}
         <button
