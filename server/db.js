@@ -1520,9 +1520,9 @@ class Database {
     const now = new Date();
     const bstHour = (now.getUTCHours() + 6) % 24;
 
-    // Trigger in the morning starting from 9:00 AM BST
-    // (Prevents firing at random night hours on initial deployment)
-    if (bstHour < 9) return null;
+    // Trigger strictly during 9:00 AM Bangladesh Time morning window (09:00 - 09:59 BST)
+    // Never trigger in the afternoon, evening, or night
+    if (bstHour !== 9) return null;
 
     this.data.last_daily_reset_broadcast = today;
     this.save();
