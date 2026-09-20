@@ -227,17 +227,30 @@ export default function TasksPage() {
     }, 1500);
   };
 
-  const handleQuickCancelTask = async (taskId) => {
-    if (!window.confirm('Are you sure you want to reject & delete this unpaid campaign?')) return;
-    try {
-      const res = await api.post('/tasks/exclusive/cancel', { taskId });
-      if (res.data.success) {
-        setStatusMessage({ type: 'info', text: 'Post draft rejected and removed.' });
-        loadTasksAndAds();
-        triggerHaptic('notification', 'success');
+  const handleQuickCancelTask = (taskId) => {
+    const doDelete = async () => {
+      triggerHaptic('impact', 'medium');
+      try {
+        const res = await api.post('/tasks/exclusive/cancel', { taskId });
+        if (res.data.success) {
+          setStatusMessage({ type: 'info', text: 'Campaign post draft deleted successfully.' });
+          loadTasksAndAds();
+          triggerHaptic('notification', 'success');
+        }
+      } catch (err) {
+        setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Failed to delete post draft' });
+        triggerHaptic('notification', 'error');
       }
-    } catch (err) {
-      setStatusMessage({ type: 'error', text: err.response?.data?.error || 'Failed to cancel post' });
+    };
+
+    if (window.Telegram?.WebApp?.showConfirm) {
+      window.Telegram.WebApp.showConfirm('Are you sure you want to delete this unpaid post draft?', (confirmed) => {
+        if (confirmed) {
+          doDelete();
+        }
+      });
+    } else if (window.confirm('Are you sure you want to delete this unpaid post draft?')) {
+      doDelete();
     }
   };
 
