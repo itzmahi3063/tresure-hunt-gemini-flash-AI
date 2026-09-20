@@ -509,6 +509,14 @@ class Database {
     }
   }
 
+  // Get current daily cycle date (resets at 9:00 AM Bangladesh Time = 03:00 UTC globally)
+  getDailyDate(dateInput = new Date()) {
+    const d = new Date(dateInput);
+    // 9:00 AM BST = 03:00 UTC. Subtracting 3 hours aligns the rollover with 9:00 AM Bangladesh Time.
+    const offsetTime = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+    return offsetTime.toISOString().split('T')[0];
+  }
+
   // User Management
   getUser(userId) {
     const id = String(userId);
@@ -518,7 +526,7 @@ class Database {
   getOrCreateUser(telegramUser, referrerId = null, meta = {}) {
     const { deviceId = null, ip = null } = meta;
     const id = String(telegramUser.id);
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     let isNewUser = false;
 
     if (!this.data.users[id]) {
@@ -978,13 +986,13 @@ class Database {
   }
 
   getDailyAdCount(userId, adId) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     const key = `${userId}_${adId}_${today}`;
     return this.data.daily_ads_completed[key] || 0;
   }
 
   recordAdWatch(userId, adId) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     const key = `${userId}_${adId}_${today}`;
     const count = (this.data.daily_ads_completed[key] || 0) + 1;
     this.data.daily_ads_completed[key] = count;
@@ -1055,9 +1063,9 @@ class Database {
     return { user, conversion };
   }
 
-  // Daily Activity Tracking for Withdrawal Requirements
+  // Daily Activity Tracking for Withdrawal Requirements (Resets at 9:00 AM Bangladesh Time)
   getDailyTasksCompleted(userId) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     let adsCount = 0;
     for (const ad of this.data.ads_config || []) {
       const key = `${userId}_${ad.id}_${today}`;
@@ -1065,15 +1073,17 @@ class Database {
     }
     let tasksCount = 0;
     for (const comp of Object.values(this.data.task_completions || {})) {
-      if (String(comp.user_id) === String(userId) && comp.completed_at && comp.completed_at.startsWith(today)) {
-        tasksCount += 1;
+      if (String(comp.user_id) === String(userId) && comp.completed_at) {
+        if (this.getDailyDate(comp.completed_at) === today) {
+          tasksCount += 1;
+        }
       }
     }
     return adsCount + tasksCount;
   }
 
   getDailyGamesPlayed(userId) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     const drawCount = (this.data.game_daily_counts && this.data.game_daily_counts[`${userId}_draw_${today}`]) || 0;
     const tttCount = (this.data.game_daily_counts && this.data.game_daily_counts[`${userId}_ttt_${today}`]) || 0;
     return drawCount + tttCount;
@@ -1530,7 +1540,7 @@ class Database {
       throw new Error(`Insufficient GEMS! You need ${ENTRY_COST} GEMS to start Tic-Tac-Toe.`);
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = this.getDailyDate();
     const dailyKey = `${userId}_ttt_${todayStr}`;
     if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
     const tttCount = this.data.game_daily_counts[dailyKey] || 0;
@@ -1601,7 +1611,7 @@ class Database {
       return { user, result, returnAmount: 0 };
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = this.getDailyDate();
     let returnAmount = 0;
     let profitText = '';
 
@@ -1647,7 +1657,7 @@ class Database {
   // ==========================================
 
   getDailyGameStats(userId) {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = this.getDailyDate();
     if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
     const drawCount = this.data.game_daily_counts[`${userId}_draw_${todayStr}`] || 0;
     const tttCount = this.data.game_daily_counts[`${userId}_ttt_${todayStr}`] || 0;
@@ -1663,7 +1673,7 @@ class Database {
     const user = this.getUser(userId);
     if (!user) throw new Error('User not found');
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = this.getDailyDate();
     const dailyKey = `${userId}_draw_${todayStr}`;
     if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
     const drawsToday = this.data.game_daily_counts[dailyKey] || 0;
@@ -1753,7 +1763,7 @@ class Database {
     const user = this.getUser(userId);
     if (!user) throw new Error('User not found');
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     const lastClaim = user.last_daily_claim;
 
     let canClaim = false;
@@ -1762,10 +1772,10 @@ class Database {
     if (!lastClaim) {
       canClaim = true;
     } else if (lastClaim !== today) {
-      const lastDate = new Date(lastClaim);
-      const todayDate = new Date(today);
+      const lastDate = new Date(lastClaim + 'T00:00:00Z');
+      const todayDate = new Date(today + 'T00:00:00Z');
       const diffTime = Math.abs(todayDate - lastDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays === 1) {
         canClaim = true;
@@ -1813,7 +1823,7 @@ class Database {
     const user = this.getUser(userId);
     if (!user) throw new Error('User not found');
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.getDailyDate();
     const lastClaim = user.last_daily_claim;
 
     if (lastClaim === today) {
@@ -1823,10 +1833,10 @@ class Database {
     let streak = user.daily_streak || 0;
 
     if (lastClaim) {
-      const lastDate = new Date(lastClaim);
-      const todayDate = new Date(today);
+      const lastDate = new Date(lastClaim + 'T00:00:00Z');
+      const todayDate = new Date(today + 'T00:00:00Z');
       const diffTime = Math.abs(todayDate - lastDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays > 1) {
         // Missed at least 1 day -> Reset streak
@@ -1992,7 +2002,7 @@ class Database {
   // ==========================================
   getReferralLeaderboards() {
     const allUsers = Object.values(this.data.users || {});
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = this.getDailyDate();
 
     // 1. Top Referrers (All time)
     const topReferrers = [...allUsers]
