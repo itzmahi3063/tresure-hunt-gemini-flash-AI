@@ -12,13 +12,16 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Wallet
+  Wallet,
+  PlusCircle
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import confetti from 'canvas-confetti';
 import api from '../services/api';
+import { useApp } from '../context/AppContext';
 
 export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSuccess, onTaskCancelled }) {
+  const { user, setUser, openWallet } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [walletAddress, setWalletAddress] = useState('');
@@ -353,11 +356,12 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
 
         {/* Action Buttons */}
         <div className="space-y-2">
-          {/* Deep link direct transfer to TON wallet */}
-          {tonDeepLink && (
-            <a
-              href={tonDeepLink}
-              onClick={() => triggerHaptic('impact', 'medium')}
+          {/* Option 1: If user has enough TON in deposited balance */}
+          {(user?.ton_balance || 0) >= tonCost && (
+            <button
+              type="button"
+              onClick={handlePayNow}
+              disabled={loading}
               style={{
                 background: 'linear-gradient(180deg, #00f0ff 0%, #00b4d8 50%, #0077b6 100%)',
                 borderTop: '1.5px solid #a6f4ff',
@@ -367,6 +371,25 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
                 color: '#031726',
                 boxShadow: '0 8px 18px rgba(0, 180, 216, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.7)'
               }}
+              className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all"
+            >
+              <span>{loading ? 'Processing...' : `Pay from Balance (${(user?.ton_balance || 0).toFixed(2)} TON Available)`}</span>
+              <ArrowRight size={16} />
+            </button>
+          )}
+
+          {/* Deep link direct transfer to TON wallet */}
+          {tonDeepLink && (
+            <a
+              href={tonDeepLink}
+              onClick={() => triggerHaptic('impact', 'medium')}
+              style={{
+                background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 50%, #d48b11 100%)',
+                borderTop: '1.5px solid #fff2b8',
+                borderBottom: '4px solid #7a4b00',
+                color: '#1a0f02',
+                boxShadow: '0 8px 18px rgba(247, 191, 70, 0.35)'
+              }}
               className="w-full py-3.5 rounded-[22px] text-sm font-black tracking-wide uppercase flex items-center justify-center space-x-2 active:translate-y-1 active:border-b-[1px] transition-all text-center"
             >
               <Wallet size={17} />
@@ -374,6 +397,20 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
               <ExternalLink size={15} />
             </a>
           )}
+
+          {/* Deposit TON to Wallet Button */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('impact', 'medium');
+              onClose();
+              openWallet('deposit');
+            }}
+            className="w-full py-2.5 rounded-[18px] bg-[#142331] text-cyan-300 border border-[#1b3447] text-xs font-black uppercase flex items-center justify-center space-x-1.5 active:scale-95 transition-all"
+          >
+            <PlusCircle size={14} />
+            <span>Deposit TON to Account (Current: {(user?.ton_balance || 0).toFixed(2)} TON)</span>
+          </button>
 
           {/* Check Payment Now button */}
           <button
@@ -389,10 +426,10 @@ export default function TaskPaymentModal({ task, isOpen, onClose, onPaymentSucce
             className="w-full py-3 rounded-[20px] text-xs font-black uppercase flex items-center justify-center space-x-2 active:scale-98 transition-all hover:text-sky-300"
           >
             <RefreshCw size={14} className={isVerifying ? 'animate-spin' : ''} />
-            <span>{isVerifying ? 'Checking Blockchain...' : 'I Have Paid · Verify Now'}</span>
+            <span>{isVerifying ? 'Checking Blockchain...' : 'I Have Transferred · Verify Now'}</span>
           </button>
 
-          {/* Fallback Pay / Cancel Buttons */}
+          {/* Reject / Cancel Button */}
           <button
             type="button"
             onClick={handleCancelTask}
