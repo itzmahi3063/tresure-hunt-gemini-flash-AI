@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
 import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartParam, getOrCreateDeviceId } from '../services/telegram';
+import { armAdexiumAutoMode } from '../services/adexium';
 import { getTranslation, LANGUAGES } from '../utils/translations';
 import confetti from 'canvas-confetti';
 
@@ -26,6 +27,7 @@ export function AppProvider({ children }) {
 
   const [duplicateLinkedUser, setDuplicateLinkedUser] = useState(null);
   const [ipConflictUsers, setIpConflictUsers] = useState(null);
+  const [syncError, setSyncError] = useState(null);
 
   // Multi-Language State (Default: saved language or 'en')
   const [language, setLanguageState] = useState(() => {
@@ -122,8 +124,20 @@ export function AppProvider({ children }) {
         if (res.data.settings) {
           setSettings(res.data.settings);
         }
+        setSyncError(null);
       }
     } catch (err) {
+      // Previously this silently did nothing, leaving `user` as null/stale —
+      // several screens then rendered `user.diamonds || 0` (or a hardcoded
+      // placeholder), which LOOKS exactly like "balance reset to 0" even
+      // though nothing in MongoDB was touched. Now we surface the real
+      // failure instead of masking it with a fake zero.
+      const status = err?.response?.status;
+      const serverMsg = err?.response?.data?.error;
+      setSyncError({
+        status: status || null,
+        message: serverMsg || err.message || 'Could not load your profile. Please check your connection and try again.'
+      });
       const isParamAdmin = typeof window !== 'undefined' && window.location.search.includes('admin=true');
       setIsAdmin(isParamAdmin);
     } finally {
@@ -141,6 +155,7 @@ export function AppProvider({ children }) {
 
     initTelegram();
     fetchUserProfile();
+    armAdexiumAutoMode(); // auto-shows in the background; suppressed while a Play-section game is active
 
     // Check if URL has ?admin=true
     const params = new URLSearchParams(window.location.search);
@@ -253,6 +268,7 @@ export function AppProvider({ children }) {
         setDuplicateLinkedUser,
         ipConflictUsers,
         setIpConflictUsers,
+        syncError,
         language,
         setLanguage,
         t,
