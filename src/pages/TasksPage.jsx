@@ -25,7 +25,15 @@ import TaskPaymentModal from '../components/TaskPaymentModal';
 import BoostTaskModal from '../components/BoostTaskModal';
 
 export default function TasksPage() {
-  const { user, setUser, setContactAdminModalOpen, openWallet } = useApp();
+  const {
+    user,
+    setUser,
+    setContactAdminModalOpen,
+    openWallet,
+    connectedTonWallet,
+    disconnectTonWallet,
+    setIsTonConnectModalOpen
+  } = useApp();
   const [activeCategory, setActiveCategory] = useState('daily');
   const [exclusiveSubTab, setExclusiveSubTab] = useState('all'); // 'all' | 'my'
   const [tasks, setTasks] = useState([]);
@@ -685,6 +693,68 @@ export default function TasksPage() {
           {/* VIEW 2: MY TASKS (User Campaigns with Pay Now, Reject, Approved, Completed) */}
           {exclusiveSubTab === 'my' && (
             <div className="space-y-3">
+              {/* CONNECT WALLET BAR (Matches User Screenshot 1) */}
+              <div
+                style={{
+                  background: 'linear-gradient(180deg, #161b24 0%, #0d1017 100%)',
+                  border: '1.5px solid #253346',
+                  boxShadow: '0 6px 20px rgba(0, 0, 0, 0.6)'
+                }}
+                className="p-3.5 rounded-[24px] flex items-center justify-between"
+              >
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#1d2738] flex items-center justify-center text-[#0098ea]">
+                    <Wallet size={16} />
+                  </div>
+                  <div>
+                    {connectedTonWallet ? (
+                      <div className="space-y-0.5">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">TON Connected</span>
+                        </div>
+                        <p className="text-xs font-mono font-bold text-cyan-200">
+                          {connectedTonWallet.length > 14
+                            ? `${connectedTonWallet.slice(0, 6)}...${connectedTonWallet.slice(-4)}`
+                            : connectedTonWallet}
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-xs font-bold text-gray-200">Wallet not connected</p>
+                        <p className="text-[10px] text-gray-400">Connect TON to pay & approve posts</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {connectedTonWallet ? (
+                  <button
+                    onClick={() => {
+                      triggerHaptic('selection');
+                      disconnectTonWallet();
+                    }}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 active:scale-95 transition-all"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      triggerHaptic('impact', 'medium');
+                      setIsTonConnectModalOpen(true);
+                    }}
+                    style={{
+                      background: 'linear-gradient(180deg, #0098ea 0%, #0077c5 100%)',
+                      boxShadow: '0 4px 12px rgba(0, 152, 234, 0.4)'
+                    }}
+                    className="px-4 py-2 rounded-full text-xs font-bold text-white uppercase tracking-wide active:scale-95 transition-all shadow"
+                  >
+                    Connect Wallet
+                  </button>
+                )}
+              </div>
+
               {myTasks.length === 0 ? (
                 <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-3">
                   <Clock size={32} className="mx-auto text-[#a89782]" />
@@ -980,10 +1050,9 @@ export default function TasksPage() {
           setCreateModalOpen(false);
           setEditModalTask(null);
           setExclusiveSubTab('my');
-          setPaymentModalTask(newTask);
           setStatusMessage({
-            type: 'info',
-            text: '📢 পোস্ট তৈরি হয়েছে! অ্যাপ্রুভ করার জন্য অনুগ্রহ করে পেমেন্ট সম্পন্ন করুন।'
+            type: 'success',
+            text: '🎉 পোস্ট সফলভাবে তৈরি হয়েছে! উপরে Connect Wallet করুন এবং নিচে আপনার পোস্টের "Pay now" বাটনে ক্লিক করুন।'
           });
           loadTasksAndAds();
         }}
