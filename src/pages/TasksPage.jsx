@@ -45,6 +45,38 @@ export default function TasksPage() {
   const [verifyingTaskId, setVerifyingTaskId] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
 
+  // 20-second cooldown timer between consecutive ad watches
+  const [adCooldownSeconds, setAdCooldownSeconds] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    const stored = localStorage.getItem('treasure_ad_cooldown_until');
+    if (!stored) return 0;
+    const remaining = Math.ceil((Number(stored) - Date.now()) / 1000);
+    return remaining > 0 ? remaining : 0;
+  });
+
+  useEffect(() => {
+    if (adCooldownSeconds <= 0) return;
+    const interval = setInterval(() => {
+      const stored = localStorage.getItem('treasure_ad_cooldown_until');
+      if (stored) {
+        const remaining = Math.ceil((Number(stored) - Date.now()) / 1000);
+        if (remaining > 0) {
+          setAdCooldownSeconds(remaining);
+        } else {
+          setAdCooldownSeconds(0);
+          localStorage.removeItem('treasure_ad_cooldown_until');
+        }
+      } else {
+        setAdCooldownSeconds((prev) => {
+          if (prev <= 1) return 0;
+          return prev - 1;
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [adCooldownSeconds]);
+
   // Modals for Exclusive Task Creation, Editing, Payment & Boosting
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalTask, setEditModalTask] = useState(null);
@@ -144,7 +176,15 @@ export default function TasksPage() {
       return;
     }
 
-    if (ad.is_completed_today) return;
+    if (adCooldownSeconds > 0) {
+      setStatusMessage({ type: 'info', text: `Please wait ${adCooldownSeconds}s before watching the next ad.` });
+      triggerHaptic('notification', 'warning');
+      return;
+    }
+
+    const watched = ad.watched_today || 0;
+    const max = ad.max_daily || 10;
+    if (watched >= max || ad.is_completed_today) return;
 
     setLoading(true);
     triggerHaptic('impact', 'medium');
@@ -164,6 +204,11 @@ export default function TasksPage() {
         });
         loadTasksAndAds();
         triggerHaptic('notification', 'success');
+
+        // Start 20-second cooldown across all ad buttons
+        const cooldownUntil = Date.now() + 20 * 1000;
+        localStorage.setItem('treasure_ad_cooldown_until', String(cooldownUntil));
+        setAdCooldownSeconds(20);
       }
     } catch (err) {
       setStatusMessage({ type: 'error', text: err.response?.data?.error || err.message || 'Ad verification failed' });
@@ -449,10 +494,26 @@ export default function TasksPage() {
 
                 <button
                   onClick={() => handleWatchAd(ad)}
-                  disabled={loading || isFinished}
+                  disabled={loading || isFinished || adCooldownSeconds > 0}
                   style={
-                    !isFinished
+                    isFinished
                       ? {
+                          backgroundColor: '#352415',
+                          color: '#7a6752',
+                          borderTop: '1px solid #4a3420',
+                          borderBottom: '2.5px solid #1a1108'
+                        }
+                      : adCooldownSeconds > 0
+                      ? {
+                          backgroundColor: '#261b11',
+                          color: '#facc15',
+                          borderTop: '1.5px solid #5a3d1c',
+                          borderLeft: '1px solid #3d2914',
+                          borderRight: '1px solid #3d2914',
+                          borderBottom: '3.5px solid #140d06',
+                          boxShadow: 'inset 0 1px 1px rgba(255, 230, 180, 0.1)'
+                        }
+                      : {
                           background: 'linear-gradient(180deg, #ffdc7a 0%, #f7bf46 45%, #e8a522 100%)',
                           borderTop: '1.5px solid #fff2b8',
                           borderLeft: '1px solid #e8a522',
@@ -461,16 +522,10 @@ export default function TasksPage() {
                           color: '#1a0f02',
                           boxShadow: '0 6px 14px rgba(232, 165, 34, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.6)'
                         }
-                      : {
-                          backgroundColor: '#352415',
-                          color: '#7a6752',
-                          borderTop: '1px solid #4a3420',
-                          borderBottom: '2.5px solid #1a1108'
-                        }
                   }
-                  className="px-6 py-2.5 rounded-[20px] text-[14px] font-black tracking-wide shrink-0 transition-all active:translate-y-1 active:border-b-[1px] active:shadow-none"
+                  className="px-6 py-2.5 rounded-[20px] text-[14px] font-black tracking-wide shrink-0 transition-all active:translate-y-1 active:border-b-[1px] active:shadow-none min-w-[92px] text-center"
                 >
-                  {isFinished ? 'Done' : 'Watch'}
+                  {isFinished ? 'Done' : adCooldownSeconds > 0 ? `${adCooldownSeconds}s` : 'Watch'}
                 </button>
               </div>
             );
