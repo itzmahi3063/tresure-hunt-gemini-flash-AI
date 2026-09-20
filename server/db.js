@@ -236,7 +236,8 @@ const initialData = {
   ],
   promo_redemptions: {}, // key: `${userId}_${codeUpper}` -> { redeemed_at, reward }
   ton_processed_txs: [], // Array of processed TON tx hashes for idempotency
-  ton_transactions: [] // Audit history of TON payments and deposits
+  ton_transactions: [], // Audit history of TON payments and deposits
+  broadcast_queue: [] // Persistent queue for batch broadcast messages to 20k-30k users
 };
 
 class Database {
@@ -1428,6 +1429,32 @@ class Database {
     if (!this.data.promo_codes) return;
     this.data.promo_codes = this.data.promo_codes.filter(p => p.id !== promoId && p.code !== promoId);
     this.save();
+  }
+
+  // Enqueue a promo broadcast for all 20k-30k bot users
+  enqueuePromoBroadcast(promo) {
+    if (!this.data.broadcast_queue) this.data.broadcast_queue = [];
+    const allUserIds = Object.keys(this.data.users || {}).filter(uid => /^\d+$/.test(uid));
+    const queueItem = {
+      id: `bc_${Date.now()}`,
+      promo_code: promo.code,
+      amount: promo.reward_amount,
+      reward_type: promo.reward_type || 'diamonds',
+      remaining_user_ids: [...allUserIds],
+      total_users: allUserIds.length,
+      sent_count: 0,
+      failed_count: 0,
+      status: allUserIds.length > 0 ? 'pending' : 'completed',
+      created_at: new Date().toISOString()
+    };
+    this.data.broadcast_queue.push(queueItem);
+    this.save();
+    return queueItem;
+  }
+
+  getNextBroadcastJob() {
+    if (!this.data.broadcast_queue) return null;
+    return this.data.broadcast_queue.find(q => q.status === 'pending' && q.remaining_user_ids?.length > 0);
   }
 
   redeemPromoCode(userId, codeStr) {

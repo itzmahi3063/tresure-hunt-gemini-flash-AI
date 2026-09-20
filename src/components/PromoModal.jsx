@@ -5,12 +5,18 @@ import api from '../services/api';
 import { triggerHaptic } from '../services/telegram';
 import confetti from 'canvas-confetti';
 
-export default function PromoModal({ isOpen, onClose }) {
+export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
   const { setUser } = useApp();
-  const [promoCode, setPromoCode] = useState('');
+  const [promoCode, setPromoCode] = useState(initialCode || '');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [rewardClaimed, setRewardClaimed] = useState(null);
+
+  React.useEffect(() => {
+    if (initialCode) {
+      setPromoCode(initialCode);
+    }
+  }, [initialCode]);
 
   if (!isOpen) return null;
 

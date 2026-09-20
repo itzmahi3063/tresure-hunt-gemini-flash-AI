@@ -35,6 +35,8 @@ function blockIfDeviceConflict(req, res, next) {
 import {
   bot,
   postWithdrawalProofToChannel,
+  postPromoCodeToChannel,
+  processBroadcastQueue,
   verifyUserChannelMembership,
   verifyBotIsAdminInChat,
   broadcastToUsers
@@ -497,10 +499,25 @@ app.post('/api/ton/webhook', async (req, res) => {
   }
 });
 
-// 1-minute Fallback Cron Endpoint (can be called by Vercel Cron or any scheduler)
+// 1-minute Fallback Cron Endpoint (called by cron-job.org / Vercel Cron)
 app.get('/api/ton/cron', async (req, res) => {
   try {
     const result = await verifyPendingTonPayments();
+    // Also process queued broadcast messages in small batches (40 users per run)
+    const broadcastResult = await processBroadcastQueue(40).catch(err => {
+      console.error('Error processing broadcast queue in cron:', err);
+      return null;
+    });
+    res.json({ success: true, timestamp: new Date().toISOString(), result, broadcast: broadcastResult });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Dedicated broadcast queue processor cron endpoint
+app.get('/api/broadcast/cron', async (req, res) => {
+  try {
+    const result = await processBroadcastQueue(50);
     res.json({ success: true, timestamp: new Date().toISOString(), result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1295,7 +1312,7 @@ app.get('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
   res.json({ success: true, promoCodes: db.getPromoCodes() });
 });
 
-app.post('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
+app.post('/api/admin/promo', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { code, reward_type, reward_amount, max_uses } = req.body;
     if (!code || !reward_amount) {
@@ -1307,6 +1324,24 @@ app.post('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
       reward_amount,
       max_uses
     });
+
+    // 1. Enqueue broadcast for all bot users (processed smoothly via cron / batches)
+    try {
+      db.enqueuePromoBroadcast(promo);
+    } catch (e) {
+      console.error('Failed to enqueue promo broadcast:', e);
+    }
+
+    // 2. Post promo code announcement with branded photo banner to official channel
+    postPromoCodeToChannel(promo).catch(e => {
+      console.error('Channel promo broadcast error:', e);
+    });
+
+    // 3. Kick off immediate batch for prompt delivery
+    processBroadcastQueue(35).catch(e => {
+      console.error('Immediate broadcast batch error:', e);
+    });
+
     res.json({ success: true, promo });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

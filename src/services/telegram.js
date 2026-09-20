@@ -124,6 +124,47 @@ export function getReferrerIdFromStartParam() {
   return referrerId;
 }
 
+/**
+ * Extract promo code if Mini App was opened via a promo link, e.g.
+ * https://t.me/treasure_hunt12_bot/Play?startapp=promo_99821
+ */
+export function getPromoCodeFromStartParam() {
+  let startParam = null;
+
+  const webapp = typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp
+    ? window.Telegram.WebApp
+    : tg;
+
+  // 1) Telegram's parsed initDataUnsafe.start_param
+  if (webapp?.initDataUnsafe?.start_param) {
+    startParam = webapp.initDataUnsafe.start_param;
+  }
+
+  // 2) Parse raw initData query string
+  if (!startParam && webapp?.initData) {
+    try {
+      const urlParams = new URLSearchParams(webapp.initData);
+      startParam = urlParams.get('start_param');
+    } catch (e) {}
+  }
+
+  // 3) Browser/dev fallback: ?startapp=promo_xxx or ?promo=xxx
+  if (!startParam && typeof window !== 'undefined') {
+    const search = new URLSearchParams(window.location.search);
+    startParam = search.get('startapp') || search.get('tgWebAppStartParam') || search.get('promo');
+  }
+
+  if (!startParam) return null;
+
+  const match = String(startParam).match(/^promo_(.+)$/i);
+  if (match && match[1]) {
+    return match[1].trim().toUpperCase();
+  }
+
+  return null;
+}
+
+
 export function triggerHaptic(type = 'impact', style = 'medium') {
   if (tg && tg.HapticFeedback) {
     try {

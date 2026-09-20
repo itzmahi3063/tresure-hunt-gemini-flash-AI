@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import Header from '../components/Header';
 import LuxuryTreasureChest from '../components/LuxuryTreasureChest';
@@ -16,13 +16,22 @@ import {
   ShoppingBag,
   Calendar
 } from 'lucide-react';
-import { triggerHaptic } from '../services/telegram';
+import { triggerHaptic, getPromoCodeFromStartParam } from '../services/telegram';
 
 export default function HomePage() {
   const { setActiveTab, openWallet, t } = useApp();
   const [promoModalOpen, setPromoModalOpen] = useState(false);
+  const [promoCodeParam, setPromoCodeParam] = useState('');
   const [storeModalOpen, setStoreModalOpen] = useState(false);
   const [dailyModalOpen, setDailyModalOpen] = useState(false);
+
+  useEffect(() => {
+    const promoCode = getPromoCodeFromStartParam();
+    if (promoCode) {
+      setPromoCodeParam(promoCode);
+      setPromoModalOpen(true);
+    }
+  }, []);
 
   const handleAction = (action) => {
     triggerHaptic('selection');
@@ -192,7 +201,11 @@ export default function HomePage() {
       </div>
 
       {/* Modals */}
-      <PromoModal isOpen={promoModalOpen} onClose={() => setPromoModalOpen(false)} />
+      <PromoModal
+        isOpen={promoModalOpen}
+        onClose={() => setPromoModalOpen(false)}
+        initialCode={promoCodeParam}
+      />
       <StoreModal isOpen={storeModalOpen} onClose={() => setStoreModalOpen(false)} />
       <DailyModal isOpen={dailyModalOpen} onClose={() => setDailyModalOpen(false)} />
     </div>

@@ -300,3 +300,138 @@ export async function postWithdrawalProofToChannel(withdrawal, user) {
     }
   }
 }
+
+/**
+ * Post official promo code announcement to Telegram channel with branded banner
+ */
+export async function postPromoCodeToChannel(promo) {
+  if (!bot || !bot.telegram) {
+    console.warn('Bot instance not available for posting promo to channel');
+    return false;
+  }
+
+  const channelId = process.env.PROMO_CHANNEL || process.env.PAYMENT_CHANNEL || '@treasure_hunt_12';
+  const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
+  const bannerUrl = `${webappUrl}/promo_code_banner.jpg`;
+
+  const code = String(promo.code || '').trim().toUpperCase();
+  const amount = promo.reward_amount || 20;
+
+  // Exact requested format:
+  // Get received ✅
+  // Promo : 99821 I GEMS = 20
+  //
+  // CLAIM NOW
+  //
+  // Bot 👉👉👉 https://t.me/treasure_hunt12_bot/Play?startapp=ref_7780774047
+  //
+  // GO TO THE BOT & CLAIM YOUR REWARDS✅
+  const caption =
+    `Get received ✅\n` +
+    `Promo : <code>${code}</code> I GEMS = ${amount}\n\n` +
+    `CLAIM NOW\n\n` +
+    `Bot 👉👉👉 https://t.me/treasure_hunt12_bot/Play?startapp=ref_7780774047\n\n` +
+    `GO TO THE BOT & CLAIM YOUR REWARDS✅`;
+
+  try {
+    await bot.telegram.sendPhoto(channelId, bannerUrl, {
+      caption,
+      parse_mode: 'HTML'
+    });
+    console.log(`📢 Promo code ${code} posted to channel ${channelId}`);
+    return true;
+  } catch (err) {
+    console.warn('sendPhoto failed for promo, trying sendMessage:', err.message);
+    try {
+      await bot.telegram.sendMessage(channelId, caption, { parse_mode: 'HTML' });
+      return true;
+    } catch (e) {
+      console.error('Failed to post promo to channel:', e.message);
+      return false;
+    }
+  }
+}
+
+/**
+ * Process a batch of broadcast messages from persistent queue in db
+ * Handles 20k-30k users safely across multiple cron runs without timing out
+ */
+export async function processBroadcastQueue(batchSize = 35) {
+  if (!bot || !bot.telegram) return { processed: 0, reason: 'bot_not_ready' };
+
+  const job = db.getNextBroadcastJob();
+  if (!job || !job.remaining_user_ids || job.remaining_user_ids.length === 0) {
+    return { processed: 0, reason: 'no_pending_jobs' };
+  }
+
+  const batch = job.remaining_user_ids.splice(0, batchSize);
+  const code = String(job.promo_code || '').trim().toUpperCase();
+  const amount = job.amount || 20;
+  const unit = (job.reward_type || 'diamonds') === 'usdt' ? 'USDT' : 'GEMS';
+
+  // Exact requested beautiful template:
+  // 🎉 Congratulations! 🎉
+  //
+  // You have received 20 GEMS ✅🎁
+  //
+  // 🔴 Redeem Code: "99821"
+  // 📌 Tap the code to copy it instantly.
+  //
+  // Don't miss it! 🚀
+  const messageText =
+    `🎉 <b>Congratulations!</b> 🎉\n\n` +
+    `You have received <b>${amount} ${unit}</b> ✅🎁\n\n` +
+    `🔴 Redeem Code: <code>${code}</code>\n` +
+    `📌 <i>Tap the code to copy it instantly.</i>\n\n` +
+    `Don't miss it! 🚀`;
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        {
+          text: '🎁 Claim Promo Code',
+          url: `https://t.me/treasure_hunt12_bot/Play?startapp=promo_${encodeURIComponent(code)}`
+        }
+      ]
+    ]
+  };
+
+  let sentThisBatch = 0;
+  let failedThisBatch = 0;
+
+  for (const uid of batch) {
+    try {
+      await bot.telegram.sendMessage(uid, messageText, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard
+      });
+      job.sent_count = (job.sent_count || 0) + 1;
+      sentThisBatch++;
+    } catch (err) {
+      job.failed_count = (job.failed_count || 0) + 1;
+      failedThisBatch++;
+    }
+    // Small throttle (~35ms) to respect Telegram 30 msg/sec rate limit
+    await new Promise(r => setTimeout(r, 35));
+  }
+
+  if (job.remaining_user_ids.length === 0) {
+    job.status = 'completed';
+    job.completed_at = new Date().toISOString();
+    console.log(`🎉 Broadcast job ${job.id} for promo ${code} fully completed! Total sent: ${job.sent_count}`);
+  }
+
+  db.save();
+  await db.flush();
+
+  return {
+    jobId: job.id,
+    processed: batch.length,
+    sentThisBatch,
+    failedThisBatch,
+    totalSent: job.sent_count,
+    remaining: job.remaining_user_ids.length,
+    status: job.status
+  };
+}
+
