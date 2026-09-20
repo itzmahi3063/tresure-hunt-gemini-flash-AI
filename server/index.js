@@ -5,7 +5,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
-import { bot, postWithdrawalProofToChannel } from './bot.js';
 
 // Blocks reward-granting actions (chest opens, task/ad rewards, wallet
 // moves, game payouts, promo redemption, gifts...) for an account flagged
@@ -35,6 +34,7 @@ function blockIfDeviceConflict(req, res, next) {
 }
 import {
   bot,
+  postWithdrawalProofToChannel,
   verifyUserChannelMembership,
   verifyBotIsAdminInChat,
   broadcastToUsers
