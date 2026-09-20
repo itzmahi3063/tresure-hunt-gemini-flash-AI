@@ -124,6 +124,12 @@ export default function TasksPage() {
   };
 
   const handleWatchAd = async (ad) => {
+    if (user?.device_conflict) {
+      setStatusMessage({ type: 'error', text: 'Your account has been suspended' });
+      triggerHaptic('notification', 'error');
+      return;
+    }
+
     if (ad.is_completed_today) return;
 
     setLoading(true);
@@ -154,6 +160,12 @@ export default function TasksPage() {
   };
 
   const handleTaskAction = async (task) => {
+    if (user?.device_conflict) {
+      setStatusMessage({ type: 'error', text: 'Your account has been suspended' });
+      triggerHaptic('notification', 'error');
+      return;
+    }
+
     if (task.is_completed) return;
 
     // Step 1: If not visited yet, open link and switch button to Verify
