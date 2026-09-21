@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getTelegramInitData, getTelegramUser } from './telegram';
+import { isActionEndpoint, signActionRequest } from '../utils/actionSigner';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -8,7 +9,7 @@ const api = axios.create({
   }
 });
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(async (config) => {
   const initData = getTelegramInitData();
   const user = getTelegramUser();
 
@@ -19,6 +20,12 @@ api.interceptors.request.use((config) => {
     config.headers['x-test-user-id'] = user.id;
     config.headers['x-test-first-name'] = user.first_name || '';
     config.headers['x-test-username'] = user.username || '';
+  }
+
+  // Cryptographically sign sensitive action requests (tasks, ads, rewards, game, etc.)
+  if (isActionEndpoint(config.url)) {
+    const userId = user?.id || '';
+    await signActionRequest(config, userId);
   }
 
   return config;

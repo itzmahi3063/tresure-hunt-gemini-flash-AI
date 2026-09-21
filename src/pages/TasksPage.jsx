@@ -224,7 +224,12 @@ export default function TasksPage() {
     }
   };
 
-  const handleWatchAd = async (ad) => {
+  const handleWatchAd = async (ad, e) => {
+    if (e) {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+      e.nativeEvent?.stopImmediatePropagation?.();
+    }
     if (user?.device_conflict) {
       setStatusMessage({ type: 'error', text: 'Your account has been suspended' });
       triggerHaptic('notification', 'error');
@@ -627,7 +632,7 @@ export default function TasksPage() {
                 </div>
 
                 <button
-                  onClick={() => handleWatchAd(ad)}
+                  onClick={(e) => handleWatchAd(ad, e)}
                   disabled={loading || isFinished || adCooldownSeconds > 0}
                   style={
                     isFinished

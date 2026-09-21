@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
+import { verifyActionSignature } from './actionSigner.js';
 
 // Blocks reward-granting actions (chest opens, task/ad rewards, wallet
 // moves, game payouts, promo redemption, gifts...) for an account flagged
@@ -66,7 +67,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString('utf8');
+  }
+}));
 
 // Keep every request's view of the data fresh from MongoDB — not just on
 // cold start, but on every single request. A warm serverless instance
@@ -266,7 +271,7 @@ app.post('/api/user/sync', authMiddleware, (req, res) => {
 });
 
 // Open Treasure Chest
-app.post('/api/chest/open', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/chest/open', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { watchStartedAt } = req.body;
     if (isAdWatchTooShort(watchStartedAt)) {
@@ -304,7 +309,7 @@ app.get('/api/tasks', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/tasks/complete', authMiddleware, blockIfDeviceConflict, async (req, res) => {
+app.post('/api/tasks/complete', authMiddleware, blockIfDeviceConflict, verifyActionSignature, async (req, res) => {
   try {
     const { taskId } = req.body;
     const userId = req.user.id;
@@ -442,7 +447,7 @@ app.post('/api/tasks/exclusive/cancel', authMiddleware, async (req, res) => {
 });
 
 // Confirm & Pay for Exclusive Task Campaign (Strict TON Blockchain & Balance Verification)
-app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, async (req, res) => {
+app.post('/api/tasks/exclusive/pay', authMiddleware, blockIfDeviceConflict, verifyActionSignature, async (req, res) => {
   try {
     const { taskId } = req.body;
     const existing = db.getTaskById(taskId);
@@ -728,7 +733,7 @@ function isAdWatchTooShort(watchStartedAt) {
   return Date.now() - watchStartedAt < MIN_AD_WATCH_MS;
 }
 
-app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { adId, watchStartedAt } = req.body;
     const userId = req.user.id;
@@ -765,7 +770,7 @@ app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, (req, res) => 
 // WALLET: CONVERT & WITHDRAW ROUTES
 // ==========================================
 
-app.post('/api/wallet/convert', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/wallet/convert', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { amountDiamonds } = req.body;
     const { user, conversion } = db.convertDiamonds(req.user.id, amountDiamonds);
@@ -775,7 +780,7 @@ app.post('/api/wallet/convert', authMiddleware, blockIfDeviceConflict, (req, res
   }
 });
 
-app.post('/api/wallet/withdraw', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/wallet/withdraw', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { amountUsdt, network, walletAddress } = req.body;
     const { user, withdrawal } = db.createWithdrawal(
@@ -799,7 +804,7 @@ app.get('/api/wallet/requirements', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/store/buy-crystal', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/store/buy-crystal', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { quantity } = req.body;
     const result = db.buyCrystalCoin(req.user.id, quantity || 1);
@@ -818,7 +823,7 @@ app.get('/api/daily-rewards/status', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/daily-rewards/claim', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/daily-rewards/claim', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { watchStartedAt } = req.body;
     if (isAdWatchTooShort(watchStartedAt)) {
@@ -896,7 +901,7 @@ app.get('/api/wallet/proofs', (req, res) => {
 // PROMO CODE REDEMPTION ROUTE (User)
 // ==========================================
 
-app.post('/api/promo/redeem', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/promo/redeem', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { code } = req.body;
     const result = db.redeemPromoCode(req.user.id, code);
@@ -941,7 +946,7 @@ app.post('/api/game/tictactoe/save', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/game/tictactoe/finish', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/game/tictactoe/finish', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { result, board } = req.body;
     const outcome = db.finishTicTacToe(req.user.id, result, board);
@@ -964,7 +969,7 @@ app.get('/api/game/stats', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/game/luckydraw/play', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/game/luckydraw/play', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const outcome = db.playLuckyDraw(req.user.id);
     res.json({ success: true, ...outcome });
@@ -1286,7 +1291,7 @@ app.post('/api/admin/user/gift', authMiddleware, adminMiddleware, (req, res) => 
 
 // User claims a pending gift from the popup — this is the only moment the
 // reward is actually credited to their balance.
-app.post('/api/gift/claim', authMiddleware, blockIfDeviceConflict, (req, res) => {
+app.post('/api/gift/claim', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
   try {
     const { giftId } = req.body;
     if (!giftId) return res.status(400).json({ success: false, error: 'giftId is required' });

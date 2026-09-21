@@ -25,36 +25,123 @@ function verifyMinWatch(startedAt) {
   }
 }
 
+/**
+ * AdBarrier
+ * Prevents multiple ads from overlapping or triggering at the same time.
+ * When an ad (e.g., Adsgram or USL) is triggered, Monetag is shielded so Monetag
+ * cannot accidentally co-trigger or pop up on top of Adsgram.
+ * Adexium is unaffected as it is an autonomous native widget, not a button ad.
+ */
+class AdBarrier {
+  constructor() {
+    this._activeNetwork = null;
+    this._originalMonetag = null;
+    this._shieldTimer = null;
+  }
+
+  isLocked() {
+    return !!this._activeNetwork;
+  }
+
+  acquire(networkId) {
+    if (this._activeNetwork) {
+      throw new Error(`Another ad is currently active (${this._activeNetwork}). Please wait.`);
+    }
+    this._activeNetwork = networkId || 'unknown';
+
+    // If starting a non-Monetag ad (e.g., Adsgram, USL), immediately shield Monetag
+    if (networkId !== 'monetag') {
+      this._shieldMonetag();
+    }
+  }
+
+  _shieldMonetag() {
+    if (typeof window === 'undefined') return;
+    if (this._shieldTimer) {
+      clearTimeout(this._shieldTimer);
+      this._shieldTimer = null;
+    }
+    if (typeof window.show_11828835 === 'function' && !this._originalMonetag) {
+      this._originalMonetag = window.show_11828835;
+    }
+    // Swap with safe no-op dummy function while Adsgram/USL is active
+    window.show_11828835 = () => {
+      console.warn('[AdBarrier] Blocked secondary Monetag trigger while another ad is active');
+      return Promise.resolve();
+    };
+  }
+
+  _unshieldMonetag() {
+    if (typeof window === 'undefined') return;
+    if (this._originalMonetag) {
+      window.show_11828835 = this._originalMonetag;
+      this._originalMonetag = null;
+    }
+  }
+
+  release() {
+    const wasNonMonetag = this._activeNetwork !== 'monetag';
+    this._activeNetwork = null;
+
+    if (wasNonMonetag) {
+      // Keep Monetag shielded for an extra 2.5 seconds post-close grace period
+      // to swallow any late synthetic/buffered click events
+      if (this._shieldTimer) {
+        clearTimeout(this._shieldTimer);
+      }
+      this._shieldTimer = setTimeout(() => {
+        if (!this._activeNetwork) {
+          this._unshieldMonetag();
+        }
+      }, 2500);
+    } else {
+      this._unshieldMonetag();
+    }
+  }
+}
+
+export const adBarrier = new AdBarrier();
+
 // Monetag interstitial — used for the "Monetag" Daily Watch & Earn slot.
 export async function showMonetagInterstitial() {
-  const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
-  if (typeof showFn !== 'function') {
-    throw new Error('Ad is still loading — please try again in a moment.');
-  }
-  const startedAt = Date.now();
+  adBarrier.acquire('monetag');
   try {
-    await showFn();
-  } catch {
-    throw new Error('Ad was closed before finishing — no reward this time.');
+    const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
+    if (typeof showFn !== 'function') {
+      throw new Error('Ad is still loading — please try again in a moment.');
+    }
+    const startedAt = Date.now();
+    try {
+      await showFn();
+    } catch {
+      throw new Error('Ad was closed before finishing — no reward this time.');
+    }
+    verifyMinWatch(startedAt);
+    return { watchStartedAt: startedAt };
+  } finally {
+    adBarrier.release();
   }
-  verifyMinWatch(startedAt);
-  return { watchStartedAt: startedAt };
 }
 
 // Monetag rewarded popup — used specifically for the Daily Rewards claim.
 export async function showMonetagRewardedPopup() {
-  const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
-  if (typeof showFn !== 'function') {
-    throw new Error('Ad is still loading — please try again in a moment.');
-  }
-  const startedAt = Date.now();
+  adBarrier.acquire('monetag');
   try {
-    await showFn('pop');
-  } catch {
-    throw new Error('Ad was closed before finishing — no reward this time.');
+    const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
+    if (typeof showFn !== 'function') {
+      throw new Error('Ad is still loading — please try again in a moment.');
+    }
+    const startedAt = Date.now();
+    try {
+      await showFn('pop');
+    } catch {
+      throw new Error('Ad was closed before finishing — no reward this time.');
+    }
+    verifyMinWatch(startedAt);
+    return { watchStartedAt: startedAt };
+  } finally {
+    adBarrier.release();
   }
-  verifyMinWatch(startedAt);
-  return { watchStartedAt: startedAt };
 }
 
 // Helper to ensure Adsgram SDK script is loaded and window.Adsgram is ready
@@ -81,72 +168,82 @@ async function ensureAdsgramLoaded() {
 // Adsgram — used for both "Adsgram" Daily Watch & Earn slots.
 // Default blockId: 'int-49020' (Supports both Interstitial and Rewarded formats)
 export async function showAdsgram(blockId = 'int-49020') {
-  await ensureAdsgramLoaded();
-  if (typeof window === 'undefined' || !window.Adsgram) {
-    throw new Error('Adsgram is still loading — please check your internet connection and try again.');
-  }
-
-  const finalBlockId = (blockId && !blockId.includes('sample')) ? blockId : 'int-49020';
-  const startedAt = Date.now();
-  const AdController = window.Adsgram.init({ blockId: finalBlockId });
-
+  adBarrier.acquire('adsgram');
   try {
-    const result = await AdController.show();
-    // According to Adsgram documentation:
-    // result: { done: boolean, description: string, state: string, error: boolean }
-    if (result && result.error) {
-      console.warn('Adsgram playback error:', result);
-      throw new Error(result.description || 'Ad error occurred during playback.');
+    await ensureAdsgramLoaded();
+    if (typeof window === 'undefined' || !window.Adsgram) {
+      throw new Error('Adsgram is still loading — please check your internet connection and try again.');
     }
-    if (result && result.done === false) {
-      throw new Error('Ad was closed before finishing — no reward this time.');
-    }
-  } catch (err) {
-    console.warn('Adsgram show catch:', err);
-    const msg = err?.description || err?.message || 'Ad was closed before finishing — no reward this time.';
-    throw new Error(msg);
-  }
 
-  verifyMinWatch(startedAt);
-  return { watchStartedAt: startedAt };
+    const finalBlockId = (blockId && !blockId.includes('sample')) ? blockId : 'int-49020';
+    const startedAt = Date.now();
+    const AdController = window.Adsgram.init({ blockId: finalBlockId });
+
+    try {
+      const result = await AdController.show();
+      // According to Adsgram documentation:
+      // result: { done: boolean, description: string, state: string, error: boolean }
+      if (result && result.error) {
+        console.warn('Adsgram playback error:', result);
+        throw new Error(result.description || 'Ad error occurred during playback.');
+      }
+      if (result && result.done === false) {
+        throw new Error('Ad was closed before finishing — no reward this time.');
+      }
+    } catch (err) {
+      console.warn('Adsgram show catch:', err);
+      const msg = err?.description || err?.message || 'Ad was closed before finishing — no reward this time.';
+      throw new Error(msg);
+    }
+
+    verifyMinWatch(startedAt);
+    return { watchStartedAt: startedAt };
+  } finally {
+    adBarrier.release();
+  }
 }
 
 // USL TowerAds — used for the "USL" Daily Watch & Earn slot.
 // Follows exact TowerAds specification with 5-second minimum watch timer.
 export async function showTowerAd(placementId = 'plc_7c25684decd46576') {
-  const startedAt = Date.now();
-  const pId = placementId || 'plc_7c25684decd46576';
+  adBarrier.acquire('usl');
+  try {
+    const startedAt = Date.now();
+    const pId = placementId || 'plc_7c25684decd46576';
 
-  if (typeof window !== 'undefined' && window.TowerAds) {
-    try {
-      let rewardEarned = false;
-      const ads = new window.TowerAds({
-        apiKey: 'YOUR_API_KEY',
-        placementId: pId,
-        onRewardEarned(reward) {
-          console.log('TowerAds reward:', reward);
-          rewardEarned = true;
-        },
-        onError(error) {
-          console.error('TowerAds error:', error);
-        }
-      });
+    if (typeof window !== 'undefined' && window.TowerAds) {
+      try {
+        let rewardEarned = false;
+        const ads = new window.TowerAds({
+          apiKey: 'YOUR_API_KEY',
+          placementId: pId,
+          onRewardEarned(reward) {
+            console.log('TowerAds reward:', reward);
+            rewardEarned = true;
+          },
+          onError(error) {
+            console.error('TowerAds error:', error);
+          }
+        });
 
-      await ads.loadAndShow();
-    } catch (error) {
-      console.warn('TowerAds load/show notice:', error);
+        await ads.loadAndShow();
+      } catch (error) {
+        console.warn('TowerAds load/show notice:', error);
+      }
+    } else {
+      // If SDK is still loading or in dev preview, wait full 5 seconds
+      await sleep(MIN_AD_WATCH_MS);
     }
-  } else {
-    // If SDK is still loading or in dev preview, wait full 5 seconds
-    await sleep(MIN_AD_WATCH_MS);
-  }
 
-  verifyMinWatch(startedAt);
-  return { watchStartedAt: startedAt };
+    verifyMinWatch(startedAt);
+    return { watchStartedAt: startedAt };
+  } finally {
+    adBarrier.release();
+  }
 }
 
 // Dispatch by the ad slot's configured network_id.
-// Applies identical 5-second timer logic regardless of which network provides the ad.
+// Applies identical 5-second timer logic and AdBarrier protection across all networks.
 export async function showAdForNetwork(ad) {
   switch (ad.network_id) {
     case 'monetag':
@@ -158,9 +255,14 @@ export async function showAdForNetwork(ad) {
       return showTowerAd(ad.block_id || 'plc_7c25684decd46576');
     default:
       {
-        const startedAt = Date.now();
-        await sleep(MIN_AD_WATCH_MS);
-        return { watchStartedAt: startedAt };
+        adBarrier.acquire(ad.network_id || 'default');
+        try {
+          const startedAt = Date.now();
+          await sleep(MIN_AD_WATCH_MS);
+          return { watchStartedAt: startedAt };
+        } finally {
+          adBarrier.release();
+        }
       }
   }
 }
