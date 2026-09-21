@@ -102,8 +102,39 @@ class AdBarrier {
 
 export const adBarrier = new AdBarrier();
 
-// Monetag interstitial — used for the "Monetag" Daily Watch & Earn slot.
-export async function showMonetagInterstitial() {
+// Helper to ensure Gigapub SDK script is loaded and window.showGiga is ready
+async function ensureGigapubLoaded() {
+  if (typeof window === 'undefined') return false;
+  if (typeof window.showGiga === 'function') return true;
+
+  let script = document.querySelector('script[src*="gigapub"]');
+  if (!script) {
+    script = document.createElement('script');
+    script.src = 'https://ad.gigapub.tech/script?id=8273';
+    script.async = true;
+    document.head.appendChild(script);
+  }
+
+  // Poll up to 3 seconds for window.showGiga to initialize
+  for (let i = 0; i < 30; i++) {
+    if (typeof window.showGiga === 'function') return true;
+    await sleep(100);
+  }
+  return typeof window.showGiga === 'function';
+}
+
+// Gigapub — used as chained bonus ad after Monetag for first 5 watches
+export async function showGigapub() {
+  await ensureGigapubLoaded();
+  if (typeof window === 'undefined' || typeof window.showGiga !== 'function') {
+    throw new Error('Gigapub SDK is still loading or unavailable.');
+  }
+
+  return window.showGiga();
+}
+
+// Monetag interstitial with optional Gigapub chained flow
+export async function showMonetagWithGigapubFlow({ attemptGigapub = false, onProgress } = {}) {
   adBarrier.acquire('monetag');
   try {
     const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
@@ -117,10 +148,35 @@ export async function showMonetagInterstitial() {
       throw new Error('Ad was closed before finishing — no reward this time.');
     }
     verifyMinWatch(startedAt);
+
+    // If attemptGigapub is true (first 5 watches of the day for Monetag slot),
+    // attempt to show Gigapub before giving reward
+    if (attemptGigapub) {
+      // Shield Monetag so background click events do not trigger a second Monetag
+      adBarrier._shieldMonetag();
+      if (typeof onProgress === 'function') {
+        onProgress('Loading bonus ad (2/2)...');
+      }
+      await sleep(400);
+
+      try {
+        await showGigapub();
+      } catch (gigaErr) {
+        // As requested: If Gigapub fails to load or error occurs,
+        // do not block the user — grant reward based on Monetag!
+        console.warn('Gigapub bonus ad skipped or failed to load:', gigaErr);
+      }
+    }
+
     return { watchStartedAt: startedAt };
   } finally {
     adBarrier.release();
   }
+}
+
+// Standard Monetag interstitial (single ad, used for chest/games)
+export async function showMonetagInterstitial() {
+  return showMonetagWithGigapubFlow({ attemptGigapub: false });
 }
 
 // Monetag rewarded popup — used specifically for the Daily Rewards claim.
@@ -244,10 +300,13 @@ export async function showTowerAd(placementId = 'plc_7c25684decd46576') {
 
 // Dispatch by the ad slot's configured network_id.
 // Applies identical 5-second timer logic and AdBarrier protection across all networks.
-export async function showAdForNetwork(ad) {
+export async function showAdForNetwork(ad, onProgress) {
   switch (ad.network_id) {
-    case 'monetag':
-      return showMonetagInterstitial();
+    case 'monetag': {
+      // First 5 watches of the day chain Gigapub immediately after Monetag
+      const isFirst5 = (ad.watched_today || 0) < 5;
+      return showMonetagWithGigapubFlow({ attemptGigapub: isFirst5, onProgress });
+    }
     case 'adsgram':
     case 'adsgram_cat':
       return showAdsgram(ad.block_id);

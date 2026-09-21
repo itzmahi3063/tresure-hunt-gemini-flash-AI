@@ -258,7 +258,11 @@ export default function TasksPage() {
     try {
       // Real ad SDK call (Adsgram or Monetag, by ad.network_id) — this also
       // enforces the 5-second minimum watch time before resolving.
-      const { watchStartedAt } = await showAdForNetwork(ad);
+      const { watchStartedAt } = await showAdForNetwork(ad, (statusText) => {
+        if (statusText) {
+          setStatusMessage({ type: 'info', text: statusText });
+        }
+      });
 
       const res = await api.post('/ads/watch', { adId: ad.id, watchStartedAt });
       if (res.data.success) {
