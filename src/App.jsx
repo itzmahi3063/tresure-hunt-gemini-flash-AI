@@ -91,16 +91,12 @@ export default function App() {
     return <SyncErrorScreen error={syncError} onRetry={fetchUserProfile} />;
   }
 
-  // 4. Anti-Cheat: Device Already In Use Detection Screen (matching UI)
-  if (duplicateLinkedUser) {
+  // 4. Anti-Cheat: Device Already In Use Detection Screen (Strict Suspension)
+  if (duplicateLinkedUser || user?.device_conflict) {
     return (
       <DeviceBlockedScreen
-        linkedUser={duplicateLinkedUser}
+        linkedUser={duplicateLinkedUser || user?.device_conflict_linked}
         onRetry={fetchUserProfile}
-        onSwitched={(switchedUser) => {
-          setUser(switchedUser);
-          setDuplicateLinkedUser(null);
-        }}
       />
     );
   }

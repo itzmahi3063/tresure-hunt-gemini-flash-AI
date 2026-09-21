@@ -2460,56 +2460,95 @@ class Database {
     if (!this.data.device_fingerprints) {
       this.data.device_fingerprints = {};
     }
+    if (!this.data.device_accounts) {
+      this.data.device_accounts = {};
+    }
 
     const id = String(userId);
     if (!deviceId) return { isDuplicate: false };
 
-    const boundUserId = this.data.device_fingerprints[deviceId];
-    if (boundUserId && boundUserId !== id) {
-      const primaryUser = this.getUser(boundUserId);
-      return {
-        isDuplicate: true,
-        linkedUser: {
-          id: boundUserId,
-          name: primaryUser ? [primaryUser.first_name, primaryUser.last_name].filter(Boolean).join(' ') : 'Original Hunter',
-          username: primaryUser?.username || `user_${boundUserId.slice(-4)}`
-        }
-      };
+    // Track every account that ever connected from this device
+    if (!Array.isArray(this.data.device_accounts[deviceId])) {
+      this.data.device_accounts[deviceId] = [];
+    }
+    if (!this.data.device_accounts[deviceId].includes(id)) {
+      this.data.device_accounts[deviceId].push(id);
     }
 
-    // Bind device if not bound
-    if (!boundUserId) {
-      this.data.device_fingerprints[deviceId] = id;
+    // Determine the true original (oldest) account on this device
+    let originalUserId = null;
+    let earliestCreatedAt = Infinity;
+
+    for (const uid of this.data.device_accounts[deviceId]) {
+      const u = this.getUser(uid);
+      if (u) {
+        const createdTime = u.created_at ? new Date(u.created_at).getTime() : Infinity;
+        if (createdTime < earliestCreatedAt) {
+          earliestCreatedAt = createdTime;
+          originalUserId = String(uid);
+        }
+      }
+    }
+
+    // Also check current bound device fingerprint if it has a valid user
+    const existingBoundId = this.data.device_fingerprints[deviceId];
+    if (existingBoundId) {
+      const boundUser = this.getUser(existingBoundId);
+      if (boundUser) {
+        const boundCreatedTime = boundUser.created_at ? new Date(boundUser.created_at).getTime() : Infinity;
+        if (boundCreatedTime < earliestCreatedAt) {
+          earliestCreatedAt = boundCreatedTime;
+          originalUserId = String(existingBoundId);
+        }
+      }
+    }
+
+    // Fallback if timestamps are missing
+    if (!originalUserId) {
+      originalUserId = existingBoundId || id;
+    }
+
+    // Permanently bind this device to the true original (old) account
+    this.data.device_fingerprints[deviceId] = originalUserId;
+
+    const currentUser = this.getUser(id);
+
+    // If current user IS the original (old) account: ALWAYS ALLOW!
+    if (id === String(originalUserId)) {
+      if (currentUser && currentUser.device_conflict) {
+        currentUser.device_conflict = false;
+        currentUser.device_conflict_linked = null;
+        this.save();
+      }
+      return { isDuplicate: false };
+    }
+
+    // Otherwise, this is a NEW / SECONDARY account created on the same device!
+    // Suspend it permanently!
+    const originalUser = this.getUser(originalUserId);
+    if (currentUser) {
+      currentUser.device_conflict = true;
+      currentUser.device_conflict_linked = {
+        id: originalUserId,
+        name: originalUser ? [originalUser.first_name, originalUser.last_name].filter(Boolean).join(' ') : 'Original Hunter',
+        username: originalUser?.username || `user_${String(originalUserId).slice(-4)}`
+      };
       this.save();
     }
 
-    return { isDuplicate: false };
+    return {
+      isDuplicate: true,
+      linkedUser: {
+        id: originalUserId,
+        name: originalUser ? [originalUser.first_name, originalUser.last_name].filter(Boolean).join(' ') : 'Original Hunter',
+        username: originalUser?.username || `user_${String(originalUserId).slice(-4)}`
+      }
+    };
   }
 
   switchAccountResetBalance(userId, deviceId) {
-    if (!this.data.device_fingerprints) {
-      this.data.device_fingerprints = {};
-    }
-
-    const id = String(userId);
-    const user = this.getUser(id);
-    if (!user) throw new Error('User not found');
-
-    // Claim connection for this account
-    if (deviceId) {
-      this.data.device_fingerprints[deviceId] = id;
-    }
-
-    // Reset balance to zero as penalty for multi-account attempt
-    user.diamonds = 0;
-    user.usdt = 0.0;
-    user.is_switched_reset = true;
-    user.device_conflict = false;
-    user.device_conflict_linked = null;
-    user.updated_at = new Date().toISOString();
-
-    this.save();
-    return user;
+    // Secondary accounts on the same device cannot unblock themselves
+    throw new Error('Your account has been suspended. Multiple accounts on the same device are strictly prohibited. Please switch to your original Telegram account.');
   }
 
   // --- Same-IP duplicate-account lock ---

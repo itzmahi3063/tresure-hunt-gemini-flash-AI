@@ -217,6 +217,16 @@ export function AppProvider({ children }) {
 
   // Action: Open Treasure Chest
   const openChest = async () => {
+    if (user?.device_conflict) {
+      triggerHaptic('notification', 'error');
+      if (window.Telegram?.WebApp?.showAlert) {
+        window.Telegram.WebApp.showAlert('Your account has been suspended');
+      } else {
+        alert('Your account has been suspended');
+      }
+      return;
+    }
+
     if (!user || user.keys <= 0) {
       triggerHaptic('notification', 'error');
       alert('You have 0 keys left! Keys reset daily or can be earned through tasks.');

@@ -228,6 +228,11 @@ export default function TasksPage() {
     if (user?.device_conflict) {
       setStatusMessage({ type: 'error', text: 'Your account has been suspended' });
       triggerHaptic('notification', 'error');
+      if (window.Telegram?.WebApp?.showAlert) {
+        window.Telegram.WebApp.showAlert('Your account has been suspended');
+      } else {
+        alert('Your account has been suspended');
+      }
       return;
     }
 
@@ -277,6 +282,11 @@ export default function TasksPage() {
     if (user?.device_conflict) {
       setStatusMessage({ type: 'error', text: 'Your account has been suspended' });
       triggerHaptic('notification', 'error');
+      if (window.Telegram?.WebApp?.showAlert) {
+        window.Telegram.WebApp.showAlert('Your account has been suspended');
+      } else {
+        alert('Your account has been suspended');
+      }
       return;
     }
 
@@ -428,6 +438,18 @@ export default function TasksPage() {
           );
         })}
       </div>
+
+      {/* Suspended Account Banner */}
+      {user?.device_conflict && (
+        <div className="p-4 rounded-2xl bg-rose-950/80 border-2 border-rose-500/60 text-center space-y-1 shadow-lg shadow-rose-950/50 animate-pulse">
+          <p className="text-sm font-black text-rose-400 font-heading tracking-wide">
+            ⛔ YOUR ACCOUNT HAS BEEN SUSPENDED
+          </p>
+          <p className="text-xs text-gray-300">
+            Multiple accounts detected on this device. Tasks, ads, and rewards are disabled for this account.
+          </p>
+        </div>
+      )}
 
       {/* Status Message */}
       {statusMessage && (
