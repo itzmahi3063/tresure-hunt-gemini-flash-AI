@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
 import { initTelegram, getTelegramUser, triggerHaptic, getReferrerIdFromStartParam, getOrCreateDeviceId } from '../services/telegram';
 import { armAdexiumAutoMode } from '../services/adexium';
+import { showGameOrChestAd } from '../services/ads';
 import { getTranslation, LANGUAGES } from '../utils/translations';
 import confetti from 'canvas-confetti';
  
@@ -235,7 +236,8 @@ export function AppProvider({ children }) {
 
     try {
       triggerHaptic('impact', 'heavy');
-      const res = await api.post('/chest/open');
+      const { watchStartedAt } = await showGameOrChestAd({ flowKey: 'chest' });
+      const res = await api.post('/chest/open', { watchStartedAt });
       if (res.data.success) {
         setUser(res.data.user);
         setChestModalData({

@@ -16,7 +16,7 @@ import { triggerHaptic } from '../services/telegram';
 import { formatGems, formatUsdt } from '../utils/format';
 import api from '../services/api';
 import confetti from 'canvas-confetti';
-import { showMonetagInterstitial } from '../services/ads';
+import { showMonetagInterstitial, showGameOrChestAd } from '../services/ads';
 import { armAdexiumAutoMode, setAdexiumGameInProgress } from '../services/adexium';
 
 // ==========================================
@@ -200,8 +200,8 @@ export default function PlayPage() {
     triggerHaptic('impact', 'medium');
 
     try {
-      // Monetag interstitial plays before the paid match starts.
-      await showMonetagInterstitial();
+      // Alternating Adsgram (49079) / Monetag ad with Gigapub fallback
+      await showGameOrChestAd({ flowKey: 'game' });
 
       const res = await api.post('/game/tictactoe/start');
       if (res.data.success) {
@@ -358,11 +358,9 @@ export default function PlayPage() {
           }
           fetchGameStats();
 
-          // Monetag ad plays right after the reward is revealed. The
-          // reward is already credited above, so this doesn't gate
-          // anything — it's just shown after the win, as requested.
+          // Alternating Adsgram (49079) / Monetag ad with Gigapub fallback
           try {
-            await showMonetagInterstitial();
+            await showGameOrChestAd({ flowKey: 'game' });
           } catch {
             // Ad failed/skipped — reward was already granted, nothing to undo.
           }

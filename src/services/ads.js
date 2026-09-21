@@ -79,6 +79,15 @@ class AdBarrier {
     }
   }
 
+  forceRelease() {
+    this._activeNetwork = null;
+    this._unshieldMonetag();
+    if (this._shieldTimer) {
+      clearTimeout(this._shieldTimer);
+      this._shieldTimer = null;
+    }
+  }
+
   release() {
     const wasNonMonetag = this._activeNetwork !== 'monetag';
     this._activeNetwork = null;
@@ -123,14 +132,22 @@ async function ensureGigapubLoaded() {
   return typeof window.showGiga === 'function';
 }
 
-// Gigapub — used as chained bonus ad after Monetag for first 5 watches
-export async function showGigapub() {
+async function rawShowGigapub() {
   await ensureGigapubLoaded();
   if (typeof window === 'undefined' || typeof window.showGiga !== 'function') {
     throw new Error('Gigapub SDK is still loading or unavailable.');
   }
-
   return window.showGiga();
+}
+
+// Gigapub — standalone ad trigger with barrier lock
+export async function showGigapub() {
+  adBarrier.acquire('gigapub');
+  try {
+    return await rawShowGigapub();
+  } finally {
+    adBarrier.release();
+  }
 }
 
 // Monetag interstitial with optional Gigapub chained flow
@@ -160,7 +177,7 @@ export async function showMonetagWithGigapubFlow({ attemptGigapub = false, onPro
       await sleep(400);
 
       try {
-        await showGigapub();
+        await rawShowGigapub();
       } catch (gigaErr) {
         // As requested: If Gigapub fails to load or error occurs,
         // do not block the user — grant reward based on Monetag!
@@ -177,6 +194,157 @@ export async function showMonetagWithGigapubFlow({ attemptGigapub = false, onPro
 // Standard Monetag interstitial (single ad, used for chest/games)
 export async function showMonetagInterstitial() {
   return showMonetagWithGigapubFlow({ attemptGigapub: false });
+}
+
+/**
+ * Attempt to show Adsgram (blockId 49079) for Game or Chest with 20s timeout
+ */
+async function attemptAdsgramGameAd(timeoutMs = 20000) {
+  let timerId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      reject(new Error('Adsgram load timeout (20s)'));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      showAdsgram('49079'),
+      timeoutPromise
+    ]);
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
+/**
+ * Alternating Ad Flow for Games (Tic-Tac-Toe, Lucky Draw) and Treasure Chest:
+ * - Alternating sequence:
+ *     1st watch: Adsgram (blockId: 49079)
+ *     2nd watch: Monetag (interstitial)
+ *     3rd watch: Adsgram (49079)
+ *     4th watch: Monetag
+ *     ...
+ * - Fallback:
+ *     If Adsgram fails / rejects / times out (20s guard), smoothly fall back to Gigapub.
+ *     If Gigapub also fails, fall back to Monetag interstitial.
+ *     No screen errors displayed to user on ad failure!
+ */
+export async function showGameOrChestAd({ flowKey = 'game', onProgress } = {}) {
+  const startedAt = Date.now();
+  const storageKey = `treasure_${flowKey}_ad_turn`;
+  const currentTurn = parseInt(localStorage.getItem(storageKey) || '0', 10);
+  const isAdsgramTurn = currentTurn % 2 === 0;
+
+  // Advance turn for next watch
+  localStorage.setItem(storageKey, String(currentTurn + 1));
+
+  if (isAdsgramTurn) {
+    // --- Turn: Adsgram (49079) ---
+    let adsgramSuccess = false;
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading ad (Adsgram)...');
+      }
+      await attemptAdsgramGameAd(20000);
+      adsgramSuccess = true;
+    } catch (err) {
+      console.warn('Adsgram (49079) failed or timed out, cascading to Gigapub:', err);
+      adBarrier.forceRelease();
+    }
+
+    if (adsgramSuccess) {
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+
+    // Fallback 1: Gigapub
+    let gigaSuccess = false;
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading backup ad (Gigapub)...');
+      }
+      await sleep(300);
+      await showGigapub();
+      gigaSuccess = true;
+    } catch (err) {
+      console.warn('Gigapub fallback failed, cascading to Monetag:', err);
+      adBarrier.forceRelease();
+    }
+
+    if (gigaSuccess) {
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+
+    // Fallback 2: Monetag Interstitial
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading backup ad (Monetag)...');
+      }
+      await sleep(300);
+      await showMonetagInterstitial();
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    } catch (monetagErr) {
+      console.warn('All ad fallbacks exhausted:', monetagErr);
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+
+  } else {
+    // --- Turn: Monetag ---
+    let monetagSuccess = false;
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading ad (Monetag)...');
+      }
+      await showMonetagInterstitial();
+      monetagSuccess = true;
+    } catch (err) {
+      console.warn('Monetag failed, cascading to Gigapub:', err);
+      adBarrier.forceRelease();
+    }
+
+    if (monetagSuccess) {
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+
+    // Fallback 1: Gigapub
+    let gigaSuccess = false;
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading backup ad (Gigapub)...');
+      }
+      await sleep(300);
+      await showGigapub();
+      gigaSuccess = true;
+    } catch (err) {
+      console.warn('Gigapub fallback failed, cascading to Adsgram:', err);
+      adBarrier.forceRelease();
+    }
+
+    if (gigaSuccess) {
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+
+    // Fallback 2: Adsgram (49079)
+    try {
+      if (typeof onProgress === 'function') {
+        onProgress('Loading backup ad (Adsgram)...');
+      }
+      await sleep(300);
+      await attemptAdsgramGameAd(20000);
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    } catch (adsgramErr) {
+      console.warn('All ad fallbacks exhausted:', adsgramErr);
+      verifyMinWatch(startedAt);
+      return { watchStartedAt: startedAt };
+    }
+  }
 }
 
 // Monetag rewarded popup — used specifically for the Daily Rewards claim.

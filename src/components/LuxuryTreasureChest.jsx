@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { useApp } from '../context/AppContext';
 import { Key, Flame } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
-import { showMonetagInterstitial } from '../services/ads';
+import { showGameOrChestAd } from '../services/ads';
 import confetti from 'canvas-confetti';
 import api from '../services/api';
 
@@ -439,9 +439,8 @@ export default function LuxuryTreasureChest() {
     triggerHaptic('impact', 'medium');
 
     try {
-      // Monetag interstitial plays before the chest actually opens — also
-      // enforces the 5-second minimum watch time before resolving.
-      const { watchStartedAt } = await showMonetagInterstitial();
+      // Alternating Adsgram (49079) / Monetag ad with Gigapub fallback
+      const { watchStartedAt } = await showGameOrChestAd({ flowKey: 'chest' });
 
       const res = await api.post('/chest/open', { watchStartedAt });
       if (res.data.success) {
