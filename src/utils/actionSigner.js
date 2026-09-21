@@ -36,6 +36,26 @@ export function isActionEndpoint(url) {
   return SENSITIVE_ACTION_PATHS.some((p) => clean.startsWith(p));
 }
 
+export function getCanonicalBodyString(data) {
+  if (data === undefined || data === null) return '';
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (!trimmed || trimmed === '{}') return '';
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0) return '';
+      return JSON.stringify(parsed, Object.keys(parsed).sort());
+    } catch {
+      return trimmed;
+    }
+  }
+  if (typeof data === 'object') {
+    if (Object.keys(data).length === 0) return '';
+    return JSON.stringify(data, Object.keys(data).sort());
+  }
+  return String(data);
+}
+
 /**
  * Pure JS SHA-256 implementation (Fallback)
  */
@@ -172,17 +192,12 @@ export async function signActionRequest(config, userId) {
     const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const method = (config.method || 'POST').toUpperCase();
     const cleanPath = normalizeActionPath(config.url);
+    const bodyStr = getCanonicalBodyString(config.data);
 
-    let bodyStr = '';
-    if (config.data !== undefined && config.data !== null) {
-      if (typeof config.data === 'string') {
-        bodyStr = config.data;
-      } else {
-        bodyStr = JSON.stringify(config.data);
-        config.data = bodyStr;
-        config.headers = config.headers || {};
-        config.headers['Content-Type'] = 'application/json';
-      }
+    if (bodyStr) {
+      config.data = bodyStr;
+      config.headers = config.headers || {};
+      config.headers['Content-Type'] = 'application/json';
     }
 
     const message = `${userId}:${method}:${cleanPath}:${bodyStr}:${timestamp}:${nonce}`;

@@ -24,6 +24,30 @@ export function normalizeActionPath(url) {
   return '/' + pathOnly.replace(/^(\/api\/|\/)/, '');
 }
 
+export function getCanonicalBodyString(data) {
+  if (data === undefined || data === null) return '';
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if (!trimmed || trimmed === '{}') return '';
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0) return '';
+      return JSON.stringify(parsed, Object.keys(parsed).sort());
+    } catch {
+      return trimmed;
+    }
+  }
+  if (typeof data === 'object') {
+    if (Object.keys(data).length === 0) return '';
+    return JSON.stringify(data, Object.keys(data).sort());
+  }
+  return String(data);
+}
+
+function computeHmac(secret, message) {
+  return crypto.createHmac('sha256', secret).update(message).digest('hex');
+}
+
 /**
  * Middleware: verifyActionSignature
  * Validates HMAC-SHA256 signature, timestamp freshness, and nonce uniqueness.
@@ -63,46 +87,76 @@ export function verifyActionSignature(req, res, next) {
     });
   }
 
-  // User check: user id must be present from authMiddleware
   const userId = String(req.user?.id || '');
   const method = req.method.toUpperCase();
-  const cleanPath = normalizeActionPath(req.originalUrl || req.url || req.path);
 
-  const bodyStr = req.rawBody
-    ? req.rawBody
-    : req.body
-      ? typeof req.body === 'string'
-        ? req.body
-        : JSON.stringify(req.body)
-      : '';
+  // Candidate paths: matched route path, baseUrl+route, originalUrl, or path
+  const paths = [
+    normalizeActionPath(req.route?.path),
+    normalizeActionPath(req.baseUrl ? req.baseUrl + (req.route?.path || req.path) : ''),
+    normalizeActionPath(req.originalUrl),
+    normalizeActionPath(req.url),
+    normalizeActionPath(req.path)
+  ].filter(Boolean);
+  const uniquePaths = Array.from(new Set(paths));
 
-  const message = `${userId}:${method}:${cleanPath}:${bodyStr}:${timestamp}:${nonce}`;
+  // Determine possible body string representations
+  const rawBodyCanonical = getCanonicalBodyString(req.rawBody);
+  const parsedBodyCanonical = getCanonicalBodyString(req.body);
+  const bodyCandidates = Array.from(new Set([
+    rawBodyCanonical,
+    parsedBodyCanonical,
+    '',
+    '{}'
+  ]));
 
-  const expectedSignature = crypto
-    .createHmac('sha256', ACTION_SIGNING_SECRET)
-    .update(message)
-    .digest('hex');
+  let signatureValid = false;
 
-  // Constant-time compare to prevent timing attacks
+  let clientBuf;
   try {
-    const clientBuf = Buffer.from(clientSignature, 'hex');
-    const expectedBuf = Buffer.from(expectedSignature, 'hex');
-
-    if (
-      clientBuf.length !== expectedBuf.length ||
-      !crypto.timingSafeEqual(clientBuf, expectedBuf)
-    ) {
-      console.warn(`[Security] Action signature mismatch for user ${userId} on ${cleanPath}`);
-      return res.status(403).json({
-        success: false,
-        error: 'Security verification failed: invalid action signature.',
-        actionBlocked: true
-      });
-    }
-  } catch (e) {
+    clientBuf = Buffer.from(clientSignature, 'hex');
+  } catch {
     return res.status(403).json({
       success: false,
       error: 'Security verification failed: malformed action signature.',
+      actionBlocked: true
+    });
+  }
+
+  for (const cleanPath of uniquePaths) {
+    for (const bodyStr of bodyCandidates) {
+      // Candidate messages (with userId and without userId to be resilient against client-state race conditions)
+      const candidateMessages = [
+        `${userId}:${method}:${cleanPath}:${bodyStr}:${timestamp}:${nonce}`,
+        `${method}:${cleanPath}:${bodyStr}:${timestamp}:${nonce}`
+      ];
+
+      for (const msg of candidateMessages) {
+        const expected = computeHmac(ACTION_SIGNING_SECRET, msg);
+        try {
+          const expectedBuf = Buffer.from(expected, 'hex');
+          if (
+            clientBuf.length === expectedBuf.length &&
+            crypto.timingSafeEqual(clientBuf, expectedBuf)
+          ) {
+            signatureValid = true;
+            break;
+          }
+        } catch {
+          // Continue checking
+        }
+      }
+
+      if (signatureValid) break;
+    }
+    if (signatureValid) break;
+  }
+
+  if (!signatureValid) {
+    console.warn(`[Security] Action signature mismatch for user ${userId} on ${req.originalUrl || req.path}`);
+    return res.status(403).json({
+      success: false,
+      error: 'Security verification failed: invalid action signature.',
       actionBlocked: true
     });
   }
