@@ -72,14 +72,14 @@ export default function IpBlockedScreen({ linkedUsers, onRetry, onSwitched }) {
           </h1>
           <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
             <p className="text-sm font-black text-amber-300 max-w-xs mx-auto leading-relaxed font-heading">
-              ⚠️ alada Network / Vpn use kore account ta calaite hobe
+              ⚠️ Please use a different Network or VPN to access this account
             </p>
             <p className="text-[11px] text-gray-300 mt-1">
-              (You must use a different Network or VPN to run this account)
+              Another account is already active on this IP connection. Switch your WiFi/Mobile Data or connect through a VPN.
             </p>
           </div>
           <p className="text-xs text-[#8E95A5] max-w-xs mx-auto leading-relaxed">
-            Another account is already using this IP connection. Switch your WiFi/Data or connect using a secure VPN to proceed.
+            To ensure fair play, each account requires an independent network connection.
           </p>
         </div>
 

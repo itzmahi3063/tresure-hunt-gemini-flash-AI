@@ -1080,12 +1080,12 @@ export default function AdminDashboard() {
                 {/* Placement ID / Zone ID (Supports USL TowerAds, Adsgram, Monetag) */}
                 <div>
                   <label className="block text-[10px] text-gray-400 uppercase font-bold mb-1">
-                    Placement ID / Block ID <span className="text-gray-500 text-[9px]">(USL: plc_... / Monetag: zone)</span>
+                    Placement ID / Block ID <span className="text-gray-500 text-[9px]">(Adsgram: int-49020 / USL: plc_... / Monetag: zone)</span>
                   </label>
                   <input
                     type="text"
                     value={ad.block_id || ''}
-                    placeholder="e.g. plc_7c25684decd46576"
+                    placeholder="e.g. int-49020 or plc_7c25684decd46576"
                     onChange={(e) => handleUpdateAdField(ad.id, 'block_id', e.target.value)}
                     className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono outline-none focus:border-yellow-400"
                   />

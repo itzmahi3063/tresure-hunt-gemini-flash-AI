@@ -146,13 +146,13 @@ const initialData = {
       id: 'adsgram',
       name: 'Adsgram',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-block'
+      block_id: 'int-49020'
     },
     {
       id: 'adsgram_cat',
       name: 'Adsgram 🐱🏍',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-cat-block'
+      block_id: 'int-49020'
     },
     {
       id: 'monetag',
@@ -175,7 +175,7 @@ const initialData = {
       network_id: 'adsgram',
       name: 'Adsgram',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-block',
+      block_id: 'int-49020',
       reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
@@ -185,7 +185,7 @@ const initialData = {
       network_id: 'adsgram_cat',
       name: 'Adsgram 🐱🏍',
       logo_url: 'https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg',
-      block_id: 'sample-adsgram-cat-block',
+      block_id: 'int-49020',
       reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
@@ -381,6 +381,12 @@ class Database {
         existing.block_id = 'plc_7c25684decd46576';
         changed = true;
       }
+      // Upgrade any placeholder sample-adsgram block IDs to the real Adsgram BLOCKID (int-49020)
+      if ((existing.network_id === 'adsgram' || existing.network_id === 'adsgram_cat') &&
+          (!existing.block_id || existing.block_id.startsWith('sample-adsgram'))) {
+        existing.block_id = 'int-49020';
+        changed = true;
+      }
       return existing;
     });
 
@@ -389,6 +395,17 @@ class Database {
       if (!updatedSlots.some(s => s.id === slot.id)) {
         updatedSlots.push(slot);
         changed = true;
+      }
+    }
+
+    // Ensure ad_networks catalog also has int-49020
+    if (Array.isArray(this.data.ad_networks)) {
+      for (const net of this.data.ad_networks) {
+        if ((net.id === 'adsgram' || net.id === 'adsgram_cat') &&
+            (!net.block_id || net.block_id.startsWith('sample-adsgram'))) {
+          net.block_id = 'int-49020';
+          changed = true;
+        }
       }
     }
 

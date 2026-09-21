@@ -57,19 +57,56 @@ export async function showMonetagRewardedPopup() {
   return { watchStartedAt: startedAt };
 }
 
-// Adsgram — used for both "Adsgram" Daily Watch & Earn slots. Each slot has
-// its own blockId, set in the admin panel (server/db.js ads_config).
-export async function showAdsgram(blockId) {
-  if (typeof window === 'undefined' || !window.Adsgram || !blockId) {
-    throw new Error('Ad is still loading — please try again in a moment.');
+// Helper to ensure Adsgram SDK script is loaded and window.Adsgram is ready
+async function ensureAdsgramLoaded() {
+  if (typeof window === 'undefined') return false;
+  if (window.Adsgram) return true;
+
+  let script = document.querySelector('script[src*="adsgram"]');
+  if (!script) {
+    script = document.createElement('script');
+    script.src = 'https://sad.adsgram.ai/js/sad.min.js';
+    script.async = true;
+    document.head.appendChild(script);
   }
+
+  // Poll up to 3 seconds for window.Adsgram to initialize
+  for (let i = 0; i < 30; i++) {
+    if (window.Adsgram) return true;
+    await sleep(100);
+  }
+  return !!window.Adsgram;
+}
+
+// Adsgram — used for both "Adsgram" Daily Watch & Earn slots.
+// Default blockId: 'int-49020' (Supports both Interstitial and Rewarded formats)
+export async function showAdsgram(blockId = 'int-49020') {
+  await ensureAdsgramLoaded();
+  if (typeof window === 'undefined' || !window.Adsgram) {
+    throw new Error('Adsgram is still loading — please check your internet connection and try again.');
+  }
+
+  const finalBlockId = (blockId && !blockId.includes('sample')) ? blockId : 'int-49020';
   const startedAt = Date.now();
-  const controller = window.Adsgram.init({ blockId });
+  const AdController = window.Adsgram.init({ blockId: finalBlockId });
+
   try {
-    await controller.show();
-  } catch {
-    throw new Error('Ad was closed before finishing — no reward this time.');
+    const result = await AdController.show();
+    // According to Adsgram documentation:
+    // result: { done: boolean, description: string, state: string, error: boolean }
+    if (result && result.error) {
+      console.warn('Adsgram playback error:', result);
+      throw new Error(result.description || 'Ad error occurred during playback.');
+    }
+    if (result && result.done === false) {
+      throw new Error('Ad was closed before finishing — no reward this time.');
+    }
+  } catch (err) {
+    console.warn('Adsgram show catch:', err);
+    const msg = err?.description || err?.message || 'Ad was closed before finishing — no reward this time.';
+    throw new Error(msg);
   }
+
   verifyMinWatch(startedAt);
   return { watchStartedAt: startedAt };
 }

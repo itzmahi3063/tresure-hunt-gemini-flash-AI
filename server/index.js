@@ -33,7 +33,7 @@ function blockIfDeviceConflict(req, res, next) {
   if (user && user.ip_conflict) {
     return res.status(403).json({
       success: false,
-      error: 'alada Network / Vpn use kore account ta calaite hobe',
+      error: 'Please use a different Network or VPN to access this account',
       ipConflict: true,
       linkedUsers: user.ip_conflict_linked || []
     });
