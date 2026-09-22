@@ -155,24 +155,61 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
 }
 
 /**
+ * Normalize a raw Telegram channel/group link, @username, or numeric chat id
+ * into the format Telegram's Bot API expects (@username or numeric ID).
+ */
+export function normalizeTelegramChatId(usernameOrLink) {
+  let clean = (usernameOrLink || '').trim();
+  if (!clean) return '';
+  let chatId = clean;
+  if (/(?:t\.me|telegram\.me)\//i.test(clean)) {
+    const match = clean.match(/(?:t\.me|telegram\.me)\/([a-zA-Z0-9_]+)/i);
+    if (match && match[1]) {
+      chatId = '@' + match[1];
+    }
+  } else if (!chatId.startsWith('@') && !chatId.startsWith('-100') && !/^\d+$/.test(chatId)) {
+    chatId = '@' + chatId;
+  }
+  return chatId;
+}
+
+/**
  * Verify if a user is a member of a Telegram channel/group
  */
 export async function verifyUserChannelMembership(chatId, userId) {
   if (!bot || !bot.telegram) {
-    // If bot token not active in local dev, allow simulation
-    return { verified: true, isSimulation: true };
+    console.warn('Bot instance not available for verifyUserChannelMembership');
+    return { verified: false, error: 'Telegram Bot service is not available to verify membership' };
+  }
+
+  const cleanChatId = normalizeTelegramChatId(chatId);
+  if (!cleanChatId) {
+    return { verified: false, error: 'Invalid channel or group link/username' };
   }
 
   try {
-    const member = await bot.telegram.getChatMember(chatId, userId);
+    const member = await bot.telegram.getChatMember(cleanChatId, userId);
     const validStatuses = ['creator', 'administrator', 'member', 'restricted'];
     const isMember = validStatuses.includes(member.status);
-    return { verified: isMember, status: member.status };
+    if (!isMember) {
+      return {
+        verified: false,
+        error: 'You have not joined the channel/group yet! Please join first, then tap Verify.'
+      };
+    }
+    return { verified: true, status: member.status };
   } catch (err) {
-    console.error(`Error checking membership for user ${userId} in ${chatId}:`, err.message);
+    console.error(`Error checking membership for user ${userId} in ${cleanChatId}:`, err.message);
+    const msg = err.message || '';
+    if (msg.includes('user not found') || msg.includes('not a member') || msg.includes('PARTICIPANT_ID_INVALID')) {
+      return {
+        verified: false,
+        error: 'You have not joined the channel/group yet! Please join first, then tap Verify.'
+      };
+    }
     return {
       verified: false,
-      error: 'Bot must be an administrator in the channel/group to verify members'
+      error: 'You have not joined the channel/group yet! Please join first, then tap Verify. (Ensure the Bot is an Admin in the channel)'
     };
   }
 }
@@ -181,11 +218,14 @@ export async function verifyUserChannelMembership(chatId, userId) {
  * Verify if Bot is an Admin in a given channel/group
  */
 export async function verifyBotIsAdminInChat(chatId) {
-  if (!bot || !bot.telegram) return { isAdmin: true, isSimulation: true };
+  if (!bot || !bot.telegram) return { isAdmin: false, error: 'Telegram Bot is not initialized' };
+
+  const cleanChatId = normalizeTelegramChatId(chatId);
+  if (!cleanChatId) return { isAdmin: false, error: 'Invalid channel or group identifier' };
 
   try {
     const me = await bot.telegram.getMe();
-    const chatMember = await bot.telegram.getChatMember(chatId, me.id);
+    const chatMember = await bot.telegram.getChatMember(cleanChatId, me.id);
     const isAdmin = chatMember.status === 'administrator' || chatMember.status === 'creator';
     return { isAdmin };
   } catch (err) {

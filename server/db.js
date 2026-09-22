@@ -719,6 +719,7 @@ class Database {
 
   addTask(taskData) {
     const id = `task_${Date.now()}`;
+    const isChannelOrGroup = taskData.type === 'channel' || taskData.type === 'group';
     const newTask = {
       id,
       category: taskData.category || 'social',
@@ -727,7 +728,8 @@ class Database {
       description: taskData.description || '',
       link: taskData.link,
       chat_id: taskData.chat_id || '',
-      reward_diamonds: Number(taskData.reward_diamonds) || 100,
+      verification_type: taskData.verification_type || (isChannelOrGroup ? 'verified' : 'unverified'),
+      reward_diamonds: Number(taskData.reward_diamonds) || 10,
       max_users: taskData.max_users ? Number(taskData.max_users) : null,
       current_completed: 0,
       is_active: true,

@@ -323,16 +323,33 @@ app.post('/api/tasks/complete', authMiddleware, blockIfDeviceConflict, verifyAct
       return res.status(400).json({ success: false, error: 'Task already completed' });
     }
 
-    // If verified channel/group task, verify actual membership with bot API
-    if ((task.type === 'channel' || task.type === 'group') && (task.verification_type === 'verified' || (!task.verification_type && task.chat_id))) {
-      if (task.chat_id) {
-        const check = await verifyUserChannelMembership(task.chat_id, userId);
-        if (!check.verified) {
-          return res.status(400).json({
-            success: false,
-            error: check.error || 'You have not joined the channel/group yet! Please join the channel first and then click Verify.'
-          });
-        }
+    // Check if this task requires Telegram channel/group membership verification
+    const isChannelOrGroup = task.type === 'channel' || task.type === 'group';
+    const isExplicitlyVerified = task.verification_type === 'verified';
+    const hasChatId = Boolean(task.chat_id && String(task.chat_id).trim().length > 1);
+    const isTelegramLink = typeof task.link === 'string' && /(?:t\.me|telegram\.me)\//i.test(task.link);
+
+    // Any task that is:
+    // - explicitly verified (task.verification_type === 'verified')
+    // - or channel/group type
+    // - or has a chat_id pointing to Telegram
+    const requiresMembershipVerification = isExplicitlyVerified || isChannelOrGroup || (hasChatId && isTelegramLink);
+
+    if (requiresMembershipVerification) {
+      const targetChatId = normalizeTelegramChatId(task.chat_id || task.link);
+      if (!targetChatId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Verification error: Channel username or link is missing for this task.'
+        });
+      }
+
+      const check = await verifyUserChannelMembership(targetChatId, userId);
+      if (!check.verified) {
+        return res.status(400).json({
+          success: false,
+          error: check.error || 'You have not joined the channel/group yet! Please join first, then click Verify.'
+        });
       }
     }
 
@@ -1144,6 +1161,7 @@ app.post('/api/admin/tasks', authMiddleware, adminMiddleware, async (req, res) =
       }
     }
 
+    const isChannelOrGroup = type === 'channel' || type === 'group';
     const newTask = db.addTask({
       category,
       type,
@@ -1151,10 +1169,7 @@ app.post('/api/admin/tasks', authMiddleware, adminMiddleware, async (req, res) =
       description,
       link,
       chat_id: resolvedChatId,
-      // Social / Exclusive / Partner tasks always reward a fixed 10 GEMS,
-      // regardless of whatever value the client sends — only the "Ads"
-      // system (managed separately, powers the Daily tab) has a
-      // per-ad configurable reward.
+      verification_type: isChannelOrGroup ? 'verified' : (req.body.verification_type || 'unverified'),
       reward_diamonds: 10,
       max_users
     });
