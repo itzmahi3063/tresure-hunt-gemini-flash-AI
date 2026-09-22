@@ -1245,42 +1245,42 @@ export default function PlayPage() {
 
       {/* MODAL 3: MATH QUIZ CHALLENGE (EASY MATH & ADEXIUM + MONETAG REWARDED POPUP) */}
       {currentView === 'quiz_modal' && quizQuestion && (
-        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#151928] border border-emerald-500/40 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative animate-scaleUp text-center my-auto space-y-4">
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 animate-fadeIn">
+          <div className="bg-[#151928] border border-emerald-500/40 rounded-3xl p-4 sm:p-5 w-full max-w-sm shadow-2xl relative animate-scaleUp text-center my-auto space-y-2.5 max-h-[92vh] overflow-y-auto">
             <button
               onClick={() => {
                 setAdexiumGameInProgress(false);
                 setCurrentView('list');
               }}
               disabled={isClaimingQuiz}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1"
+              className="absolute top-3 right-3 text-gray-400 hover:text-white p-1"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
 
-            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-              <Brain size={24} className="text-emerald-400" />
+            <div className="w-9 h-9 mx-auto rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+              <Brain size={20} className="text-emerald-400" />
             </div>
 
             <div>
-              <h3 className="text-lg font-black text-white">Math Quiz Challenge</h3>
-              <div className="flex items-center justify-center space-x-2 mt-1">
-                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+              <h3 className="text-base font-black text-white">Math Quiz Challenge</h3>
+              <div className="flex items-center justify-center space-x-2 mt-0.5">
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                   Solve #{Math.min((dailyStats.quizToday || 0) + 1, 10)} of 10 today
                 </span>
-                <span className="text-xs font-bold text-yellow-400 flex items-center space-x-1">
-                  <Gem size={12} className="text-yellow-400" />
+                <span className="text-[10px] font-bold text-yellow-400 flex items-center space-x-1">
+                  <Gem size={10} className="text-yellow-400" />
                   <span>+10 GEMS</span>
                 </span>
               </div>
             </div>
 
             {/* Question Display Card */}
-            <div className="bg-[#0e1220] border-2 border-emerald-500/40 rounded-2xl py-5 px-4 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
-              <p className="text-xs uppercase tracking-widest text-[#8E95A5] font-bold mb-1">
+            <div className="bg-[#0e1220] border-2 border-emerald-500/40 rounded-xl py-2.5 px-3 shadow-[0_0_15px_rgba(16,185,129,0.12)]">
+              <p className="text-[10px] uppercase tracking-widest text-[#8E95A5] font-bold mb-0.5">
                 Solve This Equation
               </p>
-              <div className="text-3xl font-black text-white tracking-wider flex items-center justify-center space-x-3">
+              <div className="text-2xl font-black text-white tracking-wider flex items-center justify-center space-x-2.5">
                 <span>{quizQuestion.num1}</span>
                 <span className="text-emerald-400 font-extrabold">{quizQuestion.op}</span>
                 <span>{quizQuestion.num2}</span>
@@ -1290,17 +1290,17 @@ export default function PlayPage() {
             </div>
 
             {/* 4 Options Grid (2x2) */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-2 gap-2">
               {quizQuestion.options.map((option, idx) => {
                 const isSelected = selectedQuizOption === option;
                 const isCorrect = isSelected && quizStatus === 'correct';
                 const isIncorrect = isSelected && quizStatus === 'incorrect';
 
-                let btnStyle = 'bg-[#0E111C] border-[#22283C] text-white hover:border-emerald-500/60';
+                let btnStyle = 'bg-[#0E111C] border-[#22283C] text-white hover:border-emerald-500/60 active:scale-95';
                 if (isCorrect) {
-                  btnStyle = 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)] scale-105';
+                  btnStyle = 'bg-emerald-500/25 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)] scale-[1.02]';
                 } else if (isIncorrect) {
-                  btnStyle = 'bg-rose-500/20 border-rose-400 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.3)] animate-shake';
+                  btnStyle = 'bg-rose-500/25 border-rose-400 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.3)] animate-shake';
                 }
 
                 return (
@@ -1308,48 +1308,48 @@ export default function PlayPage() {
                     key={idx}
                     onClick={() => handleSelectQuizOption(option)}
                     disabled={quizStatus === 'correct' || isClaimingQuiz}
-                    className={`h-14 rounded-xl border font-black text-lg transition-all flex items-center justify-center space-x-2 ${btnStyle}`}
+                    className={`h-11 rounded-xl border font-black text-base transition-all flex items-center justify-center space-x-1.5 ${btnStyle}`}
                   >
                     <span>{option}</span>
-                    {isCorrect && <CheckCircle2 size={18} className="text-emerald-400" />}
-                    {isIncorrect && <XCircle size={18} className="text-rose-400" />}
+                    {isCorrect && <CheckCircle2 size={16} className="text-emerald-400" />}
+                    {isIncorrect && <XCircle size={16} className="text-rose-400" />}
                   </button>
                 );
               })}
             </div>
 
-            {/* Status and Action Buttons */}
+            {/* Status and Action Buttons (Elevated higher up) */}
             {quizStatus === 'idle' && (
-              <p className="text-xs text-[#8E95A5] font-medium">
+              <p className="text-[11px] text-[#8E95A5] font-medium pt-0.5">
                 Tap the correct option above to solve!
               </p>
             )}
 
             {quizStatus === 'incorrect' && (
-              <div className="space-y-2 pt-1">
-                <p className="text-xs text-rose-400 font-bold flex items-center justify-center space-x-1">
-                  <XCircle size={14} />
-                  <span>Incorrect answer! Don't worry, try again.</span>
+              <div className="space-y-1.5 pt-0.5">
+                <p className="text-[11px] text-rose-400 font-bold flex items-center justify-center space-x-1">
+                  <XCircle size={13} />
+                  <span>Incorrect! Don't worry, try again.</span>
                 </p>
                 <button
                   onClick={handleRetryQuiz}
-                  className="w-full bg-[#1A1F30] hover:bg-[#232A40] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all"
+                  className="w-full bg-[#1A1F30] hover:bg-[#232A40] text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all"
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw size={13} />
                   <span>Try Again</span>
                 </button>
               </div>
             )}
 
             {quizStatus === 'correct' && (
-              <div className="space-y-2 pt-1">
-                <p className="text-xs text-emerald-400 font-bold flex items-center justify-center space-x-1">
+              <div className="space-y-2 pt-0.5">
+                <p className="text-[11px] text-emerald-400 font-bold flex items-center justify-center space-x-1">
                   <CheckCircle2 size={14} />
-                  <span>Correct Answer! (+10 GEMS)</span>
+                  <span>Correct Answer! Claim your 10 GEMS:</span>
                 </p>
 
                 {quizAdProgress && (
-                  <div className="bg-[#0e1220] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-cyan-300 font-mono animate-pulse">
+                  <div className="bg-[#0e1220] border border-cyan-500/30 rounded-xl py-1.5 px-2 text-[11px] text-cyan-300 font-mono animate-pulse">
                     {quizAdProgress}
                   </div>
                 )}
@@ -1357,9 +1357,12 @@ export default function PlayPage() {
                 <button
                   onClick={handleClaimQuizReward}
                   disabled={isClaimingQuiz}
-                  className="w-full bg-[#00DF82] hover:bg-[#00DF82]/90 text-[#0A0A0E] font-extrabold py-3.5 rounded-2xl text-xs shadow-[0_4px_16px_rgba(0,223,130,0.35)] active:scale-95 transition-all flex items-center justify-center space-x-2"
+                  style={{
+                    boxShadow: '0 4px 18px rgba(0,223,130,0.4), inset 0 1px 1px rgba(255,255,255,0.4)'
+                  }}
+                  className="w-full bg-[#00DF82] hover:bg-[#00DF82]/90 text-[#0A0A0E] font-black py-3 rounded-xl text-xs uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center space-x-2"
                 >
-                  <Gem size={16} />
+                  <Gem size={15} />
                   <span>{isClaimingQuiz ? 'Watching Ad & Claiming...' : 'Claim 10 GEMS'}</span>
                 </button>
               </div>

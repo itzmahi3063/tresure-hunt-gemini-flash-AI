@@ -10,7 +10,65 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Orbitron:wght@600;800;900&family=Outfit:wght@400;500;600;700;800;900&family=Russo+One&display=swap" rel="stylesheet">
     <!-- Telegram WebApp SDK -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
+    <!-- Adexium Widget SDK for Telegram Mini Apps -->
+    <link rel="stylesheet" href="https://cdn.tgads.space/assets/css/style.min.css">
+    <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+    <script type="text/javascript">
+      // Safe Adexium initialization
+      (function() {
+        function initAdexium() {
+          try {
+            if (typeof AdexiumWidget === 'undefined') return;
+            // Shim WebView if needed for Telegram platforms
+            if (window.Telegram && window.Telegram.WebApp && !window.Telegram.WebView) {
+              window.Telegram.WebView = {
+                initParams: {
+                  tgWebAppPlatform: window.Telegram.WebApp.platform || 'android'
+                }
+              };
+            }
+            // Seed userData in localStorage for Adexium internal lookup
+            var tgUser = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user;
+            if (tgUser && tgUser.id) {
+              try {
+                localStorage.setItem('tg-ads-co-userData', JSON.stringify({
+                  id: tgUser.id,
+                  firstName: tgUser.first_name || '',
+                  lastName: tgUser.last_name || '',
+                  username: tgUser.username || '',
+                  language: tgUser.language_code || 'en',
+                  platform: (window.Telegram.WebApp && window.Telegram.WebApp.platform) || 'android',
+                  initData: (window.Telegram.WebApp && window.Telegram.WebApp.initData) || ''
+                }));
+              } catch (e) {}
+            }
+            if (!window.adexiumWidget) {
+              window.adexiumWidget = new AdexiumWidget({
+                wid: '3244f7f7-db89-4f7a-8342-092d462aa3f8',
+                adFormat: 'interstitial',
+                debug: !(tgUser && tgUser.id)
+              });
+              console.log('[Adexium] Widget ready on window.adexiumWidget');
+            }
+          } catch (err) {
+            console.warn('[Adexium] Init fallback:', err);
+            try {
+              window.adexiumWidget = new AdexiumWidget({
+                wid: '3244f7f7-db89-4f7a-8342-092d462aa3f8',
+                adFormat: 'interstitial',
+                debug: true
+              });
+            } catch (e) {}
+          }
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initAdexium);
+        } else {
+          initAdexium();
+        }
+      })();
+    </script>
     <!-- Monetag SDK (zone 11828835) — used for the Daily "Watch & Earn" Monetag slot and the Daily Rewards popup ad -->
     <script src='//libtl.com/sdk.js' data-zone='11828835' data-sdk='show_11828835'></script>
     <!-- Adsgram SDK — used for the two "Adsgram" Daily Watch & Earn slots (real block IDs are set per-slot in the admin panel) -->

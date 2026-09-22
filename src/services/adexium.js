@@ -1,44 +1,73 @@
 // Adexium Integration for Quiz and Game Rewards
-// Auto-mode is permanently disabled per user request so random popup ads
-// do not appear when opening the bot or navigating screens.
-// Instead, Adexium is now triggered deliberately when the user claims Quiz rewards.
+// Script is loaded in <head> via index.html with wid: '3244f7f7-db89-4f7a-8342-092d462aa3f8'
+// Adexium is triggered deliberately when user clicks "Claim 10 GEMS" in Math Quiz
 
-const ADEXIUM_SCRIPT_URL = 'https://cdn.tgads.space/assets/js/adexium-widget.min.js';
 const ADEXIUM_WIDGET_ID = '3244f7f7-db89-4f7a-8342-092d462aa3f8';
 
-let scriptLoadPromise = null;
-let widgetInstance = null;
+function getOrInitAdexiumWidget() {
+  if (typeof window === 'undefined') return null;
+  if (window.adexiumWidget) return window.adexiumWidget;
+  if (typeof window.AdexiumWidget === 'undefined') return null;
 
-function loadAdexiumScript() {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.AdexiumWidget) return Promise.resolve();
-  if (scriptLoadPromise) return scriptLoadPromise;
+  try {
+    // Shim WebView if needed for Telegram platforms
+    if (window.Telegram?.WebApp && !window.Telegram.WebView) {
+      window.Telegram.WebView = {
+        initParams: {
+          tgWebAppPlatform: window.Telegram.WebApp.platform || 'android'
+        }
+      };
+    }
 
-  scriptLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.src = ADEXIUM_SCRIPT_URL;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Adexium script'));
-    document.head.appendChild(script);
-  });
-  return scriptLoadPromise;
+    // Seed userData in localStorage
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser && tgUser.id) {
+      try {
+        localStorage.setItem(
+          'tg-ads-co-userData',
+          JSON.stringify({
+            id: tgUser.id,
+            firstName: tgUser.first_name || '',
+            lastName: tgUser.last_name || '',
+            username: tgUser.username || '',
+            language: tgUser.language_code || 'en',
+            platform: window.Telegram?.WebApp?.platform || 'android',
+            initData: window.Telegram?.WebApp?.initData || ''
+          })
+        );
+      } catch {}
+    }
+
+    const widget = new window.AdexiumWidget({
+      wid: ADEXIUM_WIDGET_ID,
+      adFormat: 'interstitial',
+      debug: !(tgUser && tgUser.id)
+    });
+    window.adexiumWidget = widget;
+    return widget;
+  } catch (err) {
+    console.warn('[Adexium] Init fallback to debug:', err);
+    try {
+      const widget = new window.AdexiumWidget({
+        wid: ADEXIUM_WIDGET_ID,
+        adFormat: 'interstitial',
+        debug: true
+      });
+      window.adexiumWidget = widget;
+      return widget;
+    } catch (e) {
+      console.error('[Adexium] Fatal init error:', e);
+      return null;
+    }
+  }
 }
 
 // Deliberate Adexium interstitial ad trigger for Quiz Reward Claim
-export async function showAdexiumAd(timeoutMs = 12000) {
-  await loadAdexiumScript();
-  if (typeof window === 'undefined' || !window.AdexiumWidget) {
-    console.warn('Adexium SDK not available');
+export async function showAdexiumAd(timeoutMs = 15000) {
+  const widget = getOrInitAdexiumWidget();
+  if (!widget) {
+    console.warn('[Adexium] SDK not available on window');
     return { success: false, reason: 'sdk_missing' };
-  }
-
-  if (!widgetInstance) {
-    widgetInstance = new window.AdexiumWidget({
-      wid: ADEXIUM_WIDGET_ID,
-      adFormat: 'interstitial'
-    });
   }
 
   return new Promise(async (resolve) => {
@@ -47,42 +76,56 @@ export async function showAdexiumAd(timeoutMs = 12000) {
     const timer = setTimeout(() => {
       if (!finished) {
         finished = true;
+        console.warn('[Adexium] Ad display timed out after', timeoutMs, 'ms');
         resolve({ timeout: true });
       }
     }, timeoutMs);
 
-    const onComplete = () => {
+    const onComplete = (reason = 'done') => {
       if (!finished) {
         finished = true;
         clearTimeout(timer);
-        resolve({ success: true });
+        console.log('[Adexium] Ad flow completed with reason:', reason);
+        resolve({ success: true, reason });
       }
     };
 
     try {
-      if (widgetInstance.ee) {
-        widgetInstance.ee.on('adClosed', onComplete);
-        widgetInstance.ee.on('adPlaybackCompleted', onComplete);
-        widgetInstance.ee.on('noAdFound', onComplete);
-        widgetInstance.ee.on('requestAdError', onComplete);
-      }
+      // Event listener registration
+      const attachListener = (event, fn) => {
+        if (typeof widget.on === 'function') {
+          widget.on(event, fn);
+        } else if (widget.ee && typeof widget.ee.on === 'function') {
+          widget.ee.on(event, fn);
+        }
+      };
 
-      const ad = await widgetInstance.requestAd('interstitial');
+      attachListener('adClosed', () => onComplete('adClosed'));
+      attachListener('adPlaybackCompleted', () => onComplete('adPlaybackCompleted'));
+      attachListener('noAdFound', () => onComplete('noAdFound'));
+      attachListener('requestAdError', () => onComplete('requestAdError'));
+
+      console.log('[Adexium] Requesting ad with wid:', ADEXIUM_WIDGET_ID);
+      const ad = await widget.requestAd('interstitial');
+      console.log('[Adexium] Bid response:', ad);
+
       if (ad && (Array.isArray(ad) ? ad.length > 0 : true)) {
-        widgetInstance.displayAd(ad, 'interstitial');
+        console.log('[Adexium] Displaying interstitial ad banner...');
+        widget.displayAd(ad, 'interstitial');
       } else {
-        onComplete();
+        console.log('[Adexium] No ad available right now from network');
+        onComplete('no_fill');
       }
     } catch (err) {
-      console.warn('Adexium display notice:', err);
-      onComplete();
+      console.warn('[Adexium] Request exception:', err);
+      onComplete('error');
     }
   });
 }
 
 // Auto-mode permanently silenced as requested by user
 export function armAdexiumAutoMode() {
-  // Deliberately no-op: user requested to stop auto Adexium popups on bot/screen open
+  // No-op
 }
 
 export function setAdexiumGameInProgress() {
