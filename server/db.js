@@ -1167,7 +1167,56 @@ class Database {
     };
   }
 
-  // Store: Buy Crystal Coin (250 GEMS per Crystal Coin)
+  // Calculate Crystal Coin price in TON (0.015 TON per coin, 10 coins = 10% OFF -> 0.135 TON)
+  getCrystalTonPrice(quantity) {
+    const qty = parseInt(quantity, 10);
+    if (isNaN(qty) || qty <= 0) return 0.015;
+    if (qty === 10) return 0.135; // 10% OFF (normal 0.150 TON)
+    return Number((qty * 0.015).toFixed(4));
+  }
+
+  // Store: Buy Crystal Coin with TON Balance
+  buyCrystalCoinWithTon(userId, quantity = 1) {
+    const user = this.getUser(userId);
+    if (!user) throw new Error('User not found');
+
+    const qty = parseInt(quantity, 10);
+    if (isNaN(qty) || qty <= 0) {
+      throw new Error('Please enter a valid quantity of Crystal Coins');
+    }
+
+    const tonCost = this.getCrystalTonPrice(qty);
+    const userTonBalance = Number(user.ton_balance || 0);
+
+    if (userTonBalance < tonCost) {
+      throw new Error(`Insufficient TON balance! You need ${tonCost} TON to buy ${qty} Crystal Coin(s). Current balance: ${userTonBalance} TON.`);
+    }
+
+    user.ton_balance = Number((userTonBalance - tonCost).toFixed(4));
+    user.crystal_coins = (user.crystal_coins || 0) + qty;
+
+    if (!this.data.ton_transactions) this.data.ton_transactions = [];
+    this.data.ton_transactions.unshift({
+      id: `crystal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      type: 'crystal_purchase',
+      userId: String(userId),
+      quantity: qty,
+      amountTon: tonCost,
+      source: 'ton_balance',
+      confirmedAt: new Date().toISOString()
+    });
+
+    this.save();
+
+    return {
+      user,
+      quantity: qty,
+      costTon: tonCost,
+      crystalCoins: user.crystal_coins
+    };
+  }
+
+  // Store: Buy Crystal Coin (legacy fallback / gems)
   buyCrystalCoin(userId, quantity = 1) {
     const user = this.getUser(userId);
     if (!user) throw new Error('User not found');
@@ -1222,7 +1271,7 @@ class Database {
       throw new Error(`Withdrawal Locked: You must play at least 5 games today (${reqs.gamesPlayed}/5 played)`);
     }
     if (!reqs.isCrystalDone) {
-      throw new Error('Withdrawal Locked: 1 Crystal Coin required for this withdrawal. Buy it from the Store for 250 GEMS!');
+      throw new Error('Withdrawal Locked: 1 Crystal Coin required for this withdrawal. Buy it from the Store (0.015 TON)!');
     }
 
     const amount = Number(amountUsdt);

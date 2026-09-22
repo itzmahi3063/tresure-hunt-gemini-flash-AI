@@ -331,8 +331,9 @@ export default function WalletModal() {
     if (!requirements.isCrystalDone) {
       triggerHaptic('notification', 'error');
       setMessage({
-        text: 'Requirement Unmet: 1 Crystal Coin required for this withdrawal. Please buy it from Store (250 GEMS).',
-        type: 'error'
+        text: 'Requirement Unmet: 1 Crystal Coin required for this withdrawal. Please buy it from Store (0.015 TON).',
+        type: 'error',
+        showBuyCrystal: true
       });
       return;
     }
@@ -432,11 +433,22 @@ export default function WalletModal() {
 
         {/* Feedback Message */}
         {message.text && (
-          <div className={`mx-4 mt-3 p-3 rounded-xl text-xs flex items-center space-x-2 ${
+          <div className={`mx-4 mt-3 p-3 rounded-xl text-xs flex items-center justify-between space-x-2 ${
             message.type === 'success' ? 'bg-emerald-950/70 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/70 border border-rose-500/40 text-rose-300'
           }`}>
-            {message.type === 'success' ? <CheckCircle2 size={16} className="shrink-0" /> : <AlertCircle size={16} className="shrink-0" />}
-            <span>{message.text}</span>
+            <div className="flex items-center space-x-2">
+              {message.type === 'success' ? <CheckCircle2 size={16} className="shrink-0" /> : <AlertCircle size={16} className="shrink-0" />}
+              <span>{message.text}</span>
+            </div>
+            {message.showBuyCrystal && (
+              <button
+                type="button"
+                onClick={() => setStoreModalOpen(true)}
+                className="shrink-0 ml-2 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase rounded-lg shadow active:scale-95 transition-all"
+              >
+                🔮 Buy Crystal Coin
+              </button>
+            )}
           </div>
         )}
 
@@ -608,7 +620,7 @@ export default function WalletModal() {
                         ) : (
                           <>
                             <p className="text-xs font-bold text-white leading-tight">3. Must have 1 Crystal Coin</p>
-                            <p className="text-[10px] text-gray-400 font-medium">Required per withdrawal (250 GEMS in Store)</p>
+                            <p className="text-[10px] text-gray-400 font-medium">Required per withdrawal (0.015 TON in Store)</p>
                           </>
                         )}
                       </div>
@@ -618,7 +630,7 @@ export default function WalletModal() {
                         FREE
                       </span>
                     ) : (
-                      <div className="text-right">
+                      <div className="text-right flex flex-col items-end">
                         <span className={`text-xs font-mono font-black ${requirements.isCrystalDone ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {requirements.crystalCoins} / 1
                         </span>
@@ -626,9 +638,10 @@ export default function WalletModal() {
                           <button
                             type="button"
                             onClick={() => setStoreModalOpen(true)}
-                            className="block text-[9px] font-black text-amber-400 hover:underline uppercase mt-0.5"
+                            className="mt-1 px-2.5 py-1 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-black font-black text-[10px] uppercase rounded-lg shadow-[0_0_10px_rgba(245,158,11,0.4)] active:scale-95 transition-all flex items-center space-x-1"
                           >
-                            + Buy Store
+                            <span>🔮</span>
+                            <span>Buy Crystal Coin</span>
                           </button>
                         )}
                       </div>

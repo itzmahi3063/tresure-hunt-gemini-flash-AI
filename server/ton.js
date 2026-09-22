@@ -197,6 +197,49 @@ export async function processTonTransaction(tx, source = 'webhook') {
     }
   }
 
+  // ----------------------------------------------------
+  // CASE 3: Crystal Coin Purchase (CRYSTAL_<userId>_<qty>)
+  // ----------------------------------------------------
+  if (memo.startsWith('CRYSTAL_')) {
+    const parts = memo.split('_');
+    const userId = parts[1];
+    const qty = parseInt(parts[2], 10) || 1;
+    const user = db.getUser(userId);
+
+    if (user) {
+      user.crystal_coins = (user.crystal_coins || 0) + qty;
+
+      db.recordTonTx({
+        hash: txHash,
+        type: 'crystal_purchase',
+        userId: String(user.id),
+        quantity: qty,
+        amountTon,
+        memo,
+        sender: senderAddress,
+        source,
+        confirmedAt: new Date().toISOString()
+      });
+
+      if (bot && user.id) {
+        const notifyText =
+          `🔮 *Crystal Coin Purchase Confirmed!*\n\n` +
+          `💎 *Received:* +${qty} Crystal Coin${qty > 1 ? 's' : ''}\n` +
+          `💰 *Amount Paid:* ${amountTon} TON\n` +
+          `🔗 *Tx Hash:* \`${txHash.slice(0, 16)}...\`\n\n` +
+          `✅ Your Crystal Coins are ready to use for withdrawals in Treasure Hunt!`;
+
+        bot.telegram.sendMessage(user.id, notifyText, { parse_mode: 'Markdown' })
+          .catch(err => console.warn('Bot crystal purchase notification error:', err.message));
+      }
+
+      db.save();
+      await db.flush();
+      console.log(`✅ User ${user.id} received ${qty} Crystal Coins for ${amountTon} TON (Tx: ${txHash})`);
+      return { success: true, type: 'crystal_purchase', userId: user.id, quantity: qty, amountTon };
+    }
+  }
+
   // Record unassigned/general transaction so it's marked processed
   db.recordTonTx({
     hash: txHash,

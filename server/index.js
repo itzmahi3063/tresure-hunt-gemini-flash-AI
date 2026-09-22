@@ -617,9 +617,18 @@ app.get('/api/ton/check-payment', async (req, res) => {
     // 3. Check if specific memo is found in ton_transactions (exact match and valid tx_hash)
     if (memo && String(memo).trim().length > 3) {
       const cleanMemo = String(memo).trim();
-      const found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
+      let found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
+      if (!found && (cleanMemo.startsWith('CRYSTAL_') || cleanMemo.startsWith('EXCL_') || cleanMemo.startsWith('DEP_'))) {
+        try {
+          await verifyPendingTonPayments();
+          found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
+        } catch (scanErr) {
+          console.warn('Scan error during memo check:', scanErr.message);
+        }
+      }
       if (found) {
-        return res.json({ success: true, paid: true, transaction: found });
+        const user = found.userId ? db.getUser(found.userId) : null;
+        return res.json({ success: true, paid: true, transaction: found, user });
       }
     }
 
@@ -808,6 +817,16 @@ app.post('/api/store/buy-crystal', authMiddleware, blockIfDeviceConflict, verify
   try {
     const { quantity } = req.body;
     const result = db.buyCrystalCoin(req.user.id, quantity || 1);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/store/buy-crystal-ton', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
+  try {
+    const { quantity } = req.body;
+    const result = db.buyCrystalCoinWithTon(req.user.id, quantity || 1);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });

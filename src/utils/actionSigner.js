@@ -22,7 +22,8 @@ const SENSITIVE_ACTION_PATHS = [
   '/tasks/exclusive/pay',
   '/wallet/convert',
   '/wallet/withdraw',
-  '/store/buy-crystal'
+  '/store/buy-crystal',
+  '/store/buy-crystal-ton'
 ];
 
 export function normalizeActionPath(url) {
