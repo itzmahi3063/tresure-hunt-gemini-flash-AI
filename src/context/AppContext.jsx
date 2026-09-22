@@ -199,7 +199,6 @@ export function AppProvider({ children }) {
 
     initTelegram();
     fetchUserProfile();
-    armAdexiumAutoMode(); // auto-shows in the background; suppressed while a Play-section game is active
 
     // Check if URL has ?admin=true
     const params = new URLSearchParams(window.location.search);

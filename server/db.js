@@ -1911,11 +1911,44 @@ class Database {
     if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
     const drawCount = this.data.game_daily_counts[`${userId}_draw_${todayStr}`] || 0;
     const tttCount = this.data.game_daily_counts[`${userId}_ttt_${todayStr}`] || 0;
+    const quizCount = this.data.game_daily_counts[`${userId}_quiz_${todayStr}`] || 0;
     return {
       luckyDrawsToday: drawCount,
       maxLuckyDraws: 10,
       tictactoeToday: tttCount,
-      maxTictactoe: 10
+      maxTictactoe: 10,
+      quizToday: quizCount,
+      maxQuiz: 10
+    };
+  }
+
+  claimQuizReward(userId) {
+    const user = this.getUser(userId);
+    if (!user) throw new Error('User not found');
+
+    const todayStr = this.getDailyDate();
+    const dailyKey = `${userId}_quiz_${todayStr}`;
+    if (!this.data.game_daily_counts) this.data.game_daily_counts = {};
+    const quizToday = this.data.game_daily_counts[dailyKey] || 0;
+
+    if (quizToday >= 10) {
+      throw new Error('Daily limit reached! You have completed 10/10 Quizzes today. Come back tomorrow!');
+    }
+
+    const rewardDiamonds = 10;
+    user.diamonds = (user.diamonds || 0) + rewardDiamonds;
+    if (!user.total_quizzes) user.total_quizzes = 0;
+    user.total_quizzes += 1;
+
+    this.data.game_daily_counts[dailyKey] = quizToday + 1;
+    this.save();
+
+    return {
+      success: true,
+      rewardDiamonds,
+      quizToday: this.data.game_daily_counts[dailyKey],
+      maxQuiz: 10,
+      user
     };
   }
 

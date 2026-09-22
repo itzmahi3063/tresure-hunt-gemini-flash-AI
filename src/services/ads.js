@@ -12,6 +12,8 @@
 // If an ad is closed/cut before 5 seconds, an error is thrown and no reward is granted.
 // This is strictly enforced across ALL ad networks (USL, Adsgram, Monetag, etc.)
 // on the client AND again on the server.
+import { showAdexiumAd } from './adexium';
+
 export const MIN_AD_WATCH_MS = 5000;
 
 function sleep(ms) {
@@ -492,4 +494,45 @@ export async function showAdForNetwork(ad, onProgress) {
         }
       }
   }
+}
+
+/**
+ * Chained ad flow for Quiz rewards:
+ * 1. Adexium ad
+ * 2. Immediately Monetag rewarded popup ('pop')
+ * 3. Enforces 6-second minimum watch time
+ */
+export async function showQuizAdFlow({ onProgress } = {}) {
+  const startedAt = Date.now();
+
+  // 1. First: Adexium Ad
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading Adexium ad (1/2)...');
+    }
+    await showAdexiumAd(10000);
+  } catch (err) {
+    console.warn('Adexium in quiz flow notice:', err);
+  }
+
+  // Smooth short buffer
+  await sleep(350);
+
+  // 2. Second: Monetag Rewarded Popup ('pop')
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading Monetag ad (2/2)...');
+    }
+    await showMonetagRewardedPopup();
+  } catch (err) {
+    console.warn('Monetag popup in quiz flow notice:', err);
+  }
+
+  // 3. 6-Second Minimum Watch Enforcement
+  const elapsed = Date.now() - startedAt;
+  if (elapsed < 6000) {
+    await sleep(6000 - elapsed);
+  }
+
+  return { watchStartedAt: startedAt };
 }

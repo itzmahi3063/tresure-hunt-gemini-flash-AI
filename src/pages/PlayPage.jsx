@@ -10,14 +10,76 @@ import {
   Frown,
   Meh,
   RefreshCw,
-  Coins
+  Coins,
+  Brain,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import { formatGems, formatUsdt } from '../utils/format';
 import api from '../services/api';
 import confetti from 'canvas-confetti';
-import { showMonetagInterstitial, showGameOrChestAd } from '../services/ads';
-import { armAdexiumAutoMode, setAdexiumGameInProgress } from '../services/adexium';
+import { showMonetagInterstitial, showGameOrChestAd, showQuizAdFlow } from '../services/ads';
+import { setAdexiumGameInProgress } from '../services/adexium';
+
+// ==========================================
+// EASY MATH QUESTION GENERATOR FOR QUIZ
+// ==========================================
+function generateMathQuestion() {
+  const operations = ['+', '-', '*', '/'];
+  const op = operations[Math.floor(Math.random() * operations.length)];
+  let num1, num2, answer;
+
+  if (op === '+') {
+    num1 = Math.floor(Math.random() * 20) + 1;
+    num2 = Math.floor(Math.random() * 20) + 1;
+    answer = num1 + num2;
+  } else if (op === '-') {
+    num1 = Math.floor(Math.random() * 25) + 5;
+    num2 = Math.floor(Math.random() * (num1 - 1)) + 1;
+    answer = num1 - num2;
+  } else if (op === '*') {
+    num1 = Math.floor(Math.random() * 10) + 2;
+    num2 = Math.floor(Math.random() * 9) + 2;
+    answer = num1 * num2;
+  } else {
+    // Division: ensure clean integer result
+    num2 = Math.floor(Math.random() * 8) + 2; // divisor 2..9
+    answer = Math.floor(Math.random() * 9) + 2; // answer 2..10
+    num1 = num2 * answer; // num1 / num2 = answer
+  }
+
+  // Generate 3 unique distractors
+  const distractors = new Set();
+  let attempts = 0;
+  while (distractors.size < 3 && attempts < 30) {
+    attempts++;
+    const delta = (Math.random() < 0.5 ? 1 : -1) * (Math.floor(Math.random() * 6) + 1);
+    const candidate = answer + delta;
+    if (candidate >= 0 && candidate !== answer) {
+      distractors.add(candidate);
+    }
+  }
+  let fallback = 1;
+  while (distractors.size < 3) {
+    if (!distractors.has(answer + fallback) && answer + fallback >= 0) {
+      distractors.add(answer + fallback);
+    } else if (!distractors.has(answer - fallback) && answer - fallback >= 0) {
+      distractors.add(answer - fallback);
+    }
+    fallback++;
+  }
+
+  const options = [answer, ...Array.from(distractors)].sort(() => Math.random() - 0.5);
+
+  return {
+    num1,
+    num2,
+    op: op === '*' ? '×' : op === '/' ? '÷' : op,
+    answer,
+    options
+  };
+}
 
 // ==========================================
 // UNBEATABLE MINIMAX ALGORITHM FOR AI BOT
@@ -117,8 +179,17 @@ export default function PlayPage() {
     luckyDrawsToday: 0,
     maxLuckyDraws: 10,
     tictactoeToday: 0,
-    maxTictactoe: 10
+    maxTictactoe: 10,
+    quizToday: 0,
+    maxQuiz: 10
   });
+
+  // Quiz state
+  const [quizQuestion, setQuizQuestion] = useState(null);
+  const [selectedQuizOption, setSelectedQuizOption] = useState(null);
+  const [quizStatus, setQuizStatus] = useState('idle'); // 'idle' | 'correct' | 'incorrect'
+  const [isClaimingQuiz, setIsClaimingQuiz] = useState(false);
+  const [quizAdProgress, setQuizAdProgress] = useState('');
 
   // Tic-Tac-Toe state
   const [board, setBoard] = useState(Array(9).fill(null));
@@ -146,7 +217,9 @@ export default function PlayPage() {
           luckyDrawsToday: res.data.luckyDrawsToday || 0,
           maxLuckyDraws: res.data.maxLuckyDraws || 10,
           tictactoeToday: res.data.tictactoeToday || 0,
-          maxTictactoe: res.data.maxTictactoe || 10
+          maxTictactoe: res.data.maxTictactoe || 10,
+          quizToday: res.data.quizToday || 0,
+          maxQuiz: res.data.maxQuiz || 10
         });
       }
     } catch (err) {
@@ -272,7 +345,6 @@ export default function PlayPage() {
 
     setGameOverResult(outcome);
     setAdexiumGameInProgress(false);
-    armAdexiumAutoMode(); // safe to show Adexium auto-ads again now that the game has ended
 
     if (outcome === 'win') {
       confetti({ particleCount: 80, spread: 70, origin: { y: 0.5 } });
@@ -300,7 +372,6 @@ export default function PlayPage() {
   const handleReturnToPlay = async () => {
     triggerHaptic('selection');
     setAdexiumGameInProgress(false);
-    armAdexiumAutoMode();
     if (currentView === 'tictactoe_in_game' && !gameOverResult) {
       try {
         await api.post('/game/tictactoe/finish', {
@@ -348,7 +419,6 @@ export default function PlayPage() {
           if (res.data.user) setUser(res.data.user);
           setDrawing(false);
           setAdexiumGameInProgress(false);
-          armAdexiumAutoMode();
 
           if (res.data.reward?.amount > 0) {
             confetti({ particleCount: 75, spread: 70, origin: { y: 0.6 } });
@@ -378,6 +448,79 @@ export default function PlayPage() {
     setDrawOutcome(null);
     setDrawing(false);
     setAdexiumGameInProgress(true); // suppress Adexium auto-ads for the next pick
+  };
+
+  // ==========================================
+  // MATH QUIZ GAME HANDLERS
+  // ==========================================
+  const handleOpenQuizModal = () => {
+    triggerHaptic('selection');
+    if (dailyStats.quizToday >= dailyStats.maxQuiz) {
+      alert('You have completed all 10/10 Math Quizzes today (+100 GEMS earned)! Come back tomorrow.');
+      return;
+    }
+    setQuizQuestion(generateMathQuestion());
+    setSelectedQuizOption(null);
+    setQuizStatus('idle');
+    setQuizAdProgress('');
+    setCurrentView('quiz_modal');
+    setAdexiumGameInProgress(true);
+  };
+
+  const handleSelectQuizOption = (opt) => {
+    if (quizStatus === 'correct' || isClaimingQuiz || !quizQuestion) return;
+    setSelectedQuizOption(opt);
+    if (opt === quizQuestion.answer) {
+      setQuizStatus('correct');
+      triggerHaptic('notification', 'success');
+      confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+    } else {
+      setQuizStatus('incorrect');
+      triggerHaptic('notification', 'error');
+    }
+  };
+
+  const handleRetryQuiz = () => {
+    triggerHaptic('selection');
+    setSelectedQuizOption(null);
+    setQuizStatus('idle');
+  };
+
+  const handleClaimQuizReward = async () => {
+    if (quizStatus !== 'correct' || isClaimingQuiz) return;
+    setIsClaimingQuiz(true);
+    setQuizAdProgress('Preparing ad sequence...');
+    triggerHaptic('impact', 'medium');
+
+    try {
+      const watchStartedAt = Date.now();
+      await showQuizAdFlow({
+        onProgress: (status) => setQuizAdProgress(status)
+      });
+
+      const res = await api.post('/game/quiz/claim', { watchStartedAt });
+      if (res.data.success) {
+        if (res.data.user) setUser(res.data.user);
+        triggerHaptic('notification', 'success');
+        confetti({ particleCount: 90, spread: 80, origin: { y: 0.6 } });
+        await fetchGameStats();
+
+        if ((dailyStats.quizToday + 1) >= (dailyStats.maxQuiz || 10)) {
+          alert('Awesome! You have completed all 10/10 Math Quizzes today (+100 GEMS earned)!');
+          setCurrentView('list');
+        } else {
+          setQuizQuestion(generateMathQuestion());
+          setSelectedQuizOption(null);
+          setQuizStatus('idle');
+        }
+      }
+    } catch (err) {
+      triggerHaptic('notification', 'error');
+      alert(err.response?.data?.error || err.message || 'Failed to claim quiz reward');
+    } finally {
+      setIsClaimingQuiz(false);
+      setQuizAdProgress('');
+    }
   };
 
   // Helper to get card display text
@@ -675,7 +818,63 @@ export default function PlayPage() {
         </button>
       </div>
 
-      {/* 4. GAME CARD 3: WEEKLY CONTEST (3D OAK & GOLD) */}
+      {/* 4. GAME CARD: MATH QUIZ (3D OAK & EMERALD) */}
+      <div
+        style={{
+          background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+          borderTop: '2px solid #825429',
+          borderLeft: '1.5px solid #4a341f',
+          borderRight: '1.5px solid #4a341f',
+          borderBottom: '5px solid #140d06',
+          boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8), 0 0 20px rgba(16, 185, 129, 0.15)'
+        }}
+        className="rounded-[28px] p-5 space-y-4 relative overflow-hidden"
+      >
+        <div className="flex items-center space-x-3.5">
+          {/* 3D Emerald Icon Box */}
+          <div
+            style={{
+              background: 'linear-gradient(180deg, #34d399 0%, #059669 55%, #047857 100%)',
+              borderTop: '1.5px solid #a7f3d0',
+              borderBottom: '3.5px solid #064e3b',
+              boxShadow: '0 4px 14px rgba(5, 150, 105, 0.4)'
+            }}
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white shrink-0"
+          >
+            <Brain size={28} />
+          </div>
+
+          <div className="space-y-1">
+            <h3 className="text-base font-black text-white">Math Quiz</h3>
+            <p className="text-xs font-bold text-[#34d399]">
+              {dailyStats.quizToday || 0}/10 completed today
+            </p>
+            <div className="inline-flex items-center space-x-1.5 bg-[#140c06] border border-[#382413] px-2.5 py-0.5 rounded-lg">
+              <Gem size={11} className="text-[#34d399]" />
+              <span className="text-[11px] font-mono font-bold text-[#34d399]">Reward: 10 GEMS / Solve</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 3D Action Button */}
+        <button
+          onClick={handleOpenQuizModal}
+          style={{
+            background: 'linear-gradient(180deg, #34d399 0%, #059669 50%, #047857 100%)',
+            borderTop: '1.5px solid #a7f3d0',
+            borderLeft: '1px solid #059669',
+            borderRight: '1px solid #059669',
+            borderBottom: '4px solid #064e3b',
+            color: '#ffffff',
+            boxShadow: '0 6px 16px rgba(5, 150, 105, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.5)'
+          }}
+          className="w-full font-black py-3.5 rounded-2xl active:translate-y-1 active:border-b-[1px] transition-all text-xs uppercase tracking-wider font-heading"
+        >
+          Play Math Quiz
+        </button>
+      </div>
+
+      {/* 5. GAME CARD 3: WEEKLY CONTEST (3D OAK & GOLD) */}
       <div
         style={{
           background: 'linear-gradient(180deg, #382710 0%, #241608 100%)',
@@ -850,6 +1049,44 @@ export default function PlayPage() {
             </li>
           </ul>
         </div>
+
+        {/* How It Works: Math Quiz */}
+        <div
+          style={{
+            background: 'linear-gradient(180deg, #2b1c10 0%, #1a1008 100%)',
+            borderTop: '1.5px solid #664b2d',
+            borderLeft: '1px solid #4a341f',
+            borderRight: '1px solid #4a341f',
+            borderBottom: '4px solid #0f0904',
+            boxShadow: '0 8px 20px rgba(0,0,0,0.6)'
+          }}
+          className="rounded-[24px] p-4 space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 font-black text-white text-sm">
+              <Brain size={16} className="text-emerald-400" />
+              <span>Math Quiz Challenge</span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              10 Quizzes / Day
+            </span>
+          </div>
+
+          <ul className="space-y-2 text-[#a89782] text-[11px] leading-relaxed">
+            <li className="flex items-start space-x-2">
+              <span className="text-[#34d399] font-black">•</span>
+              <span>Solve easy math equations with random addition, subtraction, multiplication &amp; division.</span>
+            </li>
+            <li className="flex items-start space-x-2">
+              <span className="text-emerald-400 font-black">•</span>
+              <span>Earn <strong className="text-white font-bold">10 GEMS</strong> for each correct solve (up to 100 GEMS daily).</span>
+            </li>
+            <li className="flex items-start space-x-2">
+              <span className="text-amber-400 font-black">•</span>
+              <span>Incorrect answers can be retried immediately on the same equation!</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       {/* MODAL 1: START CONFIRMATION (Matched to Image 1: media_1789482993163.png) */}
@@ -902,7 +1139,6 @@ export default function PlayPage() {
             <button
               onClick={() => {
                 setAdexiumGameInProgress(false);
-                armAdexiumAutoMode();
                 setCurrentView('list');
               }}
               className="absolute top-4 right-4 text-gray-400 hover:text-white p-1"
@@ -1003,6 +1239,131 @@ export default function PlayPage() {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: MATH QUIZ CHALLENGE (EASY MATH & ADEXIUM + MONETAG REWARDED POPUP) */}
+      {currentView === 'quiz_modal' && quizQuestion && (
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-[#151928] border border-emerald-500/40 rounded-3xl p-6 w-full max-w-sm shadow-2xl relative animate-scaleUp text-center my-auto space-y-4">
+            <button
+              onClick={() => {
+                setAdexiumGameInProgress(false);
+                setCurrentView('list');
+              }}
+              disabled={isClaimingQuiz}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+              <Brain size={24} className="text-emerald-400" />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-black text-white">Math Quiz Challenge</h3>
+              <div className="flex items-center justify-center space-x-2 mt-1">
+                <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                  Solve #{Math.min((dailyStats.quizToday || 0) + 1, 10)} of 10 today
+                </span>
+                <span className="text-xs font-bold text-yellow-400 flex items-center space-x-1">
+                  <Gem size={12} className="text-yellow-400" />
+                  <span>+10 GEMS</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Question Display Card */}
+            <div className="bg-[#0e1220] border-2 border-emerald-500/40 rounded-2xl py-5 px-4 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+              <p className="text-xs uppercase tracking-widest text-[#8E95A5] font-bold mb-1">
+                Solve This Equation
+              </p>
+              <div className="text-3xl font-black text-white tracking-wider flex items-center justify-center space-x-3">
+                <span>{quizQuestion.num1}</span>
+                <span className="text-emerald-400 font-extrabold">{quizQuestion.op}</span>
+                <span>{quizQuestion.num2}</span>
+                <span className="text-emerald-400 font-extrabold">=</span>
+                <span className="text-yellow-400">?</span>
+              </div>
+            </div>
+
+            {/* 4 Options Grid (2x2) */}
+            <div className="grid grid-cols-2 gap-2.5">
+              {quizQuestion.options.map((option, idx) => {
+                const isSelected = selectedQuizOption === option;
+                const isCorrect = isSelected && quizStatus === 'correct';
+                const isIncorrect = isSelected && quizStatus === 'incorrect';
+
+                let btnStyle = 'bg-[#0E111C] border-[#22283C] text-white hover:border-emerald-500/60';
+                if (isCorrect) {
+                  btnStyle = 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.4)] scale-105';
+                } else if (isIncorrect) {
+                  btnStyle = 'bg-rose-500/20 border-rose-400 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.3)] animate-shake';
+                }
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectQuizOption(option)}
+                    disabled={quizStatus === 'correct' || isClaimingQuiz}
+                    className={`h-14 rounded-xl border font-black text-lg transition-all flex items-center justify-center space-x-2 ${btnStyle}`}
+                  >
+                    <span>{option}</span>
+                    {isCorrect && <CheckCircle2 size={18} className="text-emerald-400" />}
+                    {isIncorrect && <XCircle size={18} className="text-rose-400" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Status and Action Buttons */}
+            {quizStatus === 'idle' && (
+              <p className="text-xs text-[#8E95A5] font-medium">
+                Tap the correct option above to solve!
+              </p>
+            )}
+
+            {quizStatus === 'incorrect' && (
+              <div className="space-y-2 pt-1">
+                <p className="text-xs text-rose-400 font-bold flex items-center justify-center space-x-1">
+                  <XCircle size={14} />
+                  <span>Incorrect answer! Don't worry, try again.</span>
+                </p>
+                <button
+                  onClick={handleRetryQuiz}
+                  className="w-full bg-[#1A1F30] hover:bg-[#232A40] text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all"
+                >
+                  <RefreshCw size={14} />
+                  <span>Try Again</span>
+                </button>
+              </div>
+            )}
+
+            {quizStatus === 'correct' && (
+              <div className="space-y-2 pt-1">
+                <p className="text-xs text-emerald-400 font-bold flex items-center justify-center space-x-1">
+                  <CheckCircle2 size={14} />
+                  <span>Correct Answer! (+10 GEMS)</span>
+                </p>
+
+                {quizAdProgress && (
+                  <div className="bg-[#0e1220] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-cyan-300 font-mono animate-pulse">
+                    {quizAdProgress}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleClaimQuizReward}
+                  disabled={isClaimingQuiz}
+                  className="w-full bg-[#00DF82] hover:bg-[#00DF82]/90 text-[#0A0A0E] font-extrabold py-3.5 rounded-2xl text-xs shadow-[0_4px_16px_rgba(0,223,130,0.35)] active:scale-95 transition-all flex items-center justify-center space-x-2"
+                >
+                  <Gem size={16} />
+                  <span>{isClaimingQuiz ? 'Watching Ad & Claiming...' : 'Claim 10 GEMS'}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

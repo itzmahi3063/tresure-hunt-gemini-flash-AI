@@ -16,6 +16,7 @@ const SENSITIVE_ACTION_PATHS = [
   '/daily-rewards/claim',
   '/game/tictactoe/finish',
   '/game/luckydraw/play',
+  '/game/quiz/claim',
   '/promo/redeem',
   '/gift/claim',
   '/tasks/exclusive/pay',

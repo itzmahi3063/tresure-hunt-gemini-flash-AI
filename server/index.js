@@ -979,6 +979,32 @@ app.post('/api/game/luckydraw/play', authMiddleware, blockIfDeviceConflict, veri
 });
 
 // ==========================================
+// MATH QUIZ GAME API ROUTE
+// ==========================================
+
+function isQuizWatchTooShort(watchStartedAt) {
+  if (!watchStartedAt || typeof watchStartedAt !== 'number') return true;
+  return Date.now() - watchStartedAt < 6000;
+}
+
+app.post('/api/game/quiz/claim', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
+  try {
+    const { watchStartedAt } = req.body;
+    if (isQuizWatchTooShort(watchStartedAt)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please watch the ad for at least 6 seconds before claiming your reward.'
+      });
+    }
+
+    const outcome = db.claimQuizReward(req.user.id);
+    res.json({ success: true, ...outcome });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
 // REFERRAL ROUTES
 // ==========================================
 
