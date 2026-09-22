@@ -620,7 +620,7 @@ export default function WalletModal() {
                         ) : (
                           <>
                             <p className="text-xs font-bold text-white leading-tight">3. Must have 1 Crystal Coin</p>
-                            <p className="text-[10px] text-gray-400 font-medium">Required per withdrawal (0.015 TON in Store)</p>
+                            <p className="text-[10px] text-gray-400 font-medium">You must have 1 Crystal Coin to make a withdrawal</p>
                           </>
                         )}
                       </div>
