@@ -199,6 +199,7 @@ export function AppProvider({ children }) {
 
     initTelegram();
     fetchUserProfile();
+    armAdexiumAutoMode();
 
     // Check if URL has ?admin=true
     const params = new URLSearchParams(window.location.search);

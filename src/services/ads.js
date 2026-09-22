@@ -12,8 +12,6 @@
 // If an ad is closed/cut before 5 seconds, an error is thrown and no reward is granted.
 // This is strictly enforced across ALL ad networks (USL, Adsgram, Monetag, etc.)
 // on the client AND again on the server.
-import { showAdexiumAd } from './adexium';
-
 export const MIN_AD_WATCH_MS = 5000;
 
 function sleep(ms) {
@@ -32,17 +30,22 @@ function verifyMinWatch(startedAt) {
  * Prevents multiple ads from overlapping or triggering at the same time.
  * When an ad (e.g., Adsgram or USL) is triggered, Monetag is shielded so Monetag
  * cannot accidentally co-trigger or pop up on top of Adsgram.
- * Adexium is unaffected as it is an autonomous native widget, not a button ad.
- */
+  * Adexium auto-mode respects this barrier and pauses while any manual ad is active.
+  */
 class AdBarrier {
   constructor() {
     this._activeNetwork = null;
     this._originalMonetag = null;
     this._shieldTimer = null;
+    this._lastManualAdEndedAt = 0;
   }
 
   isLocked() {
     return !!this._activeNetwork;
+  }
+
+  getLastEndedAt() {
+    return this._lastManualAdEndedAt || 0;
   }
 
   acquire(networkId) {
@@ -82,6 +85,7 @@ class AdBarrier {
   }
 
   forceRelease() {
+    this._lastManualAdEndedAt = Date.now();
     this._activeNetwork = null;
     this._unshieldMonetag();
     if (this._shieldTimer) {
@@ -91,6 +95,7 @@ class AdBarrier {
   }
 
   release() {
+    this._lastManualAdEndedAt = Date.now();
     const wasNonMonetag = this._activeNetwork !== 'monetag';
     this._activeNetwork = null;
 
@@ -112,6 +117,14 @@ class AdBarrier {
 }
 
 export const adBarrier = new AdBarrier();
+
+export function isManualAdActive() {
+  return adBarrier.isLocked();
+}
+
+export function getLastManualAdEndedAt() {
+  return adBarrier.getLastEndedAt();
+}
 
 // Helper to ensure Gigapub SDK script is loaded and window.showGiga is ready
 async function ensureGigapubLoaded() {
@@ -497,42 +510,39 @@ export async function showAdForNetwork(ad, onProgress) {
 }
 
 /**
- * Chained ad flow for Quiz rewards:
- * 1. Adexium ad
- * 2. Immediately Monetag rewarded popup ('pop')
- * 3. Enforces 6-second minimum watch time
+ * Ad flow for Quiz rewards:
+ * Uses Monetag Rewarded Popup ('pop') only (Adexium removed per user request).
+ * Strictly enforces 10-second minimum watch time.
+ * If user closes before 10s, throws an error so reward is not claimed.
  */
 export async function showQuizAdFlow({ onProgress } = {}) {
   const startedAt = Date.now();
 
-  // 1. First: Adexium Ad
+  if (typeof onProgress === 'function') {
+    onProgress('Loading Monetag ad (10s watch required)...');
+  }
+
+  adBarrier.acquire('quiz_monetag');
   try {
-    if (typeof onProgress === 'function') {
-      onProgress('Loading Adexium ad (1/2)...');
+    const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
+    if (typeof showFn !== 'function') {
+      throw new Error('Monetag ad is still loading — please try again in a moment.');
     }
-    await showAdexiumAd(10000);
-  } catch (err) {
-    console.warn('Adexium in quiz flow notice:', err);
-  }
 
-  // Smooth short buffer
-  await sleep(350);
-
-  // 2. Second: Monetag Rewarded Popup ('pop')
-  try {
-    if (typeof onProgress === 'function') {
-      onProgress('Loading Monetag ad (2/2)...');
+    try {
+      await showFn('pop');
+    } catch (err) {
+      console.warn('Monetag popup closed or error:', err);
     }
-    await showMonetagRewardedPopup();
-  } catch (err) {
-    console.warn('Monetag popup in quiz flow notice:', err);
-  }
 
-  // 3. 6-Second Minimum Watch Enforcement
-  const elapsed = Date.now() - startedAt;
-  if (elapsed < 6000) {
-    await sleep(6000 - elapsed);
-  }
+    // Strictly enforce 10-second minimum watch requirement
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < 10000) {
+      throw new Error('Please watch the ad for at least 10 seconds to claim your reward.');
+    }
 
-  return { watchStartedAt: startedAt };
+    return { watchStartedAt: startedAt };
+  } finally {
+    adBarrier.release();
+  }
 }

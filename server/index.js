@@ -984,7 +984,7 @@ app.post('/api/game/luckydraw/play', authMiddleware, blockIfDeviceConflict, veri
 
 function isQuizWatchTooShort(watchStartedAt) {
   if (!watchStartedAt || typeof watchStartedAt !== 'number') return true;
-  return Date.now() - watchStartedAt < 6000;
+  return Date.now() - watchStartedAt < 9800;
 }
 
 app.post('/api/game/quiz/claim', authMiddleware, blockIfDeviceConflict, verifyActionSignature, (req, res) => {
@@ -993,7 +993,7 @@ app.post('/api/game/quiz/claim', authMiddleware, blockIfDeviceConflict, verifyAc
     if (isQuizWatchTooShort(watchStartedAt)) {
       return res.status(400).json({
         success: false,
-        error: 'Please watch the ad for at least 6 seconds before claiming your reward.'
+        error: 'Please watch the ad for at least 10 seconds before claiming your reward.'
       });
     }
 
