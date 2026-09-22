@@ -100,7 +100,7 @@ export default async function handler(req, res) {
           appUrl = `${webappUrl}?startapp=${parts[1]}`;
         }
 
-        const bannerUrl = `${webappUrl}/welcome_banner.jpg`;
+        const bannerUrl = `${webappUrl}/welcome_banner.webp`;
         const captionText =
           `*Welcome to TREASURE HUNT!*\n\n` +
           `Earn free crypto (GEMS → TON/USDT) by watching videos — no investment required! 💰\n\n` +

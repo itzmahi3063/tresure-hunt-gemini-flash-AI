@@ -974,7 +974,7 @@ export default function AdminDashboard() {
             </p>
 
             <div className="rounded-xl overflow-hidden border border-[#2B2B3D] max-w-xs mx-auto">
-              <img src="/daily_reset_banner.jpg" alt="Daily Reset Banner" className="w-full object-cover" />
+              <img src="/daily_reset_banner.webp" alt="Daily Reset Banner" className="w-full object-cover" />
             </div>
 
             <button

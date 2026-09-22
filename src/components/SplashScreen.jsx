@@ -86,7 +86,7 @@ export default function SplashScreen({ onFinish, loading }) {
           <picture>
             <source srcSet="/splash_bg.webp" type="image/webp" />
             <img
-              src="/splash_bg.jpg"
+              src="/splash_bg.webp"
               alt="Treasure Hunt"
               className="w-full h-full object-cover object-top"
             />

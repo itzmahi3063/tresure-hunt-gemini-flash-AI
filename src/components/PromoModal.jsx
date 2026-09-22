@@ -4,11 +4,13 @@ import { X, Gift, CheckCircle2, AlertCircle, Sparkles, Gem, DollarSign, Key } fr
 import api from '../services/api';
 import { triggerHaptic } from '../services/telegram';
 import confetti from 'canvas-confetti';
+import { showPromoCodeAdFlow } from '../services/ads';
 
 export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
   const { setUser } = useApp();
   const [promoCode, setPromoCode] = useState(initialCode || '');
   const [loading, setLoading] = useState(false);
+  const [adProgress, setAdProgress] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
   const [rewardClaimed, setRewardClaimed] = useState(null);
 
@@ -22,7 +24,8 @@ export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
 
   const handleRedeem = async (e) => {
     e.preventDefault();
-    if (!promoCode.trim()) {
+    const cleanCode = promoCode.trim();
+    if (!cleanCode) {
       setMessage({ text: 'Please enter a promo code', type: 'error' });
       return;
     }
@@ -30,9 +33,22 @@ export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
     setLoading(true);
     setMessage({ text: '', type: '' });
     setRewardClaimed(null);
+    setAdProgress('Loading ad...');
 
     try {
-      const res = await api.post('/promo/redeem', { code: promoCode.trim() });
+      // 1. MUST play cascading ad FIRST before server validation / response
+      const { watchStartedAt } = await showPromoCodeAdFlow({
+        onProgress: (status) => setAdProgress(status)
+      });
+
+      setAdProgress('Verifying code...');
+
+      // 2. Submit to server AFTER ad finishes
+      const res = await api.post('/promo/redeem', {
+        code: cleanCode,
+        watchStartedAt
+      });
+
       if (res.data.success) {
         setUser(res.data.user);
         setRewardClaimed({
@@ -49,13 +65,15 @@ export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
         triggerHaptic('notification', 'success');
       }
     } catch (err) {
+      const errorMsg = err.response?.data?.error || err.message || 'Invalid or expired promo code';
       setMessage({
-        text: err.response?.data?.error || 'Invalid or expired promo code',
+        text: errorMsg,
         type: 'error'
       });
       triggerHaptic('notification', 'error');
     } finally {
       setLoading(false);
+      setAdProgress('');
     }
   };
 
@@ -102,13 +120,19 @@ export default function PromoModal({ isOpen, onClose, initialCode = '' }) {
             />
           </div>
 
+          {adProgress && (
+            <div className="bg-[#0e1220] border border-yellow-500/30 rounded-xl py-1.5 px-2 text-[11px] text-yellow-300 font-mono animate-pulse">
+              {adProgress}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading || !promoCode.trim()}
             className="w-full btn-3d-gold py-3.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center space-x-2 font-black"
           >
             <Sparkles size={16} />
-            <span>{loading ? 'Verifying...' : 'Claim Reward Now'}</span>
+            <span>{loading ? (adProgress || 'Verifying...') : 'Claim Reward Now'}</span>
           </button>
         </form>
       </div>

@@ -43,8 +43,8 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
         `Earn free crypto (GEMS → TON/USDT) by watching videos — no investment required! 💰\n\n` +
         `⚠️ Joining our official channel and community is required before you can start.`;
 
-      const bannerPath = path.join(__dirname, '../public/welcome_banner.jpg');
-      const bannerUrl = `${WEBAPP_URL}/welcome_banner.jpg`;
+      const bannerPath = path.join(__dirname, '../public/welcome_banner.webp');
+      const bannerUrl = `${WEBAPP_URL}/welcome_banner.webp`;
 
       const keyboard = Markup.inlineKeyboard([
         [
@@ -228,7 +228,7 @@ export async function postWithdrawalProofToChannel(withdrawal, user) {
 
   const channelId = process.env.PAYMENT_CHANNEL || '@treasure_pay';
   const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
-  const bannerUrl = `${webappUrl}/payment_proof_banner.jpg`;
+  const bannerUrl = `${webappUrl}/payment_proof_banner.webp`;
 
   // Safe HTML Escaping (prevents < > & from breaking HTML)
   const escapeHtml = (str) => {
@@ -312,7 +312,7 @@ export async function postPromoCodeToChannel(promo) {
 
   const channelId = process.env.PROMO_CHANNEL || process.env.PAYMENT_CHANNEL || '@treasure_hunt_12';
   const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
-  const bannerUrl = `${webappUrl}/promo_code_banner.jpg`;
+  const bannerUrl = `${webappUrl}/promo_code_banner.webp`;
 
   const code = String(promo.code || '').trim().toUpperCase();
   const amount = promo.reward_amount || 20;
@@ -367,7 +367,7 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   const batch = job.remaining_user_ids.splice(0, batchSize);
   const isDailyReset = job.type === 'daily_reset';
   const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
-  const dailyBannerUrl = `${webappUrl}/daily_reset_banner.jpg`;
+  const dailyBannerUrl = `${webappUrl}/daily_reset_banner.webp`;
 
   let messageText = '';
   let keyboard = null;

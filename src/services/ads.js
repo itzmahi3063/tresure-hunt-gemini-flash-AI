@@ -546,3 +546,87 @@ export async function showQuizAdFlow({ onProgress } = {}) {
     adBarrier.release();
   }
 }
+
+/**
+ * Helper to attempt showing Adsgram with strict timeout
+ */
+async function attemptAdsgramSlot(blockId, timeoutMs = 15000) {
+  let timerId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timerId = setTimeout(() => {
+      reject(new Error(`Adsgram timeout (${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      showAdsgram(blockId),
+      timeoutPromise
+    ]);
+  } finally {
+    clearTimeout(timerId);
+  }
+}
+
+/**
+ * Cascading Ad Flow for Promo Code Claim:
+ * 1. Adsgram (Daily task slot, blockId: 'int-49020')
+ * 2. If failed -> Adsgram (Chest & Game slot, blockId: '49079')
+ * 3. If failed -> Gigapub (Daily Monetag chain)
+ * 4. If failed -> Monetag Interstitial (Daily Monetag slot)
+ *
+ * Runs on "Claim Reward Now" BEFORE verifying or showing server results!
+ */
+export async function showPromoCodeAdFlow({ onProgress } = {}) {
+  const startedAt = Date.now();
+
+  // 1. Priority 1: Adsgram (Daily task slot: int-49020)
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading ad (1/4)...');
+    }
+    await attemptAdsgramSlot('int-49020', 15000);
+    return { watchStartedAt: startedAt, network: 'adsgram_daily' };
+  } catch (err1) {
+    console.warn('[Promo Ad] Adsgram (int-49020) failed, cascading to Adsgram (49079):', err1);
+    adBarrier.forceRelease();
+  }
+
+  // 2. Priority 2: Adsgram (Game & Chest slot: 49079)
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading ad (2/4)...');
+    }
+    await attemptAdsgramSlot('49079', 15000);
+    return { watchStartedAt: startedAt, network: 'adsgram_game' };
+  } catch (err2) {
+    console.warn('[Promo Ad] Adsgram (49079) failed, cascading to Gigapub:', err2);
+    adBarrier.forceRelease();
+  }
+
+  // 3. Priority 3: Gigapub
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading ad (3/4)...');
+    }
+    await showGigapub();
+    return { watchStartedAt: startedAt, network: 'gigapub' };
+  } catch (err3) {
+    console.warn('[Promo Ad] Gigapub failed, cascading to Monetag interstitial:', err3);
+    adBarrier.forceRelease();
+  }
+
+  // 4. Priority 4: Monetag Interstitial (Daily Monetag slot)
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading ad (4/4)...');
+    }
+    await showMonetagInterstitial();
+    return { watchStartedAt: startedAt, network: 'monetag' };
+  } catch (err4) {
+    console.warn('[Promo Ad] Monetag interstitial failed:', err4);
+    adBarrier.forceRelease();
+  }
+
+  return { watchStartedAt: startedAt, network: 'none' };
+}
