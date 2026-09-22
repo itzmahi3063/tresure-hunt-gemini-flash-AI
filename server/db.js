@@ -1539,6 +1539,7 @@ class Database {
       amount: promo.reward_amount,
       reward_type: promo.reward_type || 'diamonds',
       remaining_user_ids: [...allUserIds],
+      sent_user_ids: [],
       total_users: allUserIds.length,
       sent_count: 0,
       failed_count: 0,
@@ -1763,7 +1764,16 @@ class Database {
 
   getNextBroadcastJob() {
     if (!this.data.broadcast_queue) return null;
-    return this.data.broadcast_queue.find(q => q.status === 'pending' && q.remaining_user_ids?.length > 0);
+    const now = Date.now();
+    const job = this.data.broadcast_queue.find(
+      q => q.status === 'pending' &&
+           q.remaining_user_ids?.length > 0 &&
+           (!q.locked_until || q.locked_until < now)
+    );
+    if (!job) return null;
+    // Lock job for 25 seconds across all serverless workers
+    job.locked_until = now + 25000;
+    return job;
   }
 
   redeemPromoCode(userId, codeStr) {
@@ -2695,22 +2705,32 @@ class Database {
   // --- TON Blockchain Payment & Deposit Helpers ---
   isTonTxProcessed(hash) {
     if (!hash) return false;
+    const clean = String(hash).trim();
     if (!this.data.ton_processed_txs) this.data.ton_processed_txs = [];
-    return this.data.ton_processed_txs.some(t => (typeof t === 'string' ? t === hash : t.hash === hash));
+    const inProcessedList = this.data.ton_processed_txs.some(t =>
+      typeof t === 'string' ? t === clean : (t.hash === clean || t.tx_hash === clean)
+    );
+    if (inProcessedList) return true;
+    if (this.data.ton_transactions) {
+      return this.data.ton_transactions.some(t => t.hash === clean || t.tx_hash === clean);
+    }
+    return false;
   }
 
   recordTonTx(txData) {
     if (!this.data.ton_processed_txs) this.data.ton_processed_txs = [];
     if (!this.data.ton_transactions) this.data.ton_transactions = [];
 
-    const hash = txData.hash;
-    if (hash && !this.data.ton_processed_txs.some(t => (typeof t === 'string' ? t === hash : t.hash === hash))) {
+    const hash = String(txData.hash || txData.tx_hash || '').trim();
+    if (hash && !this.data.ton_processed_txs.some(t => (typeof t === 'string' ? t === hash : (t.hash === hash || t.tx_hash === hash)))) {
       this.data.ton_processed_txs.push(hash);
     }
 
     this.data.ton_transactions.unshift({
       id: `ton_tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       ...txData,
+      hash,
+      tx_hash: hash,
       created_at: new Date().toISOString()
     });
 
@@ -2720,6 +2740,38 @@ class Database {
 
     this.save();
     return true;
+  }
+
+  // Atomic crystal coin purchase with MongoDB native $inc & $addToSet
+  async creditCrystalPurchaseAtomic(userId, qty, amountTon, txData) {
+    const id = String(userId);
+    const user = this.getUser(id);
+    if (user) {
+      user.crystal_coins = (user.crystal_coins || 0) + qty;
+      user.updated_at = new Date().toISOString();
+    }
+    this.recordTonTx(txData);
+
+    if (this.isMongoConnected && this.mongoCollection) {
+      try {
+        await this.mongoCollection.updateOne(
+          { _id: 'main_state' },
+          {
+            $addToSet: { 'data.ton_processed_txs': txData.hash || txData.tx_hash },
+            $inc: {
+              [`data.users.${id}.crystal_coins`]: qty
+            },
+            $set: { updated_at: new Date().toISOString() }
+          }
+        );
+      } catch (err) {
+        console.error('Mongo atomic crystal credit error:', err.message);
+      }
+    }
+
+    this.save();
+    await this.flush();
+    return user;
   }
 
   // Atomic deposit execution with MongoDB native $inc & $addToSet for 20k concurrent users

@@ -364,6 +364,8 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
     return { processed: 0, reason: 'no_pending_jobs' };
   }
 
+  if (!job.sent_user_ids) job.sent_user_ids = [];
+  job.remaining_user_ids = job.remaining_user_ids.filter(uid => !job.sent_user_ids.includes(String(uid)));
   const batch = job.remaining_user_ids.splice(0, batchSize);
   const isDailyReset = job.type === 'daily_reset';
   const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
@@ -464,6 +466,9 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
       if (res.status === 'fulfilled') {
         job.sent_count = (job.sent_count || 0) + 1;
         sentThisBatch++;
+        if (!job.sent_user_ids.includes(String(uid))) {
+          job.sent_user_ids.push(String(uid));
+        }
       } else {
         const err = res.reason;
         console.error(`Telegram send failed to ${uid}:`, err?.message, err?.response?.description || '');
@@ -502,6 +507,9 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   if (unhandled.length > 0) {
     job.remaining_user_ids.unshift(...unhandled);
   }
+
+  // Release lock so subsequent batches can proceed
+  job.locked_until = null;
 
   if (job.remaining_user_ids.length === 0) {
     job.status = 'completed';

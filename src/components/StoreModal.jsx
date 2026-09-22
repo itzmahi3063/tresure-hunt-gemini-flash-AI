@@ -96,7 +96,7 @@ export default function StoreModal({ isOpen, onClose }) {
         const res = await api.get('/ton/check-payment', {
           params: { memo: memoText }
         });
-        if (res.data?.paid && res.data.transaction?.tx_hash) {
+        if (res.data?.paid && (res.data.transaction?.tx_hash || res.data.transaction?.hash)) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           confetti({
             particleCount: 80,
@@ -201,7 +201,7 @@ export default function StoreModal({ isOpen, onClose }) {
       const res = await api.get('/ton/check-payment', {
         params: { memo: memoText }
       });
-      if (res.data?.paid && res.data.transaction?.tx_hash) {
+      if (res.data?.paid && (res.data.transaction?.tx_hash || res.data.transaction?.hash)) {
         confetti({
           particleCount: 80,
           spread: 80,

@@ -614,21 +614,29 @@ app.get('/api/ton/check-payment', async (req, res) => {
       });
     }
 
-    // 3. Check if specific memo is found in ton_transactions (exact match and valid tx_hash)
+    // 3. Check if specific memo is found in ton_transactions (exact match and valid tx_hash / hash)
     if (memo && String(memo).trim().length > 3) {
       const cleanMemo = String(memo).trim();
-      let found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
+      let found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && (t.tx_hash || t.hash));
       if (!found && (cleanMemo.startsWith('CRYSTAL_') || cleanMemo.startsWith('EXCL_') || cleanMemo.startsWith('DEP_'))) {
         try {
           await verifyPendingTonPayments();
-          found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && t.tx_hash);
+          found = db.data.ton_transactions?.find(t => t.memo && t.memo.trim() === cleanMemo && (t.tx_hash || t.hash));
         } catch (scanErr) {
           console.warn('Scan error during memo check:', scanErr.message);
         }
       }
       if (found) {
         const user = found.userId ? db.getUser(found.userId) : null;
-        return res.json({ success: true, paid: true, transaction: found, user });
+        return res.json({
+          success: true,
+          paid: true,
+          transaction: {
+            ...found,
+            tx_hash: found.tx_hash || found.hash
+          },
+          user
+        });
       }
     }
 

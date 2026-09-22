@@ -207,10 +207,15 @@ export async function processTonTransaction(tx, source = 'webhook') {
     const user = db.getUser(userId);
 
     if (user) {
-      user.crystal_coins = (user.crystal_coins || 0) + qty;
+      // Strict Idempotency Check: if this txHash was already credited in this or another instance, abort immediately!
+      if (db.isTonTxProcessed(txHash)) {
+        return { ignored: true, reason: 'already_processed', txHash };
+      }
 
-      db.recordTonTx({
+      // Atomically persist transaction & credit coins
+      await db.creditCrystalPurchaseAtomic(user.id, qty, amountTon, {
         hash: txHash,
+        tx_hash: txHash,
         type: 'crystal_purchase',
         userId: String(user.id),
         quantity: qty,
@@ -233,10 +238,8 @@ export async function processTonTransaction(tx, source = 'webhook') {
           .catch(err => console.warn('Bot crystal purchase notification error:', err.message));
       }
 
-      db.save();
-      await db.flush();
       console.log(`✅ User ${user.id} received ${qty} Crystal Coins for ${amountTon} TON (Tx: ${txHash})`);
-      return { success: true, type: 'crystal_purchase', userId: user.id, quantity: qty, amountTon };
+      return { success: true, type: 'crystal_purchase', userId: user.id, quantity: qty, amountTon, tx_hash: txHash };
     }
   }
 
