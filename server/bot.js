@@ -41,7 +41,7 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
       const captionText =
         `*Welcome to TREASURE HUNT!*\n\n` +
         `Earn free crypto (GEMS → TON/USDT) by watching videos — no investment required! 💰\n\n` +
-        `⚠️ Joining our official channel and community is required before you can start.`;
+        `⚠️ Joining our 2 channels and 1 community group is required before you can start.`;
 
       const bannerPath = path.join(__dirname, '../public/welcome_banner.webp');
       const bannerUrl = `${WEBAPP_URL}/welcome_banner.webp`;
@@ -50,6 +50,9 @@ if (BOT_TOKEN && BOT_TOKEN !== 'YOUR_BOT_TOKEN_HERE') {
         [
           Markup.button.url('📢 Official Channel', 'https://t.me/treasure_hunt_12'),
           Markup.button.url('💬 Community', 'https://t.me/treasure_hunt12')
+        ],
+        [
+          Markup.button.url('💳 Payment Channel', 'https://t.me/treasure_pay')
         ],
         [
           Markup.button.webApp('🏴‍☠️ Hunt', appUrl)

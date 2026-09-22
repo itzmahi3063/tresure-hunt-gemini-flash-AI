@@ -115,9 +115,16 @@ export default function App() {
     );
   }
 
-  // 5. Mandatory 3 Community Channels Gate Screen (if not verified yet)
-  if (!isGatePassed && !user?.is_mandatory_verified) {
-    return <MandatoryGateScreen onVerified={() => setIsGatePassed(true)} />;
+  // 5. Mandatory 3 Community Channels Gate Screen (if not verified yet or left any channel)
+  if (!isGatePassed || !user?.is_mandatory_verified) {
+    return (
+      <MandatoryGateScreen
+        onVerified={() => {
+          setIsGatePassed(true);
+          setUser(prev => prev ? ({ ...prev, is_mandatory_verified: true }) : prev);
+        }}
+      />
+    );
   }
 
   return (

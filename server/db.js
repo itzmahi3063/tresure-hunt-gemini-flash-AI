@@ -2286,7 +2286,11 @@ class Database {
     ];
 
     const allJoined = channels.every(ch => ch.isJoined);
-    const isVerified = !!user.is_mandatory_verified || allJoined;
+    const isVerified = Boolean(user.is_mandatory_verified && allJoined);
+    if (!allJoined && user.is_mandatory_verified) {
+      user.is_mandatory_verified = false;
+      this.save();
+    }
 
     return {
       isVerified,
@@ -2309,12 +2313,11 @@ class Database {
 
     const channelKeys = ['mandatory_official', 'mandatory_community', 'mandatory_payment'];
     channelKeys.forEach(key => {
-      if (verifiedMap[key] === true) {
-        user.mandatory_channels[key] = true;
-      }
+      user.mandatory_channels[key] = Boolean(verifiedMap[key]);
     });
 
     const allJoined = channelKeys.every(key => user.mandatory_channels[key] === true);
+    user.is_mandatory_verified = allJoined;
     if (allJoined) {
       user.is_mandatory_verified = true;
 

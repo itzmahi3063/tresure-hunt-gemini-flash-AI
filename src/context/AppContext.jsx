@@ -20,9 +20,14 @@ export function AppProvider({ children }) {
   });
 
   const setIsGatePassed = (val) => {
-    setIsGatePassedState(Boolean(val));
-    if (val && typeof window !== 'undefined') {
-      localStorage.setItem('treasure_gate_passed', 'true');
+    const passed = Boolean(val);
+    setIsGatePassedState(passed);
+    if (typeof window !== 'undefined') {
+      if (passed) {
+        localStorage.setItem('treasure_gate_passed', 'true');
+      } else {
+        localStorage.removeItem('treasure_gate_passed');
+      }
     }
   };
 
@@ -143,6 +148,8 @@ export function AppProvider({ children }) {
         }
         if (res.data.user?.is_mandatory_verified) {
           setIsGatePassed(true);
+        } else {
+          setIsGatePassed(false);
         }
         if (res.data.settings) {
           setSettings(res.data.settings);

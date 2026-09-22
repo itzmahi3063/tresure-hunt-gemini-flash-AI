@@ -244,11 +244,63 @@ app.get('/api/user/me', authMiddleware, (req, res) => {
   }
 });
 
-app.post('/api/user/sync', authMiddleware, (req, res) => {
+/**
+ * Check user's live membership in the 3 mandatory Telegram channels/groups.
+ * If user leaves any of them, their mandatory verification status is revoked immediately.
+ */
+export async function checkUserMandatoryMembershipLive(userId) {
+  const user = db.getUser(userId);
+  if (!user) return null;
+
+  if (!user.mandatory_channels) {
+    user.mandatory_channels = {
+      mandatory_official: false,
+      mandatory_community: false,
+      mandatory_payment: false
+    };
+  }
+
+  const channels = [
+    { id: 'mandatory_official', chat_id: '@treasure_hunt_12' },
+    { id: 'mandatory_community', chat_id: '@treasure_hunt12' },
+    { id: 'mandatory_payment', chat_id: '@treasure_pay' }
+  ];
+
+  let allJoined = true;
+  for (const ch of channels) {
+    try {
+      const check = await verifyUserChannelMembership(ch.chat_id, userId);
+      if (check && check.verified) {
+        user.mandatory_channels[ch.id] = true;
+      } else {
+        user.mandatory_channels[ch.id] = false;
+        allJoined = false;
+      }
+    } catch (err) {
+      console.warn(`Error verifying mandatory channel ${ch.chat_id} for user ${userId}:`, err.message);
+      user.mandatory_channels[ch.id] = false;
+      allJoined = false;
+    }
+  }
+
+  user.is_mandatory_verified = allJoined;
+  db.save();
+  return db.getMandatoryChannelsStatus(userId);
+}
+
+app.post('/api/user/sync', authMiddleware, async (req, res) => {
   try {
     const { referrerId, deviceId } = req.body;
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || null;
     const user = db.getOrCreateUser(req.user, referrerId, { deviceId, ip });
+
+    // Live verification: If user has left any mandatory channel/group, gate re-appears
+    try {
+      await checkUserMandatoryMembershipLive(user.id);
+    } catch (mErr) {
+      console.warn('Mandatory live check error on sync:', mErr.message);
+    }
+
     res.json({
       success: true,
       user,
@@ -1567,9 +1619,9 @@ app.post('/api/admin/storage/cleanup', authMiddleware, adminMiddleware, async (r
 // MANDATORY COMMUNITY GATE ROUTES
 // ==========================================
 
-app.get('/api/mandatory-channels/status', authMiddleware, (req, res) => {
+app.get('/api/mandatory-channels/status', authMiddleware, async (req, res) => {
   try {
-    const status = db.getMandatoryChannelsStatus(req.user.id);
+    const status = await checkUserMandatoryMembershipLive(req.user.id);
     res.json({ success: true, ...status });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1578,28 +1630,17 @@ app.get('/api/mandatory-channels/status', authMiddleware, (req, res) => {
 
 app.post('/api/mandatory-channels/verify', authMiddleware, blockIfDeviceConflict, async (req, res) => {
   try {
-    const { visited = {} } = req.body;
     const userId = req.user.id;
-    const currentStatus = db.getMandatoryChannelsStatus(userId);
+    const status = await checkUserMandatoryMembershipLive(userId);
+
     const verifiedMap = {};
-
-    for (const ch of currentStatus.channels) {
-      if (ch.isJoined) {
-        verifiedMap[ch.id] = true;
-        continue;
-      }
-
-      // Check membership via Telegram Bot if active
-      const check = await verifyUserChannelMembership(ch.chat_id, userId);
-      if (check.verified) {
-        verifiedMap[ch.id] = true;
-      } else if (check.isSimulation && visited[ch.id]) {
-        // In local dev simulation mode, mark verified if user visited and confirmed
-        verifiedMap[ch.id] = true;
-      }
+    if (status && status.channels) {
+      status.channels.forEach(ch => {
+        verifiedMap[ch.id] = ch.isJoined;
+      });
     }
-
     const updated = db.verifyMandatoryChannels(userId, verifiedMap);
+
     res.json({
       success: true,
       ...updated,
