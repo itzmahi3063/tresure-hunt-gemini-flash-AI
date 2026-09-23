@@ -11,7 +11,8 @@ import {
   Gem,
   AlertCircle,
   Flame,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { triggerHaptic } from '../services/telegram';
 import { showMonetagRewardedPopup } from '../services/ads';
@@ -20,7 +21,15 @@ import api from '../services/api';
 
 export default function DailyModal({ isOpen, onClose }) {
   const { user, setUser } = useApp();
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('treasure_daily_rewards_status');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [message, setMessage] = useState(null);
@@ -38,6 +47,9 @@ export default function DailyModal({ isOpen, onClose }) {
       const res = await api.get('/daily-rewards/status');
       if (res.data.success) {
         setStatus(res.data);
+        try {
+          localStorage.setItem('treasure_daily_rewards_status', JSON.stringify(res.data));
+        } catch (e) {}
       }
     } catch (err) {
       console.warn('Failed to load daily rewards status:', err);
@@ -62,6 +74,11 @@ export default function DailyModal({ isOpen, onClose }) {
       const res = await api.post('/daily-rewards/claim', { watchStartedAt });
       if (res.data.success) {
         setUser(res.data.user);
+        setStatus(prev => prev ? { ...prev, canClaim: false, streak: res.data.dayClaimed } : { canClaim: false, streak: res.data.dayClaimed });
+        try {
+          const cached = JSON.parse(localStorage.getItem('treasure_daily_rewards_status') || '{}');
+          localStorage.setItem('treasure_daily_rewards_status', JSON.stringify({ ...cached, canClaim: false, streak: res.data.dayClaimed }));
+        } catch (e) {}
         triggerHaptic('notification', 'success');
         confetti({
           particleCount: 70,
@@ -97,9 +114,11 @@ export default function DailyModal({ isOpen, onClose }) {
     { day: 7, type: 'crystal_coins', amount: 1, label: '+1 Crystal Coin', isSpecial: true }
   ];
 
-  const currentStreak = status?.streak || 0;
+  const todayStr = new Date().toISOString().split('T')[0];
+  const userFallbackCanClaim = user ? (!user.last_daily_claim || user.last_daily_claim !== todayStr) : false;
+  const canClaim = status !== null ? Boolean(status.canClaim) : userFallbackCanClaim;
+  const currentStreak = status?.streak ?? (user?.daily_streak || 0);
   const currentDayIndex = currentStreak % 7; // 0 to 6
-  const canClaim = status?.canClaim ?? false;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn overflow-y-auto">

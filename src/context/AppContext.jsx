@@ -174,13 +174,14 @@ export function AppProvider({ children }) {
         }
         setSyncError(null);
 
-        // Preload Daily Ads, Tasks, and Referral data in background during splash screen for instant 0ms tab opens
+        // Preload Daily Ads, Tasks, Referral and Daily Rewards data in background during splash screen for instant 0ms tab opens
         setTimeout(() => {
           Promise.all([
             api.get('/ads').catch(() => null),
             api.get('/tasks').catch(() => null),
-            api.get('/referrals').catch(() => null)
-          ]).then(([adsRes, tasksRes, refRes]) => {
+            api.get('/referrals').catch(() => null),
+            api.get('/daily-rewards/status').catch(() => null)
+          ]).then(([adsRes, tasksRes, refRes, dailyRes]) => {
             if (adsRes?.data?.success && adsRes.data.ads) {
               try {
                 localStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(adsRes.data.ads));
@@ -205,6 +206,11 @@ export function AppProvider({ children }) {
               try {
                 localStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
                 sessionStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
+              } catch (e) {}
+            }
+            if (dailyRes?.data?.success) {
+              try {
+                localStorage.setItem('treasure_daily_rewards_status', JSON.stringify(dailyRes.data));
               } catch (e) {}
             }
           });
