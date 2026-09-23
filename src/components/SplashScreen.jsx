@@ -3,76 +3,38 @@ import { triggerHaptic } from '../services/telegram';
 import { Sparkles } from 'lucide-react';
 
 export default function SplashScreen({ onFinish, loading }) {
-  const [progress, setProgress] = useState(5);
-  const [statusText, setStatusText] = useState('Initializing 3D Realm...');
+  const [progress, setProgress] = useState(20);
+  const [statusText, setStatusText] = useState('Entering Treasure Hunt...');
 
   useEffect(() => {
-    // Smooth progress increment from 5% to 100%
+    // Fast dynamic progress increment
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
           clearInterval(interval);
           return 100;
         }
-        // Realistic dynamic pacing
-        const increment = prev < 40 ? Math.floor(Math.random() * 8) + 4 : prev < 80 ? Math.floor(Math.random() * 6) + 3 : Math.floor(Math.random() * 12) + 6;
+        const increment = Math.floor(Math.random() * 15) + 12;
         const next = Math.min(100, prev + increment);
-
-        if (next >= 25 && next < 55) {
-          setStatusText('Connecting to Telegram Vault...');
-        } else if (next >= 55 && next < 85) {
-          setStatusText('Syncing Chest Bounties & Gems...');
-        } else if (next >= 85) {
-          setStatusText('Entering Treasure Hunt...');
-        }
-
         return next;
       });
-    }, 90);
+    }, 28);
 
     return () => clearInterval(interval);
   }, []);
 
-  // The 5%->100% bar above is a fixed-time animation, purely cosmetic — it
-  // isn't tied to whether the real profile data has actually finished
-  // loading. Previously, once it hit 100% it called onFinish() right away
-  // regardless, so if the real sync call was still in flight (a slightly
-  // slower cold start, a retrying Mongo connection, etc.) the screen would
-  // just sit frozen at "100% / Entering Treasure Hunt..." with nothing
-  // visibly happening. Now: if the real load is still going once the bar
-  // finishes, switch to a "Please wait..." message instead of freezing,
-  // and only actually hand off once loading genuinely completes.
-  const [waitingOnServer, setWaitingOnServer] = useState(false);
-
+  // When backend sync completes, finish instantly without dragging
   useEffect(() => {
-    if (progress !== 100) return;
-
     if (!loading) {
-      triggerHaptic('impact', 'medium');
+      setProgress(100);
+      setStatusText('Entering Treasure Hunt...');
+      triggerHaptic('impact', 'light');
       const timer = setTimeout(() => {
         if (onFinish) onFinish();
-      }, 450);
+      }, 90);
       return () => clearTimeout(timer);
     }
-
-    // Bar is full but the real data hasn't come back yet — give it a short
-    // grace period before admitting we're still waiting, so a normally-fast
-    // load doesn't flash an extra message unnecessarily.
-    const graceTimer = setTimeout(() => setWaitingOnServer(true), 1200);
-    return () => clearTimeout(graceTimer);
-  }, [progress, loading, onFinish]);
-
-  // Once the real data finally arrives while we were in the "please wait"
-  // state, hand off immediately rather than waiting on another grace period.
-  useEffect(() => {
-    if (progress === 100 && !loading && waitingOnServer) {
-      triggerHaptic('impact', 'medium');
-      const timer = setTimeout(() => {
-        if (onFinish) onFinish();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, progress, waitingOnServer, onFinish]);
+  }, [loading, onFinish]);
 
   const displayText = waitingOnServer ? 'Please wait...' : statusText;
   const displayProgress = waitingOnServer ? 100 : progress;

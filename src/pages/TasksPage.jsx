@@ -109,52 +109,51 @@ export default function TasksPage() {
       try {
         const d = JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
         const s = JSON.parse(sessionStorage.getItem('treasure_tasks_social_cache') || '[]');
+        const e = JSON.parse(sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]');
         const p = JSON.parse(sessionStorage.getItem('treasure_tasks_partner_cache') || '[]');
-        saved = { daily: d, social: s, exclusive: [], partner: p };
-      } catch (e) {}
+        saved = { daily: d, social: s, exclusive: e, partner: p };
+      } catch (err) {}
     }
     return saved;
   });
 
-  // Preload all categories on mount for instant zero-lag tab switching
+  // Preload all categories in 1 parallel bundle for instant zero-lag tab switching
   useEffect(() => {
     preloadAllCategories();
   }, []);
 
   const preloadAllCategories = async () => {
     try {
-      const [adsRes, socialRes, exclRes, partnerRes, myRes] = await Promise.all([
+      const [tasksRes, adsRes, myRes] = await Promise.all([
+        api.get('/tasks').catch(() => ({ data: { success: false } })),
         api.get('/ads').catch(() => ({ data: { success: false } })),
-        api.get('/tasks?category=social').catch(() => ({ data: { success: false } })),
-        api.get('/tasks?category=exclusive').catch(() => ({ data: { success: false } })),
-        api.get('/tasks?category=partner').catch(() => ({ data: { success: false } })),
         api.get('/tasks/my').catch(() => ({ data: { success: false } }))
       ]);
 
+      const allTasks = tasksRes.data?.tasks || [];
+      const adsList = adsRes.data?.ads || [];
+
       const newCache = {
-        daily: adsRes.data?.ads || [],
-        social: socialRes.data?.tasks || [],
-        exclusive: exclRes.data?.tasks || [],
-        partner: partnerRes.data?.tasks || []
+        daily: adsList,
+        social: allTasks.filter(t => t.category === 'social'),
+        exclusive: allTasks.filter(t => t.category === 'exclusive'),
+        partner: allTasks.filter(t => t.category === 'partner')
       };
       setTasksCache(newCache);
 
-      if (socialRes.data?.tasks?.length) {
-        try { sessionStorage.setItem('treasure_tasks_social_cache', JSON.stringify(socialRes.data.tasks)); } catch (err) {}
-      }
-      if (partnerRes.data?.tasks?.length) {
-        try { sessionStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(partnerRes.data.tasks)); } catch (err) {}
-      }
+      try {
+        sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(newCache.daily));
+        sessionStorage.setItem('treasure_tasks_social_cache', JSON.stringify(newCache.social));
+        sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(newCache.exclusive));
+        sessionStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(newCache.partner));
+      } catch (err) {}
 
       if (myRes.data?.tasks) setMyTasks(myRes.data.tasks);
 
       // Display currently active tab from fresh fetch
-      if (activeCategory === 'daily' && adsRes.data?.ads) {
-        setAds(adsRes.data.ads);
-        try {
-          sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(adsRes.data.ads));
-        } catch (err) {}
-      } else if (newCache[activeCategory]) {
+      if (activeCategory === 'daily' && adsList.length) {
+        setAds(adsList);
+      } else if (newCache[activeCategory]?.length) {
         setTasks(newCache[activeCategory]);
       }
     } catch (e) {
@@ -167,21 +166,11 @@ export default function TasksPage() {
   }, [activeCategory, exclusiveSubTab]);
 
   const loadTasksAndAds = async () => {
-    // Instant switch from cache (0 delay)
+    // Instant switch from cache (0ms delay)
     if (activeCategory === 'daily') {
       if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
     } else if (tasksCache[activeCategory]?.length > 0) {
       setTasks(tasksCache[activeCategory]);
-    } else {
-      setTasks([]);
-    }
-
-    const hasCache = activeCategory === 'daily'
-      ? (tasksCache.daily && tasksCache.daily.length > 0)
-      : (tasksCache[activeCategory] && tasksCache[activeCategory].length > 0);
-
-    if (!hasCache && activeCategory !== 'partner') {
-      setLoadingCategory(prev => ({ ...prev, [activeCategory]: true }));
     }
 
     try {
@@ -204,6 +193,9 @@ export default function TasksPage() {
           const fetchedTasks = tasksRes.data.tasks || [];
           setTasks(fetchedTasks);
           setTasksCache(prev => ({ ...prev, exclusive: fetchedTasks }));
+          try {
+            sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(fetchedTasks));
+          } catch (err) {}
         }
         if (myRes.data.success) setMyTasks(myRes.data.tasks || []);
       } else {
@@ -219,8 +211,6 @@ export default function TasksPage() {
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);
-    } finally {
-      setLoadingCategory(prev => ({ ...prev, [activeCategory]: false }));
     }
   };
 
@@ -425,6 +415,11 @@ export default function TasksPage() {
                 triggerHaptic('selection');
                 setActiveCategory(cat.id);
                 setStatusMessage(null);
+                if (cat.id === 'daily') {
+                  if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
+                } else if (tasksCache[cat.id]?.length > 0) {
+                  setTasks(tasksCache[cat.id]);
+                }
               }}
               style={
                 isActive

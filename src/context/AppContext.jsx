@@ -85,13 +85,9 @@ export function AppProvider({ children }) {
 
   const navigateTab = (newTab) => {
     if (newTab === activeTab) return;
-    setTransitionTab(newTab);
-    setIsTransitioning(true);
-    setTimeout(() => {
-      setActiveTab(newTab);
-      setIsTransitioning(false);
-      setTransitionTab(null);
-    }, 380);
+    setActiveTab(newTab);
+    setIsTransitioning(false);
+    setTransitionTab(null);
   };
 
   // Initialize Telegram & Fetch User Profile
