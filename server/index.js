@@ -824,16 +824,23 @@ app.post('/api/ads/watch', authMiddleware, blockIfDeviceConflict, verifyActionSi
     const { adId, watchStartedAt } = req.body;
     const userId = req.user.id;
 
-    if (isAdWatchTooShort(watchStartedAt)) {
-      return res.status(400).json({ success: false, error: 'Please watch the full ad for at least 5 seconds before claiming this reward.' });
-    }
-
-    const count = db.getDailyAdCount(userId, adId);
     const ad = db.data.ads_config.find(a => a.id === adId);
-
     if (!ad) {
       return res.status(404).json({ success: false, error: 'Ad slot not found' });
     }
+
+    // USL ads requires 10 seconds (with 9.5s buffer), other daily ads require 5 seconds (with 4.5s buffer)
+    const isUsl = ad.network_id === 'usl' || ad.id === 'slot_4';
+    const requiredMs = isUsl ? 9500 : 4500;
+    if (!watchStartedAt || typeof watchStartedAt !== 'number' || Date.now() - watchStartedAt < requiredMs) {
+      const secText = isUsl ? '10' : '5';
+      return res.status(400).json({
+        success: false,
+        error: `Please watch the ${ad.name} ad for at least ${secText} seconds before claiming this reward.`
+      });
+    }
+
+    const count = db.getDailyAdCount(userId, adId);
 
     if (count >= ad.max_daily) {
       return res.status(400).json({ success: false, error: 'Daily limit reached for this ad' });

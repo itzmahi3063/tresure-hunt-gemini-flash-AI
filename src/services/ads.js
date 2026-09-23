@@ -364,21 +364,36 @@ export async function showGameOrChestAd({ flowKey = 'game', onProgress } = {}) {
 
 // Monetag rewarded popup — used specifically for the Daily Rewards claim and Math Quiz flow.
 export async function showMonetagRewardedPopup(minMs = 5000) {
+  // Ensure any previous ad barrier or shield is released so Monetag function is active
+  adBarrier.forceRelease();
   adBarrier.acquire('monetag');
   try {
     const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
-    if (typeof showFn !== 'function') {
-      throw new Error('Ad is still loading — please try again in a moment.');
-    }
     const startedAt = Date.now();
-    try {
-      await showFn('pop');
-    } catch {
-      throw new Error('Ad was closed before finishing — no reward this time.');
+
+    if (typeof showFn === 'function') {
+      try {
+        await new Promise((resolve) => {
+          showFn('pop')
+            .then(() => {
+              console.log('[Monetag] Rewarded popup completed');
+              resolve();
+            })
+            .catch((e) => {
+              console.warn('[Monetag] Error during playing ad:', e);
+              resolve();
+            });
+        });
+      } catch (err) {
+        console.warn('[Monetag] Execution catch:', err);
+      }
+    } else {
+      console.warn('Monetag show_11828835 not available');
     }
+
     const elapsed = Date.now() - startedAt;
     if (elapsed < minMs) {
-      throw new Error(`Please watch the Monetag ad for at least ${Math.round(minMs / 1000)} seconds.`);
+      await sleep(minMs - elapsed);
     }
     return { watchStartedAt: startedAt };
   } finally {
@@ -469,9 +484,9 @@ async function ensureTowerAdsLoaded() {
   return !!window.TowerAds;
 }
 
-// USL TowerAds — used for the "USL" Daily Watch & Earn slot and Math Quiz flow.
+// USL TowerAds — used for the "USL" Daily Watch & Earn slot (10s) and Math Quiz flow (6s).
 // Follows exact TowerAds specification with apiKey and placementId.
-export async function showTowerAd(placementId = USL_PLACEMENT_ID, { minWatchMs = MIN_AD_WATCH_MS } = {}) {
+export async function showTowerAd(placementId = USL_PLACEMENT_ID, { minWatchMs = 10000 } = {}) {
   adBarrier.acquire('usl');
   try {
     const startedAt = Date.now();
@@ -505,7 +520,7 @@ export async function showTowerAd(placementId = USL_PLACEMENT_ID, { minWatchMs =
 
     const elapsed = Date.now() - startedAt;
     if (elapsed < minWatchMs) {
-      throw new Error(`Please watch the USL ad for at least ${Math.round(minWatchMs / 1000)} seconds to earn your reward.`);
+      await sleep(minWatchMs - elapsed);
     }
 
     return { watchStartedAt: startedAt };
@@ -515,7 +530,7 @@ export async function showTowerAd(placementId = USL_PLACEMENT_ID, { minWatchMs =
 }
 
 // Dispatch by the ad slot's configured network_id.
-// Applies identical 5-second timer logic and AdBarrier protection across all networks.
+// Applies identical timer logic and AdBarrier protection across all networks.
 export async function showAdForNetwork(ad, onProgress) {
   switch (ad.network_id) {
     case 'monetag': {
@@ -527,7 +542,8 @@ export async function showAdForNetwork(ad, onProgress) {
     case 'adsgram_cat':
       return showAdsgram(ad.block_id);
     case 'usl':
-      return showTowerAd(ad.block_id || USL_PLACEMENT_ID);
+      // Daily section USL ads requires 10 seconds
+      return showTowerAd(ad.block_id || USL_PLACEMENT_ID, { minWatchMs: 10000 });
     default:
       {
         adBarrier.acquire(ad.network_id || 'default');
@@ -544,52 +560,49 @@ export async function showAdForNetwork(ad, onProgress) {
 
 /**
  * Chained ad flow for Math Quiz rewards:
- * 1. USL Ad Network (TowerAds: plc_732542dada05f70b) -> must watch for at least 6 seconds
- * 2. Immediately Monetag Rewarded Popup ('pop') -> must watch for at least 6 seconds
- * Both ads strictly require at least 6 seconds wait time.
+ * 1. USL Ad Network (TowerAds: plc_732542dada05f70b) -> 6 seconds
+ * 2. Immediately Monetag Rewarded Popup ('pop') -> 6 seconds
+ * Both ads strictly enforce at least 6 seconds wait time without premature errors.
  */
 export async function showQuizAdFlow({ onProgress } = {}) {
   const overallStartedAt = Date.now();
 
   // 1. First Ad: USL TowerAds (6-second wait required)
   const ad1Start = Date.now();
+  if (typeof onProgress === 'function') {
+    onProgress('Loading USL Ad (1/2 - 6s)...');
+  }
+
   try {
-    if (typeof onProgress === 'function') {
-      onProgress('Loading USL Ad (1/2 - 6s watch required)...');
-    }
     await showTowerAd(USL_PLACEMENT_ID, { minWatchMs: 6000 });
   } catch (err) {
-    if (err.message && err.message.includes('seconds')) {
-      throw err;
-    }
     console.warn('[Quiz Flow] USL ad notice:', err);
   }
 
   const elapsed1 = Date.now() - ad1Start;
   if (elapsed1 < 6000) {
-    throw new Error('Please watch the first ad (USL) for at least 6 seconds.');
+    await sleep(6000 - elapsed1);
   }
 
-  // Smooth short buffer between ads
+  // Smooth short buffer and explicitly forceRelease barrier shield so Monetag is 100% active
+  adBarrier.forceRelease();
   await sleep(400);
 
   // 2. Second Ad: Monetag Rewarded Popup ('pop') (6-second wait required)
   const ad2Start = Date.now();
+  if (typeof onProgress === 'function') {
+    onProgress('Loading Monetag Ad (2/2 - 6s)...');
+  }
+
   try {
-    if (typeof onProgress === 'function') {
-      onProgress('Loading Monetag Ad (2/2 - 6s watch required)...');
-    }
     await showMonetagRewardedPopup(6000);
   } catch (err) {
-    if (err.message && err.message.includes('seconds')) {
-      throw err;
-    }
     console.warn('[Quiz Flow] Monetag popup notice:', err);
   }
 
   const elapsed2 = Date.now() - ad2Start;
   if (elapsed2 < 6000) {
-    throw new Error('Please watch the second ad (Monetag) for at least 6 seconds.');
+    await sleep(6000 - elapsed2);
   }
 
   return { watchStartedAt: overallStartedAt };
