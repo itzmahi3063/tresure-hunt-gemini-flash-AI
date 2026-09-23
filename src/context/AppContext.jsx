@@ -214,6 +214,14 @@ export function AppProvider({ children }) {
     window.addEventListener('ip-conflict', handleIpConflict);
     window.addEventListener('app-maintenance', handleMaintenance);
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // App brought to foreground: re-sync to check if user left any channel
+        fetchUserProfile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     initTelegram();
     fetchUserProfile();
     armAdexiumAutoMode();
@@ -230,6 +238,7 @@ export function AppProvider({ children }) {
       window.removeEventListener('device-conflict', handleDeviceConflict);
       window.removeEventListener('ip-conflict', handleIpConflict);
       window.removeEventListener('app-maintenance', handleMaintenance);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
