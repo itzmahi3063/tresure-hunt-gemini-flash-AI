@@ -250,7 +250,9 @@ export default function AdminDashboard() {
   // Handle Promo Code Creation
   const handleCreatePromo = async (e) => {
     e.preventDefault();
-    if (!newPromoCode.trim() || !newPromoAmount) {
+    if (loading) return; // Prevent double-clicks / touch duplicate requests
+    const cleanCode = newPromoCode.trim().toUpperCase();
+    if (!cleanCode || !newPromoAmount) {
       setFeedback({ type: 'error', text: 'Promo code and reward amount are required' });
       return;
     }
@@ -259,18 +261,18 @@ export default function AdminDashboard() {
     setFeedback(null);
     try {
       const res = await api.post('/admin/promo', {
-        code: newPromoCode.trim(),
+        code: cleanCode,
         reward_type: newPromoRewardType,
         reward_amount: Number(newPromoAmount),
         max_uses: newPromoMaxUses ? Number(newPromoMaxUses) : null
       });
 
       if (res.data.success) {
-        setFeedback({ type: 'success', text: `Promo code "${res.data.promo.code}" created successfully!` });
+        setFeedback({ type: 'success', text: `Promo code "${res.data.promo?.code || cleanCode}" created successfully!` });
         setNewPromoCode('');
         setNewPromoAmount('500');
         setNewPromoMaxUses('');
-        loadAllAdminData();
+        await loadAllAdminData();
         triggerHaptic('notification', 'success');
       }
     } catch (err) {
@@ -940,7 +942,9 @@ export default function AdminDashboard() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-3d-gold py-3 rounded-xl text-xs uppercase font-black"
+              className={`w-full btn-3d-gold py-3 rounded-xl text-xs uppercase font-black transition-all ${
+                loading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               {loading ? 'Creating...' : 'Create Promo Code'}
             </button>

@@ -356,6 +356,9 @@ export async function postWithdrawalProofToChannel(withdrawal, user) {
   }
 }
 
+// Memory set to prevent duplicate promo code channel broadcasts within the same runtime process
+const postedPromoChannelCodes = new Set();
+
 /**
  * Post official promo code announcement to Telegram channel with branded banner
  */
@@ -365,11 +368,40 @@ export async function postPromoCodeToChannel(promo) {
     return false;
   }
 
+  const code = String(promo?.code || '').trim().toUpperCase();
+  const promoId = String(promo?.id || code);
+
+  // 1. In-memory deduplication set: prevents duplicate posts within runtime
+  if (code && postedPromoChannelCodes.has(code)) {
+    console.log(`[bot] Promo code "${code}" already posted to channel. Ignoring duplicate call.`);
+    return true;
+  }
+  if (promoId && postedPromoChannelCodes.has(promoId)) {
+    console.log(`[bot] Promo ID "${promoId}" already posted to channel. Ignoring duplicate call.`);
+    return true;
+  }
+
+  // 2. Database level idempotency: check if already posted to channel
+  if (promo?.channel_posted) {
+    console.log(`[bot] Promo "${code}" already marked as channel_posted. Ignoring duplicate call.`);
+    return true;
+  }
+
+  // Mark as posted immediately in memory and promo object
+  if (code) postedPromoChannelCodes.add(code);
+  if (promoId) postedPromoChannelCodes.add(promoId);
+  if (promo) {
+    promo.channel_posted = true;
+    promo.channel_posted_at = new Date().toISOString();
+    try {
+      db.save();
+    } catch (e) {}
+  }
+
   const channelId = process.env.PROMO_CHANNEL || process.env.PAYMENT_CHANNEL || '@treasure_hunt_12';
   const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
   const bannerUrl = `${webappUrl}/promo_code_banner.webp`;
 
-  const code = String(promo.code || '').trim().toUpperCase();
   const amount = promo.reward_amount || 20;
 
   // Exact requested format:
@@ -396,7 +428,18 @@ export async function postPromoCodeToChannel(promo) {
     console.log(`📢 Promo code ${code} posted to channel ${channelId}`);
     return true;
   } catch (err) {
-    console.warn('sendPhoto failed for promo, trying sendMessage:', err.message);
+    console.warn('sendPhoto failed for promo:', err.message);
+
+    // CRITICAL DEDUPLICATION SAFETY:
+    // If the error was due to network delay / timeout, Telegram's servers often complete
+    // the media download and post the photo anyway! Sending a fallback message here
+    // causes the duplicate message glitch in the channel.
+    const isNetworkTimeout = /timeout|ETIMEDOUT|ECONNRESET|ESOCKETTIMEDOUT|ECONNABORTED/i.test(err.message || '');
+    if (isNetworkTimeout) {
+      console.warn('sendPhoto timed out; Telegram may have already delivered it to channel. Skipping fallback text to avoid duplicates.');
+      return true;
+    }
+
     try {
       await bot.telegram.sendMessage(channelId, caption, { parse_mode: 'HTML' });
       return true;
@@ -407,6 +450,9 @@ export async function postPromoCodeToChannel(promo) {
   }
 }
 
+// Global processing flag to prevent concurrent broadcast executions
+let isProcessingBroadcastQueue = false;
+
 /**
  * Process a batch of broadcast messages from persistent queue in db
  * Handles 20k-30k users safely across multiple cron runs without timing out
@@ -414,20 +460,29 @@ export async function postPromoCodeToChannel(promo) {
 export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000) {
   if (!bot || !bot.telegram) return { processed: 0, reason: 'bot_not_ready' };
 
-  const job = db.getNextBroadcastJob();
-  if (!job || !job.remaining_user_ids || job.remaining_user_ids.length === 0) {
-    return { processed: 0, reason: 'no_pending_jobs' };
+  if (isProcessingBroadcastQueue) {
+    console.log('[broadcast] Another broadcast batch is already actively processing. Skipping concurrent execution.');
+    return { processed: 0, reason: 'already_processing' };
   }
 
-  if (!job.sent_user_ids) job.sent_user_ids = [];
-  job.remaining_user_ids = job.remaining_user_ids.filter(uid => !job.sent_user_ids.includes(String(uid)));
-  const batch = job.remaining_user_ids.splice(0, batchSize);
-  const isDailyReset = job.type === 'daily_reset';
-  const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
-  const dailyBannerUrl = `${webappUrl}/daily_reset_banner.webp`;
+  isProcessingBroadcastQueue = true;
+  try {
+    const job = db.getNextBroadcastJob();
+    if (!job || !job.remaining_user_ids || job.remaining_user_ids.length === 0) {
+      return { processed: 0, reason: 'no_pending_jobs' };
+    }
 
-  let messageText = '';
-  let keyboard = null;
+    if (!job.sent_user_ids) job.sent_user_ids = [];
+    job.remaining_user_ids = job.remaining_user_ids.filter(uid => !job.sent_user_ids.includes(String(uid)));
+    const batch = job.remaining_user_ids.splice(0, batchSize);
+    // Immediately persist removed batch so no parallel runner can pick the same users
+    db.save();
+    const isDailyReset = job.type === 'daily_reset';
+    const webappUrl = (process.env.WEBAPP_URL || 'https://tresure-hunt-gemini-flash-ai.vercel.app').replace(/\/$/, '');
+    const dailyBannerUrl = `${webappUrl}/daily_reset_banner.webp`;
+
+    let messageText = '';
+    let keyboard = null;
 
   if (isDailyReset) {
     messageText =
@@ -575,14 +630,18 @@ export async function processBroadcastQueue(batchSize = 75, maxDurationMs = 7000
   db.save();
   await db.flush();
 
-  return {
-    jobId: job.id,
-    remainingUsers: job.remaining_user_ids.length,
-    sentThisBatch,
-    failedThisBatch,
-    totalSent: job.sent_count,
-    remaining: job.remaining_user_ids.length,
-    status: job.status
-  };
+    return {
+      jobId: job.id,
+      remainingUsers: job.remaining_user_ids.length,
+      sentThisBatch,
+      failedThisBatch,
+      totalSent: job.sent_count,
+      remaining: job.remaining_user_ids.length,
+      status: job.status
+    };
+  } finally {
+    isProcessingBroadcastQueue = false;
+  }
 }
+
 

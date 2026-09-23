@@ -1547,6 +1547,8 @@ class Database {
       max_uses: codeData.max_uses ? Number(codeData.max_uses) : null,
       uses_count: 0,
       is_active: true,
+      channel_posted: false,
+      broadcast_enqueued: false,
       created_at: new Date().toISOString()
     };
 
@@ -1562,13 +1564,24 @@ class Database {
     this.save();
   }
 
-  // Enqueue a promo broadcast for all 20k-30k bot users
+  // Enqueue a promo broadcast for all 20k-30k bot users (strictly deduplicated)
   enqueuePromoBroadcast(promo) {
     if (!this.data.broadcast_queue) this.data.broadcast_queue = [];
+    const cleanCode = String(promo?.code || '').trim().toUpperCase();
+
+    // Prevent duplicate broadcast jobs for the same promo code
+    const alreadyQueued = this.data.broadcast_queue.some(
+      q => q.promo_code && q.promo_code.toUpperCase() === cleanCode && (q.status === 'pending' || (Date.now() - new Date(q.created_at).getTime()) < 300000)
+    );
+    if (alreadyQueued) {
+      console.log(`[db] Broadcast job for promo ${cleanCode} already queued or recently created. Skipping duplicate.`);
+      return null;
+    }
+
     const allUserIds = Object.keys(this.data.users || {}).filter(uid => /^\d+$/.test(uid));
     const queueItem = {
       id: `bc_${Date.now()}`,
-      promo_code: promo.code,
+      promo_code: cleanCode,
       amount: promo.reward_amount,
       reward_type: promo.reward_type || 'diamonds',
       remaining_user_ids: [...allUserIds],
@@ -1580,6 +1593,7 @@ class Database {
       created_at: new Date().toISOString()
     };
     this.data.broadcast_queue.push(queueItem);
+    if (promo) promo.broadcast_enqueued = true;
     this.save();
     return queueItem;
   }
@@ -1806,6 +1820,7 @@ class Database {
     if (!job) return null;
     // Lock job for 25 seconds across all serverless workers
     job.locked_until = now + 25000;
+    this.save();
     return job;
   }
 

@@ -1592,33 +1592,52 @@ app.get('/api/admin/promo', authMiddleware, adminMiddleware, (req, res) => {
   res.json({ success: true, promoCodes: db.getPromoCodes() });
 });
 
+// In-memory set to lock promo code creation in flight and prevent duplicate channel posts/messages
+const creatingPromoCodes = new Set();
+
 app.post('/api/admin/promo', authMiddleware, adminMiddleware, async (req, res) => {
+  const cleanCode = String(req.body.code || '').trim().toUpperCase();
+  if (!cleanCode || !req.body.reward_amount) {
+    return res.status(400).json({ success: false, error: 'Code and reward amount are required' });
+  }
+
+  // 1. In-flight mutex lock: block concurrent double-clicks/requests for the same promo code
+  if (creatingPromoCodes.has(cleanCode)) {
+    console.warn(`[Promo] Creation already in progress for promo code "${cleanCode}". Blocking duplicate request.`);
+    const existing = (db.data.promo_codes || []).find(p => p.code === cleanCode);
+    return res.json({ success: true, promo: existing, duplicate: true });
+  }
+  creatingPromoCodes.add(cleanCode);
+
   try {
-    const { code, reward_type, reward_amount, max_uses } = req.body;
-    if (!code || !reward_amount) {
-      return res.status(400).json({ success: false, error: 'Code and reward amount are required' });
+    // 2. Strict database idempotency check: check if code already exists
+    const existingPromo = (db.data.promo_codes || []).find(p => p.code === cleanCode);
+    if (existingPromo) {
+      return res.status(400).json({ success: false, error: 'Promo code already exists' });
     }
+
+    const { reward_type, reward_amount, max_uses } = req.body;
     const promo = db.createPromoCode({
-      code,
+      code: cleanCode,
       reward_type,
       reward_amount,
       max_uses
     });
 
-    // 1. Enqueue broadcast for all bot users (processed smoothly via cron / batches)
+    // 3. Enqueue broadcast for all bot users (strictly deduplicated in db)
     try {
       db.enqueuePromoBroadcast(promo);
     } catch (e) {
       console.error('Failed to enqueue promo broadcast:', e);
     }
 
-    // 2. Post promo code announcement with branded photo banner to official channel
+    // 4. Post promo code announcement with branded photo banner to official channel (strictly once)
     await postPromoCodeToChannel(promo).catch(e => {
       console.error('Channel promo broadcast error:', e);
       return false;
     });
 
-    // 3. Immediately process first batch of bot users before request terminates!
+    // 5. Smoothly process initial batch of bot users
     const broadcastResult = await processBroadcastQueue(35, 4500).catch(e => {
       console.error('Immediate broadcast batch error:', e);
       return null;
@@ -1627,6 +1646,11 @@ app.post('/api/admin/promo', authMiddleware, adminMiddleware, async (req, res) =
     res.json({ success: true, promo, broadcast: broadcastResult });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  } finally {
+    // Retain in mutex set for 12 seconds to absorb any delayed duplicate network hits
+    setTimeout(() => {
+      creatingPromoCodes.delete(cleanCode);
+    }, 12000);
   }
 });
 
