@@ -36,8 +36,8 @@ export default function SplashScreen({ onFinish, loading }) {
     }
   }, [loading, onFinish]);
 
-  const displayText = waitingOnServer ? 'Please wait...' : statusText;
-  const displayProgress = waitingOnServer ? 100 : progress;
+  const displayText = statusText;
+  const displayProgress = progress;
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#050508] flex items-center justify-center p-0 sm:p-4 select-none overflow-hidden animate-fadeIn">
