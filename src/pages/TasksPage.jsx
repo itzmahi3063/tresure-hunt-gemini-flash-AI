@@ -51,11 +51,25 @@ export default function TasksPage() {
     }
   });
   const [loading, setLoading] = useState(false);
-  const [loadingCategory, setLoadingCategory] = useState({
-    daily: false,
-    social: false,
-    partner: false,
-    exclusive: false
+  const [loadingCategory, setLoadingCategory] = useState(() => {
+    let hasDailyCache = false;
+    let hasSocialCache = false;
+    let hasPartnerCache = false;
+    let hasExclusiveCache = false;
+    if (typeof window !== 'undefined') {
+      try {
+        hasDailyCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]')).length > 0;
+        hasSocialCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_social_cache') || '[]')).length > 0;
+        hasExclusiveCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]')).length > 0;
+        hasPartnerCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_partner_cache') || '[]')).length > 0;
+      } catch (e) {}
+    }
+    return {
+      daily: !hasDailyCache,
+      social: !hasSocialCache,
+      partner: !hasPartnerCache,
+      exclusive: !hasExclusiveCache
+    };
   });
   const [verifyingTaskId, setVerifyingTaskId] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -151,13 +165,21 @@ export default function TasksPage() {
       if (myRes.data?.tasks) setMyTasks(myRes.data.tasks);
 
       // Display currently active tab from fresh fetch
-      if (activeCategory === 'daily' && adsList.length) {
+      if (activeCategory === 'daily') {
         setAds(adsList);
-      } else if (newCache[activeCategory]?.length) {
-        setTasks(newCache[activeCategory]);
+      } else {
+        setTasks(newCache[activeCategory] || []);
       }
     } catch (e) {
       console.warn('Preload tasks notice:', e);
+    } finally {
+      // Dismiss all category skeletons as soon as preloading completes
+      setLoadingCategory({
+        daily: false,
+        social: false,
+        partner: false,
+        exclusive: false
+      });
     }
   };
 
@@ -166,17 +188,26 @@ export default function TasksPage() {
   }, [activeCategory, exclusiveSubTab]);
 
   const loadTasksAndAds = async () => {
-    // Instant switch from cache (0ms delay)
-    if (activeCategory === 'daily') {
-      if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
-    } else if (tasksCache[activeCategory]?.length > 0) {
-      setTasks(tasksCache[activeCategory]);
+    // Show skeleton only if there is no cache yet for this category
+    const hasCache = activeCategory === 'daily'
+      ? ((tasksCache.daily && tasksCache.daily.length > 0) || (ads && ads.length > 0))
+      : (tasksCache[activeCategory] && tasksCache[activeCategory].length > 0);
+
+    if (hasCache) {
+      if (activeCategory === 'daily') {
+        if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
+      } else if (tasksCache[activeCategory]?.length > 0) {
+        setTasks(tasksCache[activeCategory]);
+      }
+      setLoadingCategory(prev => ({ ...prev, [activeCategory]: false }));
+    } else {
+      setLoadingCategory(prev => ({ ...prev, [activeCategory]: true }));
     }
 
     try {
       if (activeCategory === 'daily') {
         const res = await api.get('/ads');
-        if (res.data.success) {
+        if (res.data?.success) {
           const fetchedAds = res.data.ads || [];
           setAds(fetchedAds);
           setTasksCache(prev => ({ ...prev, daily: fetchedAds }));
@@ -189,7 +220,7 @@ export default function TasksPage() {
           api.get('/tasks?category=exclusive'),
           api.get('/tasks/my')
         ]);
-        if (tasksRes.data.success) {
+        if (tasksRes.data?.success) {
           const fetchedTasks = tasksRes.data.tasks || [];
           setTasks(fetchedTasks);
           setTasksCache(prev => ({ ...prev, exclusive: fetchedTasks }));
@@ -197,10 +228,10 @@ export default function TasksPage() {
             sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(fetchedTasks));
           } catch (err) {}
         }
-        if (myRes.data.success) setMyTasks(myRes.data.tasks || []);
+        if (myRes.data?.success) setMyTasks(myRes.data.tasks || []);
       } else {
         const res = await api.get(`/tasks?category=${activeCategory}`);
-        if (res.data.success) {
+        if (res.data?.success) {
           const fetchedTasks = res.data.tasks || [];
           setTasks(fetchedTasks);
           setTasksCache(prev => ({ ...prev, [activeCategory]: fetchedTasks }));
@@ -211,6 +242,8 @@ export default function TasksPage() {
       }
     } catch (err) {
       console.error('Error fetching tasks:', err);
+    } finally {
+      setLoadingCategory(prev => ({ ...prev, [activeCategory]: false }));
     }
   };
 
@@ -416,9 +449,17 @@ export default function TasksPage() {
                 setActiveCategory(cat.id);
                 setStatusMessage(null);
                 if (cat.id === 'daily') {
-                  if (tasksCache.daily?.length > 0) setAds(tasksCache.daily);
-                } else if (tasksCache[cat.id]?.length > 0) {
-                  setTasks(tasksCache[cat.id]);
+                  const cachedAds = tasksCache.daily || [];
+                  setAds(cachedAds);
+                  if (cachedAds.length === 0) {
+                    setLoadingCategory(prev => ({ ...prev, daily: true }));
+                  }
+                } else {
+                  const cachedTasks = tasksCache[cat.id] || [];
+                  setTasks(cachedTasks);
+                  if (cachedTasks.length === 0) {
+                    setLoadingCategory(prev => ({ ...prev, [cat.id]: true }));
+                  }
                 }
               }}
               style={
@@ -742,7 +783,9 @@ export default function TasksPage() {
               className="px-5 py-2 rounded-2xl font-black text-xs uppercase transition-all flex items-center space-x-1.5"
             >
               <span>All tasks</span>
-              <span className="text-[10px] opacity-75 font-mono">({tasks.length})</span>
+              <span className="text-[10px] opacity-75 font-mono">
+                {loadingCategory.exclusive && tasks.length === 0 ? '...' : `(${tasks.length})`}
+              </span>
             </button>
 
             <button
@@ -784,7 +827,53 @@ export default function TasksPage() {
           {/* VIEW 1: ALL TASKS (Approved & Running) */}
           {exclusiveSubTab === 'all' && (
             <>
-              {tasks.length === 0 ? (
+              {loadingCategory.exclusive && tasks.length === 0 ? (
+                <div className="space-y-3 pt-2">
+                  <div
+                    style={{
+                      background: 'linear-gradient(180deg, #322113 0%, #26170c 100%)',
+                      borderTop: '2px solid #664b2d',
+                      borderLeft: '1.5px solid #4a341f',
+                      borderRight: '1.5px solid #4a341f',
+                      borderBottom: '5px solid #140d06',
+                      boxShadow: '0 10px 25px -4px rgba(0, 0, 0, 0.8)'
+                    }}
+                    className="rounded-[28px] p-6 text-center space-y-3"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-[#1a1108] border border-[#4a341f] flex items-center justify-center mx-auto shadow-inner text-[#f7bf46]">
+                      <RefreshCw className="spin-smooth" size={24} />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-black text-white uppercase tracking-wider font-heading">
+                        Loading Exclusive Tasks... Please Wait
+                      </h4>
+                      <p className="text-xs text-[#a89782]">
+                        Syncing community bounty campaigns...
+                      </p>
+                    </div>
+                    <div className="w-36 h-1.5 bg-[#140d06] rounded-full mx-auto overflow-hidden border border-[#3d2918]">
+                      <div className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 rounded-full animate-pulse w-full" />
+                    </div>
+                  </div>
+
+                  {[1, 2, 3].map((n) => (
+                    <div
+                      key={n}
+                      style={{
+                        background: 'linear-gradient(180deg, #26180d 0%, #1c1108 100%)',
+                        border: '1px solid #3d2918'
+                      }}
+                      className="rounded-[24px] p-4 flex items-center justify-between opacity-50 animate-pulse"
+                    >
+                      <div className="space-y-2 flex-1 pr-4">
+                        <div className="h-4 bg-[#3d2918] rounded-md w-3/5" />
+                        <div className="h-2.5 bg-[#2a1b0e] rounded-md w-2/5" />
+                      </div>
+                      <div className="w-16 h-8 rounded-[16px] bg-[#3d2918]" />
+                    </div>
+                  ))}
+                </div>
+              ) : tasks.length === 0 ? (
                 <div className="text-center py-8 px-4 rounded-[28px] bg-[#20140a] border border-[#3d2918] space-y-2">
                   <Sparkles size={28} className="mx-auto text-[#a89782]" />
                   <p className="text-xs text-white font-bold">No exclusive tasks available right now.</p>
@@ -1076,7 +1165,7 @@ export default function TasksPage() {
             <div className="h-[1px] bg-[#3d2918] flex-1" />
           </div>
 
-          {activeCategory !== 'partner' && loadingCategory[activeCategory] ? (
+          {loadingCategory[activeCategory] ? (
             <div className="space-y-3 pt-2">
               <div
                 style={{
@@ -1090,7 +1179,7 @@ export default function TasksPage() {
                 className="rounded-[28px] p-6 text-center space-y-3"
               >
                 <div className="w-12 h-12 rounded-2xl bg-[#1a1108] border border-[#4a341f] flex items-center justify-center mx-auto shadow-inner text-[#f7bf46]">
-                  <RefreshCw className="animate-spin" size={24} />
+                  <RefreshCw className="spin-smooth" size={24} />
                 </div>
                 <div className="space-y-1">
                   <h4 className="text-sm font-black text-white uppercase tracking-wider font-heading">
