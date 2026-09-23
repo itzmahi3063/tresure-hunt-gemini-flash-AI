@@ -1374,13 +1374,47 @@ app.get('/api/admin/withdrawals', authMiddleware, adminMiddleware, (req, res) =>
   res.json({ success: true, withdrawals });
 });
 
-app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, async (req, res) => {
-  try {
-    const { status } = req.body; // 'approved' or 'rejected'
-    const updated = db.updateWithdrawalStatus(req.params.id, status);
+// In-memory set to lock withdrawal approvals in flight and prevent duplicate channel posts/messages
+const approvingWithdrawals = new Set();
 
-    // If approved, immediately post to official payment proof channel & notify user
-    if (status === 'approved') {
+app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  const wdId = req.params.id;
+  const { status } = req.body; // 'approved' or 'rejected'
+
+  // 1. In-flight mutex lock: block concurrent double-clicks/requests for the same withdrawal
+  if (status === 'approved') {
+    if (approvingWithdrawals.has(wdId)) {
+      console.warn(`[Payment] Approval already in progress for withdrawal ${wdId}. Blocking duplicate request.`);
+      const existing = db.data.withdrawals?.find(w => w.id === wdId);
+      return res.json({ success: true, withdrawal: existing, duplicate: true });
+    }
+    approvingWithdrawals.add(wdId);
+  }
+
+  try {
+    const existingWd = db.data.withdrawals?.find(w => w.id === wdId);
+    if (!existingWd) {
+      if (status === 'approved') approvingWithdrawals.delete(wdId);
+      return res.status(404).json({ success: false, error: 'Withdrawal request not found' });
+    }
+
+    // 2. Strict database idempotency check: already approved or channel message already posted
+    if (status === 'approved' && (existingWd.status === 'approved' || existingWd.channel_posted)) {
+      console.log(`[Payment] Withdrawal ${wdId} was already approved/posted. Ignoring duplicate request.`);
+      return res.json({ success: true, withdrawal: existingWd, alreadyProcessed: true });
+    }
+
+    const updated = db.updateWithdrawalStatus(wdId, status);
+    if (updated.isDuplicate) {
+      return res.json({ success: true, withdrawal: updated, alreadyProcessed: true });
+    }
+
+    // 3. If approved, immediately post to official payment proof channel & notify user EXACTLY ONCE
+    if (status === 'approved' && !updated.channel_posted) {
+      updated.channel_posted = true;
+      updated.channel_posted_at = new Date().toISOString();
+      db.save();
+
       const user = db.getUser(updated.user_id);
       postWithdrawalProofToChannel(updated, user).catch(err => {
         console.error('Error posting withdrawal proof to channel:', err.message);
@@ -1398,7 +1432,15 @@ app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, async (
 
     res.json({ success: true, withdrawal: updated });
   } catch (err) {
+    if (status === 'approved') approvingWithdrawals.delete(wdId);
     res.status(500).json({ success: false, error: err.message });
+  } finally {
+    if (status === 'approved') {
+      // Retain in deduplication set for 10 seconds to absorb any queued network duplicates
+      setTimeout(() => {
+        approvingWithdrawals.delete(wdId);
+      }, 10000);
+    }
   }
 });
 

@@ -75,6 +75,7 @@ export default function AdminDashboard() {
   const [adminWalletEdit, setAdminWalletEdit] = useState({ network: 'BINANCE', address: '' });
 
   const [withdrawalsList, setWithdrawalsList] = useState([]);
+  const [updatingWdId, setUpdatingWdId] = useState(null);
   const [copiedKeys, setCopiedKeys] = useState({});
 
   const [loading, setLoading] = useState(false);
@@ -475,12 +476,16 @@ export default function AdminDashboard() {
   };
 
   const handleUpdateWithdrawal = async (wdId, status) => {
+    if (updatingWdId) return; // Prevent double-clicks / duplicate requests
+    setUpdatingWdId(wdId);
     try {
       await api.patch(`/admin/withdrawals/${wdId}`, { status });
-      loadAllAdminData();
+      await loadAllAdminData();
       triggerHaptic('notification', status === 'approved' ? 'success' : 'warning');
     } catch (err) {
-      alert('Failed to update withdrawal status');
+      alert(err.response?.data?.error || 'Failed to update withdrawal status');
+    } finally {
+      setUpdatingWdId(null);
     }
   };
 
@@ -1445,15 +1450,21 @@ export default function AdminDashboard() {
                       <div className="flex space-x-2 pt-1">
                         <button
                           onClick={() => handleUpdateWithdrawal(w.id, 'approved')}
-                          className="flex-1 btn-3d-green py-2.5 rounded-xl text-xs font-black uppercase"
+                          disabled={updatingWdId === w.id}
+                          className={`flex-1 btn-3d-green py-2.5 rounded-xl text-xs font-black uppercase transition-all ${
+                            updatingWdId === w.id ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                         >
-                          ✓ Approve Payout
+                          {updatingWdId === w.id ? 'Approving...' : '✓ Approve Payout'}
                         </button>
                         <button
                           onClick={() => handleUpdateWithdrawal(w.id, 'rejected')}
-                          className="flex-1 btn-3d-dark text-rose-400 py-2.5 rounded-xl text-xs font-black uppercase"
+                          disabled={updatingWdId === w.id}
+                          className={`flex-1 btn-3d-dark text-rose-400 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${
+                            updatingWdId === w.id ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                         >
-                          ✕ Reject Payout
+                          {updatingWdId === w.id ? 'Rejecting...' : '✕ Reject Payout'}
                         </button>
                       </div>
                     )}

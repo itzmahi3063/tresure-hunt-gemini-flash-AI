@@ -1408,10 +1408,25 @@ class Database {
   updateWithdrawalStatus(withdrawalId, status) {
     const wd = this.data.withdrawals.find(w => w.id === withdrawalId);
     if (!wd) throw new Error('Withdrawal request not found');
+
+    // Strict idempotency: if status is already set to target status, return early
+    if (wd.status === status) {
+      return { ...wd, isDuplicate: true };
+    }
+    if (wd.status === 'approved' && status === 'rejected') {
+      throw new Error('Cannot reject an already approved withdrawal');
+    }
+    if (wd.status === 'rejected' && status === 'approved') {
+      throw new Error('Cannot approve an already rejected/refunded withdrawal');
+    }
+
     wd.status = status;
     wd.updated_at = new Date().toISOString();
+    if (status === 'approved') {
+      wd.approved_at = new Date().toISOString();
+    }
 
-    // If rejected, refund user
+    // If rejected, refund user (only once)
     if (status === 'rejected') {
       const user = this.getUser(wd.user_id);
       if (user) {

@@ -259,6 +259,9 @@ export async function broadcastToUsers(messageText) {
   return { total: userIds.length, sent: sentCount };
 }
 
+// Memory set to prevent duplicate channel broadcasts within the same runtime process
+const postedWithdrawalChannelProofs = new Set();
+
 /**
  * Post withdrawal proof to the official channel (@treasure_pay)
  * with a high-definition branded banner and safe HTML text formatting
@@ -267,6 +270,15 @@ export async function postWithdrawalProofToChannel(withdrawal, user) {
   if (!bot || !bot.telegram) {
     console.warn('Bot instance not ready for channel posting');
     return false;
+  }
+
+  const wid = String(withdrawal?.id || '');
+  if (wid && postedWithdrawalChannelProofs.has(wid)) {
+    console.log(`[bot] Payment proof for withdrawal ${wid} already posted to channel. Ignoring duplicate call.`);
+    return true;
+  }
+  if (wid) {
+    postedWithdrawalChannelProofs.add(wid);
   }
 
   const channelId = process.env.PAYMENT_CHANNEL || '@treasure_pay';
