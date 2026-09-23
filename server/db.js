@@ -1340,17 +1340,6 @@ class Database {
     // Deduct exact amount (0% withdrawal fee)
     user.usdt = Number((user.usdt - amount).toFixed(4));
 
-    // Handle 10% lifetime referral commission
-    if (user.referrer_id && this.data.users[user.referrer_id]) {
-      const refUser = this.data.users[user.referrer_id];
-      const commissionUsdt = Number((amount * 0.10).toFixed(4));
-      const rate = this.data.settings.diamond_to_usd_rate || 0.00004;
-      const commissionDiamonds = Math.round(commissionUsdt / rate);
-      
-      refUser.diamonds += commissionDiamonds;
-      refUser.referral_earnings_diamonds = (refUser.referral_earnings_diamonds || 0) + commissionDiamonds;
-    }
-
     const rate = this.data.settings.diamond_to_usd_rate || 0.00004;
     const amountDiamonds = Math.round(amount / rate);
 
@@ -1424,6 +1413,29 @@ class Database {
     wd.updated_at = new Date().toISOString();
     if (status === 'approved') {
       wd.approved_at = new Date().toISOString();
+
+      // Handle 10% referral commission for the referrer who invited this user upon approval
+      if (!wd.commission_credited) {
+        const user = this.getUser(wd.user_id);
+        if (user && user.referrer_id) {
+          const referrer = this.getUser(user.referrer_id);
+          if (referrer) {
+            const amountUsdt = Number(wd.amount_usdt) || 0;
+            const commissionUsdt = Number((amountUsdt * 0.10).toFixed(4));
+            const rate = this.data.settings?.diamond_to_usd_rate || 0.00004;
+            const commissionDiamonds = Math.round(commissionUsdt / rate);
+
+            referrer.diamonds = (referrer.diamonds || 0) + commissionDiamonds;
+            referrer.referral_earnings_diamonds = (referrer.referral_earnings_diamonds || 0) + commissionDiamonds;
+
+            wd.commission_credited = true;
+            wd.commission_referrer_id = String(referrer.id);
+            wd.commission_diamonds = commissionDiamonds;
+            wd.commission_usdt = commissionUsdt;
+            console.log(`[Referral Commission] Credited 10% bonus (+${commissionDiamonds} Diamonds / $${commissionUsdt} USDT) to referrer ${referrer.id} for approved withdrawal of user ${user.id}`);
+          }
+        }
+      }
     }
 
     // If rejected, refund user (only once)

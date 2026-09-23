@@ -1460,6 +1460,18 @@ app.patch('/api/admin/withdrawals/:id', authMiddleware, adminMiddleware, async (
           { parse_mode: 'HTML' }
         ).catch(() => {});
       }
+
+      // Notify the referrer of their 10% commission bonus
+      if (bot && bot.telegram && updated.commission_credited && updated.commission_referrer_id) {
+        const commDiamonds = updated.commission_diamonds || 0;
+        const commUsd = Number(updated.commission_usdt || 0).toFixed(2);
+        const refFriendName = user ? ([user.first_name, user.last_name].filter(Boolean).join(' ') || (user.username ? `@${user.username}` : 'Your friend')) : 'Your referred friend';
+        bot.telegram.sendMessage(
+          updated.commission_referrer_id,
+          `🎁 <b>10% Referral Commission Received!</b>\n\nYour referred friend <b>${refFriendName}</b> successfully completed a withdrawal of <b>$${Number(updated.amount_usdt || 0).toFixed(2)} USDT</b>!\n\nYou earned a 10% commission bonus of <b>+${commDiamonds.toLocaleString()} Diamonds</b> (≈ $${commUsd} USDT)! 💎\n\nCheck your balance now in Treasure Hunt!`,
+          { parse_mode: 'HTML' }
+        ).catch(err => console.warn('[Bot] Failed to send commission notice to referrer:', err.message));
+      }
     }
 
     res.json({ success: true, withdrawal: updated });
