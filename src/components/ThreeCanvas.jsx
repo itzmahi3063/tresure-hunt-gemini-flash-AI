@@ -1,8 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-export default function ThreeCanvas() {
+export default function ThreeCanvas({ activeTab = 'home' }) {
   const mountRef = useRef(null);
+  const isActiveTabRef = useRef(activeTab === 'home');
+
+  useEffect(() => {
+    isActiveTabRef.current = activeTab === 'home';
+  }, [activeTab]);
 
   useEffect(() => {
     const currentMount = mountRef.current;
@@ -20,9 +25,13 @@ export default function ThreeCanvas() {
 
     let renderer;
     try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        powerPreference: 'default'
+      });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       currentMount.appendChild(renderer.domElement);
     } catch (glErr) {
       console.warn('ThreeCanvas WebGL not supported or disabled:', glErr);
@@ -125,7 +134,7 @@ export default function ThreeCanvas() {
       mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
 
     // Resize handler
     const handleResize = () => {
@@ -143,6 +152,12 @@ export default function ThreeCanvas() {
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+
+      // Sleep loop when not on Home tab or when tab is hidden to save 100% GPU
+      if (!isActiveTabRef.current || (typeof document !== 'undefined' && document.hidden)) {
+        return;
+      }
+
       const elapsedTime = clock.getElapsedTime();
 
       // Smooth camera parallax

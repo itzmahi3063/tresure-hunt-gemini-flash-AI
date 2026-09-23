@@ -44,7 +44,7 @@ export default function LuxuryTreasureChest() {
         precision: 'mediump'
       });
       renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
       
       mount.innerHTML = '';
       mount.appendChild(renderer.domElement);
@@ -350,6 +350,9 @@ export default function LuxuryTreasureChest() {
 
     const render = () => {
       reqId = requestAnimationFrame(render);
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
       const elapsed = clock.getElapsedTime();
 
       // Smooth rhythmic floating

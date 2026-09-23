@@ -6,7 +6,7 @@ import TasksPage from './pages/TasksPage';
 import PlayPage from './pages/PlayPage';
 import ReferPage from './pages/ReferPage';
 import ProfilePage from './pages/ProfilePage';
-import AdminDashboard from './components/AdminDashboard';
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
 import WalletModal from './components/WalletModal';
 import ContactAdminModal from './components/ContactAdminModal';
 import GiftClaimModal from './components/GiftClaimModal';
@@ -58,7 +58,9 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#0A0A0E] text-white selection:bg-yellow-500 selection:text-black relative overflow-x-hidden">
         <main className="flex-1 relative">
-          <AdminDashboard />
+          <React.Suspense fallback={<SectionLoader tab="admin" />}>
+            <AdminDashboard />
+          </React.Suspense>
         </main>
       </div>
     );
@@ -131,7 +133,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-[#0A0A0E] text-white flex flex-col justify-between selection:bg-yellow-500 selection:text-black relative overflow-x-hidden">
         {/* 3D Global Three.js Floating Diamonds & Stardust Background */}
-        <ThreeCanvas />
+        <ThreeCanvas activeTab={activeTab} />
 
         {/* Dynamic Tab Transition Loading Overlay */}
         {isTransitioning && <SectionLoader tab={transitionTab || activeTab} />}
@@ -142,7 +144,11 @@ export default function App() {
           {activeTab === 'play' && <PlayPage />}
           {activeTab === 'refer' && <ReferPage />}
           {activeTab === 'profile' && <ProfilePage />}
-          {activeTab === 'admin' && <AdminDashboard />}
+          {activeTab === 'admin' && (
+            <React.Suspense fallback={<SectionLoader tab="admin" />}>
+              <AdminDashboard />
+            </React.Suspense>
+          )}
         </main>
 
         {/* Global Bottom Navigation */}
