@@ -3,49 +3,49 @@ import { triggerHaptic } from '../services/telegram';
 import { Sparkles } from 'lucide-react';
 
 export default function SplashScreen({ onFinish, loading }) {
-  const [progress, setProgress] = useState(30);
+  const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('Entering Treasure Hunt...');
 
   useEffect(() => {
-    // Fast, smooth dynamic progress increment (reaches 100% in ~400ms)
+    const startTime = Date.now();
+    const phase1Duration = 2000; // 0% to 50% in 2 seconds
+    const phase2Duration = 2000; // 50% to 100% in 2 seconds
+    const totalDuration = phase1Duration + phase2Duration; // 4 seconds total
+
     const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 92 && loading) {
-          return 92;
-        }
-        if (prev >= 100) {
+      const elapsed = Date.now() - startTime;
+
+      if (elapsed < phase1Duration) {
+        // Phase 1: 0% to 50% in 2 seconds
+        const p1 = Math.min(50, Math.floor((elapsed / phase1Duration) * 50));
+        setProgress(p1);
+        setStatusText('Entering Treasure Hunt...');
+      } else if (elapsed < totalDuration) {
+        // Phase 2: 50% to 100% in 2 seconds
+        const p2 = Math.min(99, Math.floor(50 + ((elapsed - phase1Duration) / phase2Duration) * 50));
+        setProgress(p2);
+        setStatusText('Loading Treasure Vault...');
+      } else {
+        // Completed 4 seconds total
+        if (loading && elapsed < 5500) {
+          // If server sync is still in flight, hold smoothly at 99%
+          setProgress(99);
+          setStatusText('Finalizing...');
+        } else {
+          // 4s finished and ready: hit 100% and transition into app
+          setProgress(100);
+          setStatusText('Ready!');
           clearInterval(interval);
-          return 100;
+          triggerHaptic('impact', 'light');
+          setTimeout(() => {
+            if (onFinish) onFinish();
+          }, 160);
         }
-        const increment = Math.floor(Math.random() * 14) + 12;
-        return Math.min(100, prev + increment);
-      });
-    }, 35);
+      }
+    }, 40);
 
     return () => clearInterval(interval);
-  }, [loading]);
-
-  // When backend sync completes or progress hits 100%, transition to home screen instantly
-  useEffect(() => {
-    if (!loading || progress >= 100) {
-      if (progress < 100) setProgress(100);
-      setStatusText('Ready!');
-      triggerHaptic('impact', 'light');
-      const timer = setTimeout(() => {
-        if (onFinish) onFinish();
-      }, 80);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, progress, onFinish]);
-
-  // Absolute safety fallback: NEVER hold user on splash screen for more than 1.2s!
-  useEffect(() => {
-    const maxTimer = setTimeout(() => {
-      setProgress(100);
-      if (onFinish) onFinish();
-    }, 1200);
-    return () => clearTimeout(maxTimer);
-  }, [onFinish]);
+  }, [loading, onFinish]);
 
   const displayText = statusText;
   const displayProgress = progress;
