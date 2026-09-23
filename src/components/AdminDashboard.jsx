@@ -1085,7 +1085,7 @@ export default function AdminDashboard() {
                   <input
                     type="text"
                     value={ad.block_id || ''}
-                    placeholder="e.g. int-49020 or plc_7c25684decd46576"
+                    placeholder="e.g. int-49020 or plc_732542dada05f70b"
                     onChange={(e) => handleUpdateAdField(ad.id, 'block_id', e.target.value)}
                     className="w-full bg-[#12121D] border border-[#2B2B3D] rounded-xl px-2.5 py-1.5 text-xs text-cyan-300 font-mono outline-none focus:border-yellow-400"
                   />

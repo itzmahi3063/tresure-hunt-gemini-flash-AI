@@ -362,8 +362,8 @@ export async function showGameOrChestAd({ flowKey = 'game', onProgress } = {}) {
   }
 }
 
-// Monetag rewarded popup — used specifically for the Daily Rewards claim.
-export async function showMonetagRewardedPopup() {
+// Monetag rewarded popup — used specifically for the Daily Rewards claim and Math Quiz flow.
+export async function showMonetagRewardedPopup(minMs = 5000) {
   adBarrier.acquire('monetag');
   try {
     const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
@@ -376,7 +376,10 @@ export async function showMonetagRewardedPopup() {
     } catch {
       throw new Error('Ad was closed before finishing — no reward this time.');
     }
-    verifyMinWatch(startedAt);
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < minMs) {
+      throw new Error(`Please watch the Monetag ad for at least ${Math.round(minMs / 1000)} seconds.`);
+    }
     return { watchStartedAt: startedAt };
   } finally {
     adBarrier.release();
@@ -442,39 +445,69 @@ export async function showAdsgram(blockId = 'int-49020') {
   }
 }
 
-// USL TowerAds — used for the "USL" Daily Watch & Earn slot.
-// Follows exact TowerAds specification with 5-second minimum watch timer.
-export async function showTowerAd(placementId = 'plc_7c25684decd46576') {
+export const USL_API_KEY = 'cc65f67e77a3d174ab290f5bdcdd3909';
+export const USL_PLACEMENT_ID = 'plc_732542dada05f70b';
+
+// Helper to ensure USL TowerAds SDK script is loaded and window.TowerAds is ready
+async function ensureTowerAdsLoaded() {
+  if (typeof window === 'undefined') return false;
+  if (window.TowerAds) return true;
+
+  let script = document.querySelector('script[src*="tower-ads"]');
+  if (!script) {
+    script = document.createElement('script');
+    script.src = 'https://uslads.com/sdk/tower-ads-v4.js';
+    script.async = true;
+    document.head.appendChild(script);
+  }
+
+  // Poll up to 3 seconds for window.TowerAds to initialize
+  for (let i = 0; i < 30; i++) {
+    if (window.TowerAds) return true;
+    await sleep(100);
+  }
+  return !!window.TowerAds;
+}
+
+// USL TowerAds — used for the "USL" Daily Watch & Earn slot and Math Quiz flow.
+// Follows exact TowerAds specification with apiKey and placementId.
+export async function showTowerAd(placementId = USL_PLACEMENT_ID, { minWatchMs = MIN_AD_WATCH_MS } = {}) {
   adBarrier.acquire('usl');
   try {
     const startedAt = Date.now();
-    const pId = placementId || 'plc_7c25684decd46576';
+    const pId = (placementId && !placementId.includes('sample') && !placementId.includes('7c25684decd46576'))
+      ? placementId
+      : USL_PLACEMENT_ID;
+
+    await ensureTowerAdsLoaded();
 
     if (typeof window !== 'undefined' && window.TowerAds) {
       try {
-        let rewardEarned = false;
         const ads = new window.TowerAds({
-          apiKey: 'YOUR_API_KEY',
+          apiKey: USL_API_KEY,
           placementId: pId,
           onRewardEarned(reward) {
-            console.log('TowerAds reward:', reward);
-            rewardEarned = true;
+            console.log('[TowerAds] reward earned:', reward);
           },
           onError(error) {
-            console.error('TowerAds error:', error);
+            console.error('[TowerAds] error:', error);
           }
         });
 
         await ads.loadAndShow();
       } catch (error) {
-        console.warn('TowerAds load/show notice:', error);
+        console.error('[TowerAds] show error:', error);
       }
     } else {
-      // If SDK is still loading or in dev preview, wait full 5 seconds
-      await sleep(MIN_AD_WATCH_MS);
+      // If SDK is still loading or in dev preview, wait full minWatchMs
+      await sleep(minWatchMs);
     }
 
-    verifyMinWatch(startedAt);
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < minWatchMs) {
+      throw new Error(`Please watch the USL ad for at least ${Math.round(minWatchMs / 1000)} seconds to earn your reward.`);
+    }
+
     return { watchStartedAt: startedAt };
   } finally {
     adBarrier.release();
@@ -494,7 +527,7 @@ export async function showAdForNetwork(ad, onProgress) {
     case 'adsgram_cat':
       return showAdsgram(ad.block_id);
     case 'usl':
-      return showTowerAd(ad.block_id || 'plc_7c25684decd46576');
+      return showTowerAd(ad.block_id || USL_PLACEMENT_ID);
     default:
       {
         adBarrier.acquire(ad.network_id || 'default');
@@ -510,41 +543,56 @@ export async function showAdForNetwork(ad, onProgress) {
 }
 
 /**
- * Ad flow for Quiz rewards:
- * Uses Monetag Rewarded Popup ('pop') only (Adexium removed per user request).
- * Strictly enforces 10-second minimum watch time.
- * If user closes before 10s, throws an error so reward is not claimed.
+ * Chained ad flow for Math Quiz rewards:
+ * 1. USL Ad Network (TowerAds: plc_732542dada05f70b) -> must watch for at least 6 seconds
+ * 2. Immediately Monetag Rewarded Popup ('pop') -> must watch for at least 6 seconds
+ * Both ads strictly require at least 6 seconds wait time.
  */
 export async function showQuizAdFlow({ onProgress } = {}) {
-  const startedAt = Date.now();
+  const overallStartedAt = Date.now();
 
-  if (typeof onProgress === 'function') {
-    onProgress('Loading Monetag ad (10s watch required)...');
-  }
-
-  adBarrier.acquire('quiz_monetag');
+  // 1. First Ad: USL TowerAds (6-second wait required)
+  const ad1Start = Date.now();
   try {
-    const showFn = typeof window !== 'undefined' ? window.show_11828835 : null;
-    if (typeof showFn !== 'function') {
-      throw new Error('Monetag ad is still loading — please try again in a moment.');
+    if (typeof onProgress === 'function') {
+      onProgress('Loading USL Ad (1/2 - 6s watch required)...');
     }
-
-    try {
-      await showFn('pop');
-    } catch (err) {
-      console.warn('Monetag popup closed or error:', err);
+    await showTowerAd(USL_PLACEMENT_ID, { minWatchMs: 6000 });
+  } catch (err) {
+    if (err.message && err.message.includes('seconds')) {
+      throw err;
     }
-
-    // Strictly enforce 10-second minimum watch requirement
-    const elapsed = Date.now() - startedAt;
-    if (elapsed < 10000) {
-      throw new Error('Please watch the ad for at least 10 seconds to claim your reward.');
-    }
-
-    return { watchStartedAt: startedAt };
-  } finally {
-    adBarrier.release();
+    console.warn('[Quiz Flow] USL ad notice:', err);
   }
+
+  const elapsed1 = Date.now() - ad1Start;
+  if (elapsed1 < 6000) {
+    throw new Error('Please watch the first ad (USL) for at least 6 seconds.');
+  }
+
+  // Smooth short buffer between ads
+  await sleep(400);
+
+  // 2. Second Ad: Monetag Rewarded Popup ('pop') (6-second wait required)
+  const ad2Start = Date.now();
+  try {
+    if (typeof onProgress === 'function') {
+      onProgress('Loading Monetag Ad (2/2 - 6s watch required)...');
+    }
+    await showMonetagRewardedPopup(6000);
+  } catch (err) {
+    if (err.message && err.message.includes('seconds')) {
+      throw err;
+    }
+    console.warn('[Quiz Flow] Monetag popup notice:', err);
+  }
+
+  const elapsed2 = Date.now() - ad2Start;
+  if (elapsed2 < 6000) {
+    throw new Error('Please watch the second ad (Monetag) for at least 6 seconds.');
+  }
+
+  return { watchStartedAt: overallStartedAt };
 }
 
 /**

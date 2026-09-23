@@ -164,7 +164,7 @@ const initialData = {
       id: 'usl',
       name: 'USL 👾',
       logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
-      block_id: 'plc_7c25684decd46576'
+      block_id: 'plc_732542dada05f70b'
     }
   ],
   // 4 fixed Daily-tab ad SLOTS in exact requested order:
@@ -205,7 +205,7 @@ const initialData = {
       network_id: 'usl',
       name: 'USL 👾',
       logo_url: 'https://i.postimg.cc/0jnhcSQ1/9a0735f3-cf89-487c-bbce-53833c3edc66.jpg',
-      block_id: 'plc_7c25684decd46576',
+      block_id: 'plc_732542dada05f70b',
       reward_diamonds: 50,
       max_daily: 10,
       is_hidden: false
@@ -376,9 +376,9 @@ class Database {
         changed = true;
         return { ...ds };
       }
-      // Upgrade any placeholder sample-usl-zone to the real USL placementId
-      if (existing.network_id === 'usl' && (!existing.block_id || existing.block_id === 'sample-usl-zone')) {
-        existing.block_id = 'plc_7c25684decd46576';
+      // Upgrade any placeholder sample-usl-zone or old plc_7c25684decd46576 to the real USL placementId
+      if (existing.network_id === 'usl' && (!existing.block_id || existing.block_id === 'sample-usl-zone' || existing.block_id === 'plc_7c25684decd46576')) {
+        existing.block_id = 'plc_732542dada05f70b';
         changed = true;
       }
       // Upgrade any placeholder sample-adsgram block IDs to the real Adsgram BLOCKID (int-49020)
@@ -398,9 +398,13 @@ class Database {
       }
     }
 
-    // Ensure ad_networks catalog also has int-49020
+    // Ensure ad_networks catalog also has updated IDs
     if (Array.isArray(this.data.ad_networks)) {
       for (const net of this.data.ad_networks) {
+        if (net.id === 'usl' && (!net.block_id || net.block_id === 'sample-usl-zone' || net.block_id === 'plc_7c25684decd46576')) {
+          net.block_id = 'plc_732542dada05f70b';
+          changed = true;
+        }
         if ((net.id === 'adsgram' || net.id === 'adsgram_cat') &&
             (!net.block_id || net.block_id.startsWith('sample-adsgram'))) {
           net.block_id = 'int-49020';
