@@ -302,12 +302,10 @@ app.post('/api/user/sync', authMiddleware, async (req, res) => {
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || null;
     const user = db.getOrCreateUser(req.user, referrerId, { deviceId, ip });
 
-    // Live verification: If user has left any mandatory channel/group, gate re-appears
-    try {
-      await checkUserMandatoryMembershipLive(user.id);
-    } catch (mErr) {
+    // Live verification: run in background so critical startup sync returns in milliseconds!
+    checkUserMandatoryMembershipLive(user.id).catch(mErr => {
       console.warn('Mandatory live check error on sync:', mErr.message);
-    }
+    });
 
     res.json({
       success: true,

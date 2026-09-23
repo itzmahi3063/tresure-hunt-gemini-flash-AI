@@ -3,38 +3,49 @@ import { triggerHaptic } from '../services/telegram';
 import { Sparkles } from 'lucide-react';
 
 export default function SplashScreen({ onFinish, loading }) {
-  const [progress, setProgress] = useState(20);
+  const [progress, setProgress] = useState(30);
   const [statusText, setStatusText] = useState('Entering Treasure Hunt...');
 
   useEffect(() => {
-    // Fast dynamic progress increment
+    // Fast, smooth dynamic progress increment (reaches 100% in ~400ms)
     const interval = setInterval(() => {
       setProgress((prev) => {
+        if (prev >= 92 && loading) {
+          return 92;
+        }
         if (prev >= 100) {
           clearInterval(interval);
           return 100;
         }
-        const increment = Math.floor(Math.random() * 15) + 12;
-        const next = Math.min(100, prev + increment);
-        return next;
+        const increment = Math.floor(Math.random() * 14) + 12;
+        return Math.min(100, prev + increment);
       });
-    }, 28);
+    }, 35);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [loading]);
 
-  // When backend sync completes, finish instantly without dragging
+  // When backend sync completes or progress hits 100%, transition to home screen instantly
   useEffect(() => {
-    if (!loading) {
-      setProgress(100);
-      setStatusText('Entering Treasure Hunt...');
+    if (!loading || progress >= 100) {
+      if (progress < 100) setProgress(100);
+      setStatusText('Ready!');
       triggerHaptic('impact', 'light');
       const timer = setTimeout(() => {
         if (onFinish) onFinish();
-      }, 90);
+      }, 80);
       return () => clearTimeout(timer);
     }
-  }, [loading, onFinish]);
+  }, [loading, progress, onFinish]);
+
+  // Absolute safety fallback: NEVER hold user on splash screen for more than 1.2s!
+  useEffect(() => {
+    const maxTimer = setTimeout(() => {
+      setProgress(100);
+      if (onFinish) onFinish();
+    }, 1200);
+    return () => clearTimeout(maxTimer);
+  }, [onFinish]);
 
   const displayText = statusText;
   const displayProgress = progress;

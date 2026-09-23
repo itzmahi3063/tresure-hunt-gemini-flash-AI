@@ -9,9 +9,20 @@ import confetti from 'canvas-confetti';
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('treasure_hunt_user_cache');
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !localStorage.getItem('treasure_hunt_user_cache');
+  });
   const [activeTab, setActiveTab] = useState('home'); // 'home' | 'tasks' | 'play' | 'refer' | 'profile' | 'admin'
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [transitionTab, setTransitionTab] = useState(null);
@@ -121,15 +132,18 @@ export function AppProvider({ children }) {
       const deviceId = getOrCreateDeviceId();
       const res = await api.post('/user/sync', { ...(referrerId ? { referrerId } : {}), deviceId });
       if (res.data.success && res.data.user) {
-        setUser(prev => ({
-          ...prev,
+        const syncedUser = {
           ...res.data.user,
           id: res.data.user.id || tgUser.id,
           first_name: res.data.user.first_name || tgUser.first_name || 'Hunter',
           last_name: res.data.user.last_name || tgUser.last_name || '',
           username: res.data.user.username || tgUser.username || '',
           photo_url: res.data.user.photo_url || tgUser.photo_url || ''
-        }));
+        };
+        setUser(prev => ({ ...prev, ...syncedUser }));
+        try {
+          localStorage.setItem('treasure_hunt_user_cache', JSON.stringify(syncedUser));
+        } catch (e) {}
         setIsAdmin(res.data.isAdmin);
         // Anti-duplicate-account check: this device is already linked to a
         // different existing account. Block access until the person either

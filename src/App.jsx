@@ -70,7 +70,7 @@ export default function App() {
   }
 
   // 3. Initial 3D Cover Splash Screen with 0%-100% dynamic loading progress
-  if (!splashFinished || loading) {
+  if (!splashFinished) {
     return <SplashScreen loading={loading} onFinish={() => setSplashFinished(true)} />;
   }
 
