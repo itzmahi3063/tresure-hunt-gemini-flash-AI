@@ -1304,11 +1304,31 @@ app.post('/api/admin/ads/save-all', authMiddleware, adminMiddleware, (req, res) 
   }
 });
 
-// User Management (Fast optimized query)
+// User Management (Full list of all active users, excluding 60d+ inactive per TTL)
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const { query } = req.query;
     let list = Object.values(db.data.users || {});
+
+    // Exclude users inactive for 60+ days per TTL policy (protected: admin & pending withdrawals)
+    const now = Date.now();
+    const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
+    const adminId = String(db.data.settings?.admin_telegram_id || process.env.ADMIN_ID || '7780774047');
+    const pendingWithdrawalUserIds = new Set(
+      (db.data.withdrawals || [])
+        .filter(w => w.status === 'pending')
+        .map(w => String(w.user_id))
+    );
+
+    list = list.filter(u => {
+      const uid = String(u.id);
+      if (uid === adminId || pendingWithdrawalUserIds.has(uid)) return true;
+      const lastActive = new Date(u.last_active_at || u.updated_at || u.created_at).getTime();
+      if (!isNaN(lastActive) && (now - lastActive) > SIXTY_DAYS_MS) {
+        return false;
+      }
+      return true;
+    });
 
     if (query) {
       const q = query.toLowerCase().trim();
@@ -1318,12 +1338,16 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
         (u.first_name && u.first_name.toLowerCase().includes(q)) ||
         (u.last_name && u.last_name.toLowerCase().includes(q))
       );
-    } else {
-      // For initial admin panel load, return recent 30 users for lightning-fast payload
-      list = list.slice(-30).reverse();
     }
 
-    res.json({ success: true, users: list });
+    // Sort newest users first so the admin sees the latest registrations on top
+    list.sort((a, b) => {
+      const timeA = new Date(a.created_at || 0).getTime();
+      const timeB = new Date(b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
+
+    res.json({ success: true, users: list, totalCount: list.length });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
