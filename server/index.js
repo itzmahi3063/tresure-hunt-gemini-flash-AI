@@ -1129,8 +1129,13 @@ app.get('/api/referrals', authMiddleware, (req, res) => {
     const rate = db.data.settings.diamond_to_usd_rate || 0.00004;
 
     // Get list of friends referred by this user with milestone progress
-    const referredFriends = Object.values(db.data.users || {})
-      .filter(u => String(u.referrer_id) === String(user.id))
+    const matchingFriends = Object.values(db.data.users || {})
+      .filter(u => String(u.referrer_id) === String(user.id));
+    const totalRefers = Math.max(user.total_referrals || 0, matchingFriends.length);
+
+    const referredFriends = matchingFriends
+      .slice(-100)
+      .reverse()
       .map(u => ({
         id: u.id,
         first_name: u.first_name || 'Hunter',
@@ -1145,7 +1150,7 @@ app.get('/api/referrals', authMiddleware, (req, res) => {
 
     res.json({
       success: true,
-      totalReferrals: user.total_referrals || 0,
+      totalReferrals: totalRefers,
       referralEarningsDiamonds: user.referral_earnings_diamonds || 0,
       referralEarningsUsd: Number(((user.referral_earnings_diamonds || 0) * rate).toFixed(4)),
       commissionPercent: 10,
@@ -1299,11 +1304,11 @@ app.post('/api/admin/ads/save-all', authMiddleware, adminMiddleware, (req, res) 
   }
 });
 
-// User Management
+// User Management (Fast optimized query)
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
   try {
     const { query } = req.query;
-    let list = Object.values(db.data.users);
+    let list = Object.values(db.data.users || {});
 
     if (query) {
       const q = query.toLowerCase().trim();
@@ -1313,6 +1318,9 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
         (u.first_name && u.first_name.toLowerCase().includes(q)) ||
         (u.last_name && u.last_name.toLowerCase().includes(q))
       );
+    } else {
+      // For initial admin panel load, return recent 30 users for lightning-fast payload
+      list = list.slice(-30).reverse();
     }
 
     res.json({ success: true, users: list });

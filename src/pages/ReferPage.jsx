@@ -23,20 +23,26 @@ export default function ReferPage() {
   const { user } = useApp();
   const [refData, setRefData] = useState(() => {
     try {
-      const cached = sessionStorage.getItem('treasure_referral_cache');
+      const cached = localStorage.getItem('treasure_referral_cache') || sessionStorage.getItem('treasure_referral_cache');
       return cached ? JSON.parse(cached) : null;
     } catch { return null; }
   });
-  const [loadingRefData, setLoadingRefData] = useState(() => !sessionStorage.getItem('treasure_referral_cache'));
-  const [loadingLeaderboard, setLoadingLeaderboard] = useState(() => !sessionStorage.getItem('treasure_leaderboard_cache'));
-  const [loadingContest, setLoadingContest] = useState(() => !sessionStorage.getItem('treasure_contest_cache'));
+  const [loadingRefData, setLoadingRefData] = useState(() => {
+    return !localStorage.getItem('treasure_referral_cache') && !sessionStorage.getItem('treasure_referral_cache');
+  });
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(() => {
+    return !localStorage.getItem('treasure_leaderboard_cache') && !sessionStorage.getItem('treasure_leaderboard_cache');
+  });
+  const [loadingContest, setLoadingContest] = useState(() => {
+    return !localStorage.getItem('treasure_contest_cache') && !sessionStorage.getItem('treasure_contest_cache');
+  });
   const [copied, setCopied] = useState(false);
 
   // Leaderboard states
   const [activeBoardTab, setActiveBoardTab] = useState('top_referrals'); // 'top_referrals' | 'today' | 'top_earners'
   const [leaderboards, setLeaderboards] = useState(() => {
     try {
-      const cached = sessionStorage.getItem('treasure_leaderboard_cache');
+      const cached = localStorage.getItem('treasure_leaderboard_cache') || sessionStorage.getItem('treasure_leaderboard_cache');
       return cached ? JSON.parse(cached) : { topReferrers: [], todayReferrers: [], topEarners: [] };
     } catch {
       return { topReferrers: [], todayReferrers: [], topEarners: [] };
@@ -44,16 +50,14 @@ export default function ReferPage() {
   });
   const [weeklyContest, setWeeklyContest] = useState(() => {
     try {
-      const cached = sessionStorage.getItem('treasure_contest_cache');
+      const cached = localStorage.getItem('treasure_contest_cache') || sessionStorage.getItem('treasure_contest_cache');
       return cached ? JSON.parse(cached) : null;
     } catch { return null; }
   });
   const [contestTimer, setContestTimer] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
   useEffect(() => {
-    loadReferralData();
-    loadLeaderboards();
-    loadWeeklyContest();
+    loadAllReferralData();
 
     // Check if URL has #weekly-contest
     if (window.location.hash === '#weekly-contest') {
@@ -64,52 +68,54 @@ export default function ReferPage() {
     }
   }, []);
 
-  const loadReferralData = async () => {
+  const loadAllReferralData = async () => {
     try {
-      const res = await api.get('/referrals');
-      if (res.data.success) {
-        setRefData(res.data);
-        sessionStorage.setItem('treasure_referral_cache', JSON.stringify(res.data));
-      }
-    } catch (err) {
-      console.error('Error fetching referral data:', err);
-    } finally {
-      setLoadingRefData(false);
-    }
-  };
+      const [refRes, boardRes, contestRes] = await Promise.all([
+        api.get('/referrals').catch(err => ({ data: { success: false } })),
+        api.get('/referral/leaderboard').catch(err => ({ data: { success: false } })),
+        api.get('/referral/weekly-contest').catch(err => ({ data: { success: false } }))
+      ]);
 
-  const loadLeaderboards = async () => {
-    try {
-      const res = await api.get('/referral/leaderboard');
-      if (res.data.success) {
+      if (refRes.data?.success) {
+        setRefData(refRes.data);
+        try {
+          localStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
+          sessionStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
+        } catch (e) {}
+      }
+
+      if (boardRes.data?.success) {
         const boardData = {
-          topReferrers: res.data.topReferrers || [],
-          todayReferrers: res.data.todayReferrers || [],
-          topEarners: res.data.topEarners || []
+          topReferrers: boardRes.data.topReferrers || [],
+          todayReferrers: boardRes.data.todayReferrers || [],
+          topEarners: boardRes.data.topEarners || []
         };
         setLeaderboards(boardData);
-        sessionStorage.setItem('treasure_leaderboard_cache', JSON.stringify(boardData));
+        try {
+          localStorage.setItem('treasure_leaderboard_cache', JSON.stringify(boardData));
+          sessionStorage.setItem('treasure_leaderboard_cache', JSON.stringify(boardData));
+        } catch (e) {}
       }
-    } catch (err) {
-      console.warn('Failed to load leaderboards:', err);
-    } finally {
-      setLoadingLeaderboard(false);
-    }
-  };
 
-  const loadWeeklyContest = async () => {
-    try {
-      const res = await api.get('/referral/weekly-contest');
-      if (res.data.success && res.data.contest) {
-        setWeeklyContest(res.data.contest);
-        sessionStorage.setItem('treasure_contest_cache', JSON.stringify(res.data.contest));
+      if (contestRes.data?.success && contestRes.data.contest) {
+        setWeeklyContest(contestRes.data.contest);
+        try {
+          localStorage.setItem('treasure_contest_cache', JSON.stringify(contestRes.data.contest));
+          sessionStorage.setItem('treasure_contest_cache', JSON.stringify(contestRes.data.contest));
+        } catch (e) {}
       }
     } catch (err) {
-      console.warn('Failed to load weekly contest:', err);
+      console.warn('Error fetching referral data:', err);
     } finally {
+      setLoadingRefData(false);
+      setLoadingLeaderboard(false);
       setLoadingContest(false);
     }
   };
+
+  const loadReferralData = loadAllReferralData;
+  const loadLeaderboards = loadAllReferralData;
+  const loadWeeklyContest = loadAllReferralData;
 
   // Live countdown timer for weekly contest (7-day cycle)
   useEffect(() => {

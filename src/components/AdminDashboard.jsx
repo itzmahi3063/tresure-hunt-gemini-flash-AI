@@ -55,26 +55,56 @@ export default function AdminDashboard() {
   const [taskReward, setTaskReward] = useState('500');
   const [taskMaxUsers, setTaskMaxUsers] = useState('');
   const [channelVerifyStatus, setChannelVerifyStatus] = useState(null);
-  const [tasksList, setTasksList] = useState([]);
+  const [tasksList, setTasksList] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_tasks');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
 
   // Promo Codes State
-  const [promoList, setPromoList] = useState([]);
+  const [promoList, setPromoList] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_promo');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
   const [newPromoCode, setNewPromoCode] = useState('');
   const [newPromoRewardType, setNewPromoRewardType] = useState('diamonds');
   const [newPromoAmount, setNewPromoAmount] = useState('500');
   const [newPromoMaxUses, setNewPromoMaxUses] = useState('');
 
-  const [adsList, setAdsList] = useState([]);
-  const [adNetworks, setAdNetworks] = useState([]);
+  const [adsList, setAdsList] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_ads');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
+  const [adNetworks, setAdNetworks] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_ad_networks');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
   const [savingAds, setSavingAds] = useState(false);
 
   const [userQuery, setUserQuery] = useState('');
-  const [userResults, setUserResults] = useState([]);
+  const [userResults, setUserResults] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_users');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
   const [selectedUser, setSelectedUser] = useState(null);
   const [balanceAdjust, setBalanceAdjust] = useState({ type: 'diamonds', amount: '', action: 'add' });
   const [adminWalletEdit, setAdminWalletEdit] = useState({ network: 'BINANCE', address: '' });
 
-  const [withdrawalsList, setWithdrawalsList] = useState([]);
+  const [withdrawalsList, setWithdrawalsList] = useState(() => {
+    try {
+      const c = localStorage.getItem('treasure_admin_withdrawals');
+      return c ? JSON.parse(c) : [];
+    } catch { return []; }
+  });
   const [updatingWdId, setUpdatingWdId] = useState(null);
   const [copiedKeys, setCopiedKeys] = useState({});
 
@@ -105,12 +135,36 @@ export default function AdminDashboard() {
         api.get('/admin/storage/stats').catch(() => ({ data: { success: false } }))
       ]);
 
-      if (tasksRes.data.success) setTasksList(tasksRes.data.tasks || []);
-      if (adsRes.data.success) setAdsList(adsRes.data.ads || []);
-      if (networksRes.data.success) setAdNetworks(networksRes.data.networks || []);
-      if (wdRes.data.success) setWithdrawalsList(wdRes.data.withdrawals || []);
-      if (promoRes.data.success) setPromoList(promoRes.data.promoCodes || []);
-      if (usersRes.data.success) setUserResults(usersRes.data.users || []);
+      if (tasksRes.data?.success) {
+        const tasks = tasksRes.data.tasks || [];
+        setTasksList(tasks);
+        try { localStorage.setItem('treasure_admin_tasks', JSON.stringify(tasks)); } catch (e) {}
+      }
+      if (adsRes.data?.success) {
+        const ads = adsRes.data.ads || [];
+        setAdsList(ads);
+        try { localStorage.setItem('treasure_admin_ads', JSON.stringify(ads)); } catch (e) {}
+      }
+      if (networksRes.data?.success) {
+        const networks = networksRes.data.networks || [];
+        setAdNetworks(networks);
+        try { localStorage.setItem('treasure_admin_ad_networks', JSON.stringify(networks)); } catch (e) {}
+      }
+      if (wdRes.data?.success) {
+        const wds = wdRes.data.withdrawals || [];
+        setWithdrawalsList(wds);
+        try { localStorage.setItem('treasure_admin_withdrawals', JSON.stringify(wds)); } catch (e) {}
+      }
+      if (promoRes.data?.success) {
+        const promos = promoRes.data.promoCodes || [];
+        setPromoList(promos);
+        try { localStorage.setItem('treasure_admin_promo', JSON.stringify(promos)); } catch (e) {}
+      }
+      if (usersRes.data?.success) {
+        const users = usersRes.data.users || [];
+        setUserResults(users);
+        try { localStorage.setItem('treasure_admin_users', JSON.stringify(users)); } catch (e) {}
+      }
       if (maintRes?.data?.success) {
         setMaintenanceMode(Boolean(maintRes.data.maintenance));
         setMaintenanceNotice(maintRes.data.message || '');

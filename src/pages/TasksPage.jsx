@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   ExternalLink,
@@ -45,7 +45,8 @@ export default function TasksPage() {
   const [ads, setAds] = useState(() => {
     if (typeof window === 'undefined') return [];
     try {
-      return JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
+      const cached = localStorage.getItem('treasure_tasks_daily_cache') || sessionStorage.getItem('treasure_tasks_daily_cache');
+      return cached ? JSON.parse(cached) : [];
     } catch (e) {
       return [];
     }
@@ -58,10 +59,10 @@ export default function TasksPage() {
     let hasExclusiveCache = false;
     if (typeof window !== 'undefined') {
       try {
-        hasDailyCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]')).length > 0;
-        hasSocialCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_social_cache') || '[]')).length > 0;
-        hasExclusiveCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]')).length > 0;
-        hasPartnerCache = (JSON.parse(sessionStorage.getItem('treasure_tasks_partner_cache') || '[]')).length > 0;
+        hasDailyCache = (JSON.parse(localStorage.getItem('treasure_tasks_daily_cache') || sessionStorage.getItem('treasure_tasks_daily_cache') || '[]')).length > 0;
+        hasSocialCache = (JSON.parse(localStorage.getItem('treasure_tasks_social_cache') || sessionStorage.getItem('treasure_tasks_social_cache') || '[]')).length > 0;
+        hasExclusiveCache = (JSON.parse(localStorage.getItem('treasure_tasks_exclusive_cache') || sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]')).length > 0;
+        hasPartnerCache = (JSON.parse(localStorage.getItem('treasure_tasks_partner_cache') || sessionStorage.getItem('treasure_tasks_partner_cache') || '[]')).length > 0;
       } catch (e) {}
     }
     return {
@@ -117,14 +118,16 @@ export default function TasksPage() {
     setPaymentModalTask(taskItem);
   };
 
+  const isInitialMount = useRef(true);
+
   const [tasksCache, setTasksCache] = useState(() => {
     let saved = { daily: [], social: [], exclusive: [], partner: [] };
     if (typeof window !== 'undefined') {
       try {
-        const d = JSON.parse(sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
-        const s = JSON.parse(sessionStorage.getItem('treasure_tasks_social_cache') || '[]');
-        const e = JSON.parse(sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]');
-        const p = JSON.parse(sessionStorage.getItem('treasure_tasks_partner_cache') || '[]');
+        const d = JSON.parse(localStorage.getItem('treasure_tasks_daily_cache') || sessionStorage.getItem('treasure_tasks_daily_cache') || '[]');
+        const s = JSON.parse(localStorage.getItem('treasure_tasks_social_cache') || sessionStorage.getItem('treasure_tasks_social_cache') || '[]');
+        const e = JSON.parse(localStorage.getItem('treasure_tasks_exclusive_cache') || sessionStorage.getItem('treasure_tasks_exclusive_cache') || '[]');
+        const p = JSON.parse(localStorage.getItem('treasure_tasks_partner_cache') || sessionStorage.getItem('treasure_tasks_partner_cache') || '[]');
         saved = { daily: d, social: s, exclusive: e, partner: p };
       } catch (err) {}
     }
@@ -156,6 +159,10 @@ export default function TasksPage() {
       setTasksCache(newCache);
 
       try {
+        localStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(newCache.daily));
+        localStorage.setItem('treasure_tasks_social_cache', JSON.stringify(newCache.social));
+        localStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(newCache.exclusive));
+        localStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(newCache.partner));
         sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(newCache.daily));
         sessionStorage.setItem('treasure_tasks_social_cache', JSON.stringify(newCache.social));
         sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(newCache.exclusive));
@@ -184,6 +191,10 @@ export default function TasksPage() {
   };
 
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     loadTasksAndAds();
   }, [activeCategory, exclusiveSubTab]);
 
@@ -212,6 +223,7 @@ export default function TasksPage() {
           setAds(fetchedAds);
           setTasksCache(prev => ({ ...prev, daily: fetchedAds }));
           try {
+            localStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(fetchedAds));
             sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(fetchedAds));
           } catch (err) {}
         }
@@ -225,6 +237,7 @@ export default function TasksPage() {
           setTasks(fetchedTasks);
           setTasksCache(prev => ({ ...prev, exclusive: fetchedTasks }));
           try {
+            localStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(fetchedTasks));
             sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(fetchedTasks));
           } catch (err) {}
         }
@@ -236,6 +249,7 @@ export default function TasksPage() {
           setTasks(fetchedTasks);
           setTasksCache(prev => ({ ...prev, [activeCategory]: fetchedTasks }));
           try {
+            localStorage.setItem(`treasure_tasks_${activeCategory}_cache`, JSON.stringify(fetchedTasks));
             sessionStorage.setItem(`treasure_tasks_${activeCategory}_cache`, JSON.stringify(fetchedTasks));
           } catch (err) {}
         }

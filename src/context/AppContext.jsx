@@ -173,6 +173,42 @@ export function AppProvider({ children }) {
           setMaintenanceMessage(res.data.maintenanceMessage);
         }
         setSyncError(null);
+
+        // Preload Daily Ads, Tasks, and Referral data in background during splash screen for instant 0ms tab opens
+        setTimeout(() => {
+          Promise.all([
+            api.get('/ads').catch(() => null),
+            api.get('/tasks').catch(() => null),
+            api.get('/referrals').catch(() => null)
+          ]).then(([adsRes, tasksRes, refRes]) => {
+            if (adsRes?.data?.success && adsRes.data.ads) {
+              try {
+                localStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(adsRes.data.ads));
+                sessionStorage.setItem('treasure_tasks_daily_cache', JSON.stringify(adsRes.data.ads));
+              } catch (e) {}
+            }
+            if (tasksRes?.data?.success && tasksRes.data.tasks) {
+              const allTasks = tasksRes.data.tasks;
+              const s = allTasks.filter(t => t.category === 'social');
+              const e = allTasks.filter(t => t.category === 'exclusive');
+              const p = allTasks.filter(t => t.category === 'partner');
+              try {
+                localStorage.setItem('treasure_tasks_social_cache', JSON.stringify(s));
+                localStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(e));
+                localStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(p));
+                sessionStorage.setItem('treasure_tasks_social_cache', JSON.stringify(s));
+                sessionStorage.setItem('treasure_tasks_exclusive_cache', JSON.stringify(e));
+                sessionStorage.setItem('treasure_tasks_partner_cache', JSON.stringify(p));
+              } catch (e) {}
+            }
+            if (refRes?.data?.success) {
+              try {
+                localStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
+                sessionStorage.setItem('treasure_referral_cache', JSON.stringify(refRes.data));
+              } catch (e) {}
+            }
+          });
+        }, 150);
       }
     } catch (err) {
       // Previously this silently did nothing, leaving `user` as null/stale —
