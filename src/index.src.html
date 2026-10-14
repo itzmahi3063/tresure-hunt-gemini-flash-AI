@@ -8921,7 +8921,7 @@
       // Ad Missions
       ad_missions_title: "🎬 Ad Missions",
       ad_missions_empty: "No ad mission available right now",
-      sponsor_mission_title: "Special Ad Mission",
+      sponsor_mission_title: "Adsgram Task",
       mission_go_btn: "GO",
       claim_reward: "Claim Reward",
 
@@ -9134,7 +9134,7 @@
       // Ad Missions
       ad_missions_title: "🎬 Рекламные миссии",
       ad_missions_empty: "Сейчас нет доступных рекламных миссий",
-      sponsor_mission_title: "Специальная рекламная миссия",
+      sponsor_mission_title: "Задание Adsgram",
       mission_go_btn: "ВПЕРЕД",
       claim_reward: "Забрать награду",
 
@@ -9347,7 +9347,7 @@
       // Ad Missions
       ad_missions_title: "🎬 مهام الإعلانات",
       ad_missions_empty: "لا توجد مهام إعلانية متاحة الآن",
-      sponsor_mission_title: "مهمة إعلانية خاصة",
+      sponsor_mission_title: "مهمة Adsgram",
       mission_go_btn: "انطلق",
       claim_reward: "المطالبة بالمكافأة",
 
@@ -11285,49 +11285,78 @@
   function renderAdMissions() {
     var container = document.getElementById("adMissionsBody");
     if (!container) return;
+
+    var rewardText = "+" + adMissionRewardAmount + " TREASURE";
+    var taskTitle = (typeof t === "function" ? t("sponsor_mission_title") : "Adsgram Task");
+    var goText = (typeof t === "function" ? t("mission_go_btn") : "GO");
+
     container.innerHTML =
-      '<div class="ad-mission-card" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;">' +
+      '<adsgram-task data-block-id="' + ADSGRAM_TASK_BLOCK_ID + '" class="ad-mission-task" style="display:block;width:100%;margin-bottom:8px;">' +
+        '<p slot="reward" class="ad-mission-reward">' + rewardText + '</p>' +
+        '<div slot="button" class="ad-mission-btn">' + goText + '</div>' +
+        '<div slot="claim" class="ad-mission-btn ad-mission-btn-claim">CLAIM</div>' +
+        '<div slot="done" class="ad-mission-btn ad-mission-btn-done">DONE</div>' +
+      '</adsgram-task>' +
+      '<div class="ad-mission-card" id="adsgramMissionDirectCard" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;">' +
         '<div style="display:flex;align-items:center;gap:12px;">' +
-          '<div style="font-size:26px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:rgba(20,184,166,0.1);border-radius:12px;">🎬</div>' +
+          '<div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, #0088cc 0%, #005f8f 100%);border-radius:12px;box-shadow:0 3px 8px rgba(0,136,204,0.3);overflow:hidden;flex-shrink:0;">' +
+            '<img src="https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg" style="width:100%;height:100%;border-radius:12px;object-fit:cover;" onerror="this.outerHTML=\'<span style=\\\'font-size:22px;\\\'>✈️</span>\'">' +
+          '</div>' +
           '<div>' +
-            '<div style="font-size:13.5px;font-weight:800;color:var(--text);">' + (typeof t === "function" ? t("sponsor_mission_title") : "Special Ad Mission") + '</div>' +
-            '<div class="ad-mission-reward">+' + adMissionRewardAmount + ' Coins</div>' +
+            '<div style="font-size:13.5px;font-weight:800;color:var(--text);">' + taskTitle + '</div>' +
+            '<div class="ad-mission-reward">' + rewardText + ' Coins</div>' +
           '</div>' +
         '</div>' +
-        '<div class="ad-mission-btn">' + (typeof t === "function" ? t("mission_go_btn") : "GO") + '</div>' +
+        '<div class="ad-mission-btn">' + goText + '</div>' +
       '</div>';
 
-    var card = container.querySelector(".ad-mission-card");
-    if (card) {
-      card.addEventListener("click", function() {
+    function executeClaimMission() {
+      adsApiPost({ action: "claim_ad_mission" }).then(function(res) {
+        if (res && res.ok && res.data) {
+          user.balance = res.data.newBalance !== undefined ? res.data.newBalance : ((Number(user.balance) || 0) + adMissionRewardAmount);
+          renderBalance();
+          showToast("🎉 Mission complete! +" + adMissionRewardAmount + " TREASURE Coins added!");
+          if (tg && tg.HapticFeedback) {
+            try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
+          }
+        } else {
+          showToast("⚠️ " + ((res && res.data && res.data.error) || (res && res.error) || "Could not claim mission reward."));
+        }
+      }).catch(function() {
+        showToast("⚠️ Network issue claiming mission reward.");
+      });
+    }
+
+    var taskEl = container.querySelector("adsgram-task");
+    if (taskEl) {
+      taskEl.addEventListener("reward", function(event) {
+        executeClaimMission();
+      });
+      taskEl.addEventListener("onError", function(event) {
+        console.warn("Adsgram task error:", event);
+      });
+      taskEl.addEventListener("onBannerNotFound", function(event) {
+        console.warn("Adsgram task banner not found:", event);
+      });
+    }
+
+    var directCard = document.getElementById("adsgramMissionDirectCard");
+    if (directCard) {
+      directCard.addEventListener("click", function() {
         if (!window.AdBarrier.acquire("adsgram_task")) {
           showToast("⚠️ Another ad is currently active. Please wait.");
           return;
         }
-        showToast("🎬 Opening Ad Mission...");
-        showAdsgramAd(ADSGRAM_TASK_BLOCK_ID)
-          .then(function() {
-            window.AdBarrier.release("adsgram_task");
-            adsApiPost({ action: "claim_ad_mission" }).then(function(res) {
-              if (res && res.ok && res.data) {
-                user.balance = res.data.newBalance !== undefined ? res.data.newBalance : ((Number(user.balance) || 0) + adMissionRewardAmount);
-                renderBalance();
-                showToast("🎉 Mission complete! +" + adMissionRewardAmount + " TREASURE Coins added!");
-                if (tg && tg.HapticFeedback) {
-                  try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
-                }
-              } else {
-                showToast("⚠️ " + ((res && res.data && res.data.error) || (res && res.error) || "Could not claim mission reward."));
-              }
-            }).catch(function() {
-              showToast("⚠️ Network issue claiming mission reward.");
-            });
-          })
-          .catch(function(err) {
-            window.AdBarrier.release("adsgram_task");
-            var msg = (err && (err.description || err.message)) || "Ad mission closed.";
-            showToast("⚠️ " + msg);
-          });
+        showToast("🎬 Opening Adsgram Mission...");
+        playFullscreenAd(function() {
+          window.AdBarrier.release("adsgram_task");
+          executeClaimMission();
+        }, function(err) {
+          window.AdBarrier.release("adsgram_task");
+          if (err !== "busy" && err !== "too_short") {
+            showToast("⚠️ Ad closed before completion.");
+          }
+        });
       });
     }
   }
@@ -11452,58 +11481,80 @@
             return;
           }
 
-          // Open S2S Waiting Modal
-          openS2sWaitingModal("Verifying ad view with ad network...", "Awaiting server confirmation...");
+          function sendWatchAdClaim(captchaToken) {
+            // Open S2S Waiting Modal
+            if (watched === 0) {
+              openS2sWaitingModal("Verifying ad view with ad network...", "Awaiting server confirmation...");
+            }
 
-          // Small grace period for Adsgram S2S HTTP postback to reach backend
-          setTimeout(function() {
-            var postData = {
-              action: "watch_ad",
-              watchDurationMs: elapsed
-            };
+            // Small grace period for Adsgram S2S HTTP postback to reach backend
+            setTimeout(function() {
+              var postData = {
+                action: "watch_ad",
+                watchDurationMs: elapsed
+              };
+              if (captchaToken) {
+                postData.captchaToken = captchaToken;
+              }
 
-            adsApiPost(postData).then(function(res) {
-              if (res && res.ok && res.data) {
-                updateS2sWaitingModal("✅ Server confirmed! Crediting reward...", true);
-                setTimeout(function() {
-                  closeS2sWaitingModal();
-
-                  var resData = res.data;
-                  user.balance = resData.newBalance !== undefined ? resData.newBalance : (Number(user.balance || 0) + (window.WATCH_AD_REWARD || 10));
-                  user.adsWatchedToday = resData.adsWatchedToday !== undefined ? resData.adsWatchedToday : (watched + 1);
-                  user.adsEarnedToday = resData.adsEarnedToday !== undefined ? resData.adsEarnedToday : ((Number(user.adsEarnedToday) || 0) + (window.WATCH_AD_REWARD || 10));
-
-                  if (watchFlowPreView) watchFlowPreView.classList.remove("active");
-                  if (watchFlowAdPlayingView) watchFlowAdPlayingView.classList.remove("active");
-                  if (watchFlowSuccessView) watchFlowSuccessView.classList.add("active");
-
-                  var rewardAmount = window.WATCH_AD_REWARD || (user && user.watchAdReward) || 10;
-                  var sheetRewardVal = document.querySelector(".w-reward-card-val");
-                  if (sheetRewardVal) sheetRewardVal.textContent = "+" + rewardAmount;
-                  var sheetRewardSub = document.querySelector(".w-reward-card-sub");
-                  if (sheetRewardSub) sheetRewardSub.textContent = "Base: +" + rewardAmount + " TREASURE Coins";
-
-                  renderBalance();
-                  renderAds();
-
-                  if (tg && tg.HapticFeedback) {
-                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
+              adsApiPost(postData).then(function(res) {
+                if (res && res.ok && res.data) {
+                  if (watched === 0) {
+                    updateS2sWaitingModal("✅ Server confirmed! Crediting reward...", true);
                   }
-                }, 800);
-              } else {
-                closeS2sWaitingModal();
+                  setTimeout(function() {
+                    if (watched === 0) closeS2sWaitingModal();
+
+                    var resData = res.data;
+                    user.balance = resData.newBalance !== undefined ? resData.newBalance : (Number(user.balance || 0) + (window.WATCH_AD_REWARD || 10));
+                    user.adsWatchedToday = resData.adsWatchedToday !== undefined ? resData.adsWatchedToday : (watched + 1);
+                    user.adsEarnedToday = resData.adsEarnedToday !== undefined ? resData.adsEarnedToday : ((Number(user.adsEarnedToday) || 0) + (window.WATCH_AD_REWARD || 10));
+
+                    if (watchFlowPreView) watchFlowPreView.classList.remove("active");
+                    if (watchFlowAdPlayingView) watchFlowAdPlayingView.classList.remove("active");
+                    if (watchFlowSuccessView) watchFlowSuccessView.classList.add("active");
+
+                    var rewardAmount = window.WATCH_AD_REWARD || (user && user.watchAdReward) || 10;
+                    var sheetRewardVal = document.querySelector(".w-reward-card-val");
+                    if (sheetRewardVal) sheetRewardVal.textContent = "+" + rewardAmount;
+                    var sheetRewardSub = document.querySelector(".w-reward-card-sub");
+                    if (sheetRewardSub) sheetRewardSub.textContent = "Base: +" + rewardAmount + " TREASURE Coins";
+
+                    renderBalance();
+                    renderAds();
+
+                    if (tg && tg.HapticFeedback) {
+                      try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
+                    }
+                  }, (watched === 0 ? 800 : 100));
+                } else {
+                  if (watched === 0) closeS2sWaitingModal();
+                  sheetStartAdBtn.disabled = false;
+                  sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
+                  var errTxt = (res && res.data && res.data.error) || (res && res.error) || "Ad verification failed. Please try again.";
+                  showToast("⚠️ " + errTxt);
+                }
+              }).catch(function() {
+                if (watched === 0) closeS2sWaitingModal();
                 sheetStartAdBtn.disabled = false;
                 sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-                var errTxt = (res && res.data && res.data.error) || (res && res.error) || "Ad verification failed. Please try again.";
-                showToast("⚠️ " + errTxt);
-              }
-            }).catch(function() {
-              closeS2sWaitingModal();
-              sheetStartAdBtn.disabled = false;
-              sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-              showToast("⚠️ Network issue while claiming ad reward.");
+                showToast("⚠️ Network issue while claiming ad reward.");
+              });
+            }, (watched === 0 ? 1500 : 200));
+          }
+
+          var requiresCaptcha = (watched > 0 && ((watched + 1) % 3 === 0));
+          if (requiresCaptcha) {
+            sheetStartAdBtn.disabled = false;
+            sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
+            openSecurityCaptcha(function(token) {
+              sheetStartAdBtn.disabled = true;
+              sheetStartAdBtn.innerHTML = '<span>⏳ Claiming Reward...</span>';
+              sendWatchAdClaim(token);
             });
-          }, 1500);
+          } else {
+            sendWatchAdClaim();
+          }
         })
         .catch(function(err) {
           window.AdBarrier.release("adsgram_watch");

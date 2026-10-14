@@ -75,6 +75,7 @@ module.exports = async (req, res) => {
       return;
     }
 
+    const now = Date.now();
     let dailyCycle = Number(user.dailyCycle) || 1;
     let dailyDayIndex = Number(user.dailyDayIndex) || 0;
 
@@ -88,6 +89,8 @@ module.exports = async (req, res) => {
         dailyCycle = Math.max(2, dailyCycle + 1);
       }
     }
+
+    const reward = rewardForCycleDay(dailyCycle, dailyDayIndex);
 
     // Atomically claim daily checkin bonus (impossible for concurrent requests to both claim)
     const cutoff24h = now - (24 * 60 * 60 * 1000);
