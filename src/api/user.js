@@ -452,14 +452,8 @@ module.exports = async (req, res) => {
             { $set: { referredBy: String(inviter.telegramId) } }
           );
 
-          const isVerifiedNow = Boolean(
-            user.isIdentityVerified === true &&
-            user.identityVerifiedAt &&
-            (now - Number(user.identityVerifiedAt) < 24 * 60 * 60 * 1000)
-          );
-
-          if (isVerifiedNow && !user.referralRewarded) {
-            const welcomeBonus = 50; // Verified recruit gets 50 HOOCOOH
+          if (!user.referralRewarded) {
+            const welcomeBonus = 50; // Recruit gets 50 TREASURE welcome bonus
 
             // ATOMIC one-time claim (same guard as submit_code): only one request can ever win it.
             const claimRefRes = await users.updateOne(
@@ -516,13 +510,6 @@ module.exports = async (req, res) => {
               // Notify inviter via Telegram bot (sent exactly once)
               notifyInviterReferralSuccess(process.env.TELEGRAM_BOT_TOKEN, inviter, user).catch(() => {});
             }
-          } else {
-            // Unverified: simply record referredBy. Inviter gets NOTHING until verification!
-            // Never overwrites an already-rewarded user or an already-bound inviter.
-            await users.updateOne(
-              { _id: user._id, referralRewarded: { $ne: true }, referredBy: null },
-              { $set: { referredBy: user.referredBy } }
-            );
           }
         }
       }
