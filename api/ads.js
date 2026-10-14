@@ -19,7 +19,7 @@ module.exports = async (req, res) => {
 
   // ========================================================
   // 0. ADSGRAM SERVER-TO-SERVER (S2S) REWARD CALLBACK (HOSTED ON VERCEL)
-  // Block ID: 53118 (Reward Ad with S2S Confirmation)
+  // Block ID: 49079 (Reward Ad with S2S Confirmation)
   // Handles incoming GET request from Adsgram servers containing [userId]
   // Format: /api/ads?action=adsgram_reward&userid=[userId]&secret=treasure_s2s_secret_2026
   // ========================================================
@@ -50,7 +50,7 @@ module.exports = async (req, res) => {
         ok: true,
         status: "active",
         message: "Adsgram S2S reward endpoint is operational and ready for live callbacks",
-        blockId: "53118",
+        blockId: "49079",
         timestamp: Date.now()
       });
       return;
@@ -98,7 +98,7 @@ module.exports = async (req, res) => {
         {
           $set: {
             lastAdsgramS2sRewardAt: now,
-            lastAdsgramS2sBlockId: "53118",
+            lastAdsgramS2sBlockId: "49079",
             lastActiveAt: new Date()
           },
           $inc: {
@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
         ok: true,
         status: "confirmed",
         userId: targetUid,
-        blockId: "53118",
+        blockId: "49079",
         timestamp: now,
         message: `Adsgram S2S ad view confirmed and recorded for user ${targetUid}`
       });
@@ -446,7 +446,7 @@ module.exports = async (req, res) => {
 
       // ========================================================
       // GHOST CLAIM DETECTION (TRICK 1) FOR SPIN TICKETS:
-      // Spin Ticket ad plays Adsgram Reward Ad (Block 53118) which triggers an S2S GET callback.
+      // Spin Ticket ad plays Adsgram Reward Ad (Block 49079) which triggers an S2S GET callback.
       // If a bot/hacker calls this API without an actual Adsgram S2S confirmation,
       // they are immediately trapped and permanently flagged as RED_FLAG_FAKE_AD_BYPASS!
       // ========================================================
@@ -614,7 +614,7 @@ module.exports = async (req, res) => {
 
     // ========================================================
     // 4C. GHOST CLAIM DETECTION (TRICK 1) FOR AD #1:
-    // Ad #1 plays Adsgram Reward Ad (Block 53118) which triggers an S2S GET callback.
+    // Ad #1 plays Adsgram Reward Ad (Block 49079) which triggers an S2S GET callback.
     // If a bot/hacker calls this API without an actual Adsgram S2S confirmation,
     // they are immediately trapped and permanently flagged as RED_FLAG_FAKE_AD_BYPASS!
     // ========================================================

@@ -71,7 +71,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
         const mimeType = options.photoMime || "image/jpeg";
         const ext = mimeType.includes("png") ? "png" : "jpg";
         const blob = new Blob([options.photoBuffer], { type: mimeType });
-        formData.append("photo", blob, `hoocooh_${Date.now()}.${ext}`);
+        formData.append("photo", blob, `treasure_${Date.now()}.${ext}`);
         formData.append("caption", text);
         formData.append("parse_mode", "HTML");
         if (options.reply_markup) {
@@ -130,13 +130,13 @@ const WELCOME_MESSAGES = {
   en: {
     name: "English",
     text: 
-`⛏️ <b>Welcome to TREASURE Mine!</b>
+`🏹 <b>Welcome to TREASURE HUNT!</b>
 
-🌕 <b>Mine the depths, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
+🌕 <b>Hunt the riches, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
 
 🎮 <b>How it works:</b>
 
-• Dive deep to Mine & Earn
+• Dive deep to Hunt & Earn
 • Complete tasks to stack more TREASURE Coins
 • Upgrade your mining gear for bigger rewards
 • Invite friends to expand your crew & Earn
@@ -144,8 +144,8 @@ const WELCOME_MESSAGES = {
 
 <b>Convert TREASURE Coins ➔ USDT 💲</b>
 
-👇 <b>Tap the button below to start your dive!</b> 👇`,
-    btnStart: "⛏️ Start treasure mine",
+👇 <b>Tap the button below to start your hunt!</b> 👇`,
+    btnStart: "🏹 Play Treasure Hunt",
     btnLang: "🌐 Select your language",
     promptLang: "• <b>Language</b>\nChoose your language:",
     toastChanged: "✅ Language set to English!"
@@ -153,13 +153,13 @@ const WELCOME_MESSAGES = {
   ru: {
     name: "Русский",
     text: 
-`⛏️ <b>Добро пожаловать в TREASURE Mine!</b>
+`🏹 <b>Добро пожаловать в TREASURE HUNT!</b>
 
-🌕 <b>Добывайте в глубинах, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
+🌕 <b>Охотьтесь за сокровищами, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
 
 🎮 <b>Как это работает:</b>
 
-• Погружайтесь в шахту, чтобы майнить и зарабатывать
+• Погружайтесь в охоту, чтобы добывать и зарабатывать
 • Выполняйте задания, чтобы получить больше монет
 • Улучшайте снаряжение для максимальных наград
 • Приглашайте друзей в свою команду и зарабатывайте вместе
@@ -167,8 +167,8 @@ const WELCOME_MESSAGES = {
 
 <b>Конвертируйте TREASURE Coins ➔ USDT 💲</b>
 
-👇 <b>Нажмите кнопку ниже, чтобы начать погружение!</b> 👇`,
-    btnStart: "⛏️ Начать майнинг hoocooh",
+👇 <b>Нажмите кнопку ниже, чтобы начать охоту!</b> 👇`,
+    btnStart: "🏹 Играть в Treasure Hunt",
     btnLang: "🌐 Выбрать язык",
     promptLang: "• <b>Язык</b>\nВыберите ваш язык:",
     toastChanged: "✅ Язык изменен на Русский!"
@@ -176,22 +176,22 @@ const WELCOME_MESSAGES = {
   ar: {
     name: "العربية",
     text: 
-`⛏️ <b>مرحبًا بك في TREASURE Mine!</b>
+`🏹 <b>مرحبًا بك في TREASURE HUNT!</b>
 
-🌕 <b>قم بالتعدين في الأعماق، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
+🌕 <b>ابحث عن الكنوز، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
 
 🎮 <b>كيف يعمل:</b>
 
-• انغمس в الأعماق للتعدين والربح
+• انغمس в رحلة البحث عن الكنوز والربح
 • أكمل المهام لجمع المزيد من عملات TREASURE
-• قم بترقية معدات التعدين للحصول على أكبر المكافآت
+• قم بترقية معداتك للحصول على أكبر المكافآت
 • ادعُ أصدقاءك للانضمام إلى فريقك والربح معًا
 • اسحب أرباحك مباشرة كعملة USDT!
 
 <b>تحويل عملات TREASURE ➔ USDT 💲</b>
 
-👇 <b>اضغط على الزر أدناه لبدء التعدين!</b> 👇`,
-    btnStart: "⛏️ ابدأ تعدين hoocooh",
+👇 <b>اضغط على الزر أدناه لبدء المغامرة!</b> 👇`,
+    btnStart: "🏹 العب Treasure Hunt",
     btnLang: "🌐 اختر لغتك",
     promptLang: "• <b>اللغة</b>\nاختر لغتك:",
     toastChanged: "✅ تم تعيين اللغة إلى العربية!"
@@ -397,7 +397,7 @@ async function handleAdminBanWithdrawalUser(db, botToken, wid) {
 
   const tid = String(w.telegramId);
   const numId = Number(w.telegramId);
-  const banReason = "Violation of TREASURE Mine rules detected during withdrawal review";
+  const banReason = "Violation of TREASURE HUNT rules detected during withdrawal review";
 
   await usersCol.updateMany(
     { $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])] },
@@ -419,7 +419,7 @@ async function handleAdminBanWithdrawalUser(db, botToken, wid) {
   );
 
   if (botToken && w.telegramId) {
-    const msg = `⛔ <b>Account Suspended</b>\n\nYour TREASURE Mine account has been suspended.\n<b>Reason:</b> ${banReason}\n\n<i>⚠️ Notice: If this suspension is not lifted within 7 days, all your account progress, coins, and referrals will be permanently deleted while account remains suspended.</i>`;
+    const msg = `⛔ <b>Account Suspended</b>\n\nYour TREASURE HUNT account has been suspended.\n<b>Reason:</b> ${banReason}\n\n<i>⚠️ Notice: If this suspension is not lifted within 7 days, all your account progress, coins, and referrals will be permanently deleted while account remains suspended.</i>`;
     sendTelegramMsg(botToken, tid, msg);
   }
 
@@ -1106,7 +1106,7 @@ module.exports = async (req, res) => {
         }
 
         const promptText = 
-          `➕ <b>Add New Task to TREASURE Mine</b>\n\n` +
+          `➕ <b>Add New Task to TREASURE HUNT</b>\n\n` +
           `Send your task details in this format:\n` +
           `<code>Title | Link</code>\n\n` +
           `Or with a custom target user limit:\n` +
@@ -1530,7 +1530,7 @@ module.exports = async (req, res) => {
 
         if (!rawInput && isAddTaskCmd) {
           const promptText = 
-            `➕ <b>Add New Task to TREASURE Mine</b>\n\n` +
+            `➕ <b>Add New Task to TREASURE HUNT</b>\n\n` +
             `Send your task details in this format:\n` +
             `<code>Title | Link</code>\n\n` +
             `Or with a custom target user limit:\n` +
@@ -1716,7 +1716,7 @@ module.exports = async (req, res) => {
         }
       } catch(e){}
 
-      const photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=4`;
+      const photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=6`;
       const langDict = WELCOME_MESSAGES[userLang] || WELCOME_MESSAGES.en;
 
       await sendTelegramMsg(botToken, chatId, langDict.text, {
