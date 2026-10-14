@@ -1,20 +1,55 @@
 {
-  "rewrites": [
+  "version": 2,
+  "builds": [
+    { "src": "public/**", "use": "@vercel/static" },
+    { "src": "api/**/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
     {
-      "source": "/api/webhook",
-      "destination": "/api/webhook.js"
+      "src": "/api/adsgram-reward(?:\\.js)?$",
+      "dest": "/api/ads.js?action=adsgram_reward",
+      "headers": {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
     },
     {
-      "source": "/api/test",
-      "destination": "/api/test.js"
+      "src": "/api/verify-channel(?:\\.js)?$",
+      "dest": "/api/tasks.js?action=verify_channel",
+      "headers": {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
     },
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.js"
+      "src": "/api/setup-indexes(?:\\.js)?$",
+      "dest": "/api/admin.js?action=setup_indexes",
+      "headers": {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
     },
     {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
+      "src": "/api/([^/]+?)(?:\\.js)?$",
+      "dest": "/api/$1.js",
+      "headers": {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/public/assets/$1",
+      "headers": {
+        "cache-control": "public, max-age=604800, s-maxage=604800, stale-while-revalidate=86400"
+      }
+    },
+    {
+      "src": "/(.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff2|woff|ttf|css))",
+      "dest": "/public/$1",
+      "headers": {
+        "cache-control": "public, max-age=604800, s-maxage=604800, stale-while-revalidate=86400"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
     }
   ]
 }
