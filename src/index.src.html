@@ -6424,7 +6424,7 @@
     <div class="loading-emblem-wrap">
       <div class="loading-emblem-glow"></div>
       <div class="loading-emblem-disc">
-        <img src="assets/logo.webp" alt="TREASURE Miner" class="loading-logo-img">
+        <img src="assets/logo.webp?v=20261014_2" alt="TREASURE Miner" class="loading-logo-img">
       </div>
     </div>
 
@@ -6513,7 +6513,7 @@
   <!-- Header -->
   <header class="header">
     <div class="logo-badge">
-      <img src="assets/logo.webp" alt="TREASURE">
+      <img src="assets/logo.webp?v=20261014_2" alt="TREASURE">
     </div>
     <div class="info">
       <div class="name">TREASURE Mine</div>
@@ -6610,7 +6610,7 @@
       <!-- 3D Logo positioned directly under status pill, matching Nautilus layout -->
       <div class="mine-visual-wrap">
         <div class="mine-glow" id="homeMineGlow"></div>
-        <img src="assets/logo.webp" alt="TREASURE Mining" class="mine-img" id="homeMineImg">
+        <img src="assets/logo.webp?v=20261014_2" alt="TREASURE Mining" class="mine-img" id="homeMineImg">
       </div>
 
       <!-- Level Badge Pill: LV.1 Starter -->
@@ -6631,8 +6631,8 @@
       <div class="mining-ready-view" id="mineReadyView" style="display: none;">
         <div class="mining-complete-text" id="mineTitle">MINING COMPLETE!</div>
         <div class="mining-reward-big" id="mineReward">
-          <span id="mineRewardAmount">+25</span>
-          <img src="assets/logo.webp" alt="Coin" class="mine-reward-coin-icon">
+          <span id="mineRewardAmount">+80</span>
+          <img src="assets/logo.webp?v=20261014_2" alt="Coin" class="mine-reward-coin-icon">
         </div>
       </div>
 
@@ -6818,7 +6818,7 @@
         <!-- 3D Miner Hero Visual with Glowing Aura -->
         <div class="miner-hero-wrap">
           <div class="miner-glow-aura" id="mGlowAura"></div>
-          <img src="assets/miner_lvl1.webp" alt="Miner Core" class="miner-hero-img" id="mHeroImg" width="130" height="130" style="width: 130px; height: 130px; max-width: 130px; max-height: 130px; object-fit: contain; display: block;">
+          <img src="assets/miner_lvl1.webp?v=20261014_2" alt="Miner Core" class="miner-hero-img" id="mHeroImg" width="130" height="130" style="width: 130px; height: 130px; max-width: 130px; max-height: 130px; object-fit: contain; display: block;">
         </div>
 
         <!-- Level Pill Badge: Lv.1 Starter -->
@@ -6854,12 +6854,12 @@
         <!-- Reward Amount Row -->
         <div class="miner-reward-amount-row">
           <span class="plus-num" id="mRewardNum">+80</span>
-          <img src="assets/miner_lvl1.webp" class="miner-coin-mini" id="mCoinMiniImg" alt="Coin">
+          <img src="assets/miner_lvl1.webp?v=20261014_2" class="miner-coin-mini" id="mCoinMiniImg" alt="Coin">
         </div>
 
         <!-- Action Collect / Mining Button (Matching Screenshot 2) -->
         <button class="miner-action-btn" id="mTabCollectBtn" type="button">
-          <img src="assets/miner_lvl1.webp" class="btn-coin-icon" id="mBtnCoinIcon" alt="Coin">
+          <img src="assets/miner_lvl1.webp?v=20261014_2" class="btn-coin-icon" id="mBtnCoinIcon" alt="Coin">
           <span id="mTabCollectBtnTxt">Collect TREASURE Coins</span>
         </button>
       </div>
@@ -6867,7 +6867,7 @@
       <!-- Evolution Card (Matching Screenshot 2) -->
       <div class="miner-evolution-card">
         <div class="evo-header">
-          <img src="assets/miner_lvl1.webp" class="evo-header-icon" id="mEvoHeaderIcon" alt="Evo">
+          <img src="assets/miner_lvl1.webp?v=20261014_2" class="evo-header-icon" id="mEvoHeaderIcon" alt="Evo">
           <div class="evo-title">Treasure Evolution</div>
         </div>
 
@@ -10020,7 +10020,7 @@
 
   function getLevelLogo(lvl) {
     var l = Math.max(1, Math.min(10, lvl || 1));
-    return "assets/miner_lvl" + l + ".webp";
+    return "assets/miner_lvl" + l + ".webp?v=20261014_2";
   }
 
   function handleResponse(r) {
@@ -10314,7 +10314,7 @@
     var currentLvl = Math.max(1, Math.min(10, user.minerLevel || user.level || 1));
     var lvlName = getLevelName(currentLvl);
     var mult = LEVEL_MULTIPLIERS[currentLvl - 1] || 1.0;
-    var reward = Math.min(50, Math.round(25 * mult));
+    var reward = Math.round(80 * mult);
     var currentLogo = getLevelLogo(currentLvl);
 
     var elapsed = lastCollected ? (now - lastCollected) : interval;
@@ -10334,7 +10334,7 @@
     var minerLvlTag = document.getElementById("minerLvlTag");
     var minerLvlName = document.getElementById("minerLvlName");
 
-    if (mineLogoImg && mineLogoImg.src !== currentLogo) mineLogoImg.src = currentLogo;
+    if (mineLogoImg && (!mineLogoImg.src || mineLogoImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImg.src = currentLogo;
     if (minerLvlTag) minerLvlTag.textContent = "LV." + currentLvl;
     if (minerLvlName) minerLvlName.textContent = lvlName;
     if (mineRewardAmount) mineRewardAmount.textContent = "+" + reward;

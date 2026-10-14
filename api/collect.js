@@ -77,8 +77,7 @@ module.exports = async (req, res) => {
 
     const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
     const multiplier = getMultiplierForLevel(minerLevel);
-    // Hard cap at 50 coins max per 2 hours as required
-    const reward = Math.min(50, Math.round(MINE_REWARD * multiplier));
+    const reward = Math.round(MINE_REWARD * multiplier);
 
     const now = Date.now();
     const mineIntervalMs = 2 * 60 * 60 * 1000;
