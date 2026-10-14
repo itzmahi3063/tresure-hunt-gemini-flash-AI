@@ -36,10 +36,15 @@ module.exports = async (req, res) => {
   if (isAdsgramS2S) {
     const rawUserId = String(req.query.userid || req.query.userId || req.query.user_id || req.query.telegramId || "").trim();
     const providedSecret = String(req.query.secret || req.query.key || "").trim();
-    const configuredSecret = process.env.ADSGRAM_S2S_SECRET || process.env.ADMIN_SECRET_KEY || "treasure_s2s_secret_2026";
+    const s2sSecretEnv = (process.env.ADSGRAM_S2S_SECRET || "").trim();
+    const fallbackSecret = (process.env.ADMIN_SECRET_KEY || "treasure_s2s_secret_2026").trim();
 
-    // Strict 20-24 character secret validation (Hosted on Vercel)
-    if (!providedSecret || (providedSecret !== configuredSecret && providedSecret !== "treasure_s2s_secret_2026" && providedSecret !== "hoocooh_admin_2026" && providedSecret !== process.env.CRON_SECRET)) {
+    // Strict validation via Vercel Environment Variable (ADSGRAM_S2S_SECRET)
+    const isAuthorizedSecret = s2sSecretEnv
+      ? (providedSecret === s2sSecretEnv)
+      : (providedSecret === fallbackSecret || providedSecret === "treasure_s2s_secret_2026" || providedSecret === "hoocooh_admin_2026");
+
+    if (!providedSecret || !isAuthorizedSecret) {
       res.status(401).json({ ok: false, error: "Unauthorized: Invalid or missing postback secret key" });
       return;
     }
