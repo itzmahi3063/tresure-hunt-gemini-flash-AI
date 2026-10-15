@@ -668,22 +668,20 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // 2. Strict Watch Duration Anti-Cheat Enforcement:
-    // Ad #1 (Rewarded Ad 49079): must watch at least 8 seconds
-    // Ads #2..10 (Interstitial Ads int-49020): must watch at least 5 seconds
-    const minRequiredDuration = (watchedToday === 0) ? 8000 : 5000;
+    // 2. Strict Watch Duration Anti-Cheat Enforcement (9s rule):
+    const minRequiredDuration = 9000;
     if (duration < minRequiredDuration) {
       const strikes = Number(user.adSkipUnder9sStrikes || 0) + 1;
       const updateData = {
         adSkipUnder9sStrikes: strikes,
         isSuspicious: true,
         securityFlag: "RED_FLAG_AD_SKIP_EXPLOIT",
-        suspiciousReason: `Skipped Watch & Earn ad under ${minRequiredDuration / 1000}s (${(duration / 1000).toFixed(1)}s elapsed) while attempting to credit coins into balance.`,
+        suspiciousReason: `Skipped Watch & Earn ad under 9s (${(duration / 1000).toFixed(1)}s elapsed) while attempting to credit coins into balance.`,
         lastSuspiciousAt: now
       };
       await usersCol.updateOne({ _id: user._id }, { $set: updateData });
       res.status(403).json({
-        error: `🚨 Security Warning: Ad was skipped under ${minRequiredDuration / 1000} seconds! Coin reward rejected and your account has been RED-FLAGGED.`,
+        error: `🚨 Security Warning: Ad was skipped under 9 seconds! Coin reward rejected.`,
         flagged: true,
         revoked: true,
         correctBalance: Number(user.balance || 0)
@@ -723,9 +721,9 @@ module.exports = async (req, res) => {
       // If S2S callback was delayed, verify that the user genuinely watched the video:
       if (!isS2sValid) {
         const watchDuration = Number(req.body && req.body.watchDurationMs) || 0;
-        if (watchDuration < 8000) {
+        if (watchDuration < 9000) {
           res.status(400).json({
-            error: "Ad was closed early. Please watch the full rewarded video to receive your TREASURE Coins."
+            error: "Ad was closed early. Please watch the ad for at least 9 seconds to receive your TREASURE Coins."
           });
           return;
         }

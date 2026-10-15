@@ -11625,8 +11625,8 @@
       .then(function() {
         var elapsed = Date.now() - startTime;
         window.AdBarrier.release("adsgram_fullscreen");
-        if (elapsed < 5000) {
-          showToast("⚠️ Ad closed too early. Must watch at least 5 seconds.");
+        if (elapsed < 9000) {
+          showToast("⚠️ Ad skipped early (< 9s). Watch at least 9 seconds to receive reward!");
           if (typeof onSkippedOrFailed === "function") onSkippedOrFailed("too_short");
           return;
         }
@@ -11636,7 +11636,7 @@
       })
       .catch(function(err) {
         window.AdBarrier.release("adsgram_fullscreen");
-        var msg = (err && (err.description || err.message)) || "Ad was closed early.";
+        var msg = (err && (err.description || err.message)) || "Ad closed early. Watch at least 9 seconds to receive reward!";
         showToast("⚠️ " + msg);
         if (typeof onSkippedOrFailed === "function") onSkippedOrFailed(err);
       });
@@ -11771,18 +11771,18 @@
 
       var startedAt = Date.now();
       var targetBlockId = (watched === 0) ? ADSGRAM_REWARD_BLOCK_ID : ADSGRAM_INTERSTITIAL_BLOCK_ID;
-      var minWatchMs = (watched === 0) ? 9000 : 5000;
+      var minWatchMs = 9000;
 
       showAdsgramAd(targetBlockId)
         .then(function() {
           var elapsed = Date.now() - startedAt;
           window.AdBarrier.release("adsgram_watch");
 
-          // Strict minimum watch duration anti-cheat (9s for rewarded ad 1, 5s for interstitial ads 2..10)
+          // Strict minimum 9-second watch duration requirement
           if (elapsed < minWatchMs) {
             sheetStartAdBtn.disabled = false;
             sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-            showToast("⚠️ Ad was watched under " + (minWatchMs / 1000) + " seconds! Reward cannot be granted.");
+            showToast("⚠️ Ad was watched under 9 seconds! Watch at least 9 seconds to receive reward.");
             return;
           }
 
@@ -12048,43 +12048,53 @@
     });
   }
 
-  // Dedicated Collect Weekly / Daily Reward Action (Puzzle Captcha -> Reward Claim, no ads)
+  // Dedicated Collect Weekly / Daily Reward Action (Requires 9s Interstitial Ad)
   var dailyBtn = document.getElementById("dailyCollectBtn");
   if (dailyBtn) {
     dailyBtn.addEventListener("click", function(){
       if (dailyBtn.disabled || window._isCheckinLocked) return;
-      window._isCheckinLocked = true;
+
       dailyBtn.disabled = true;
-      dailyBtn.innerHTML = '<span>Claiming...</span>';
+      dailyBtn.innerHTML = '<span>⏳ Loading Ad...</span>';
 
-      openSecurityCaptcha(function onCaptchaSuccess(verifiedCaptchaToken) {
-        dailyBtn.disabled = true;
-        dailyBtn.innerHTML = '<span>Claiming...</span>';
+      playFullscreenAd(function onAdWatched() {
+        dailyBtn.innerHTML = '<span>Verifying...</span>';
+        openSecurityCaptcha(function onCaptchaSuccess(verifiedCaptchaToken) {
+          window._isCheckinLocked = true;
+          dailyBtn.disabled = true;
+          dailyBtn.innerHTML = '<span>Claiming...</span>';
 
-        apiCheckin(verifiedCaptchaToken).then(function(res){
-          window._isCheckinLocked = false;
-          dailyBtn.disabled = false;
-          if (!res.ok) {
-            var errText = (res.data && res.data.error) ? res.data.error : ("Error (" + res.status + ")");
-            showToast(errText);
+          apiCheckin(verifiedCaptchaToken).then(function(res){
+            window._isCheckinLocked = false;
+            dailyBtn.disabled = false;
+            if (!res.ok) {
+              var errText = (res.data && res.data.error) ? res.data.error : ("Error (" + res.status + ")");
+              showToast(errText);
+              renderDaily();
+              return;
+            }
+            user.balance = res.data.balance;
+            user.dailyCycle = res.data.dailyCycle;
+            user.dailyDayIndex = res.data.dailyDayIndex;
+            user.lastCheckinAt = res.data.lastCheckinAt;
+            user.totalDailyEarned = res.data.totalDailyEarned;
+            if (res.data.level) user.level = res.data.level;
+            showToast("🎉 +" + res.data.reward + " TREASURE Bonus Reward claimed!");
+            renderAll();
+          }).catch(function(err){
+            window._isCheckinLocked = false;
+            dailyBtn.disabled = false;
+            var msg = (err && err.message) ? err.message : "Connection failed";
+            showToast(msg);
             renderDaily();
-            return;
-          }
-          user.balance = res.data.balance;
-          user.dailyCycle = res.data.dailyCycle;
-          user.dailyDayIndex = res.data.dailyDayIndex;
-          user.lastCheckinAt = res.data.lastCheckinAt;
-          user.totalDailyEarned = res.data.totalDailyEarned;
-          if (res.data.level) user.level = res.data.level;
-          showToast("🎉 +" + res.data.reward + " TREASURE Bonus Reward claimed!");
-          renderAll();
-        }).catch(function(err){
-          window._isCheckinLocked = false;
-          dailyBtn.disabled = false;
-          var msg = (err && err.message) ? err.message : "Connection failed";
-          showToast(msg);
-          renderDaily();
+          });
         });
+      }, function onAdFailed(reason) {
+        dailyBtn.disabled = false;
+        dailyBtn.innerHTML = '<span>Claim Daily Reward</span>';
+        if (reason !== "too_short") {
+          showToast("⚠️ Watch at least 9 seconds of the ad to claim your reward.");
+        }
       });
     });
   }
