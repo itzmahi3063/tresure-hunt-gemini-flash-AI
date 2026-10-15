@@ -291,9 +291,10 @@ module.exports = async (req, res) => {
         const approvedW = await withdrawalsCol.countDocuments({ status: "APPROVED" });
 
         const balAgg = await usersCol.aggregate([
+          { $match: { isBanned: { $ne: true }, dataPurged: { $ne: true }, balance: { $gt: 0 } } },
           { $group: { _id: null, totalCoins: { $sum: "$balance" } } }
         ]).toArray();
-        const totalCoins = balAgg[0] ? balAgg[0].totalCoins : 0;
+        const totalCoins = balAgg[0] ? Math.max(0, balAgg[0].totalCoins) : 0;
 
         const TON_PER_USD = 0.019 / 0.03; // 3 cents = 0.019 TON
 

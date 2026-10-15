@@ -1324,7 +1324,8 @@
         // Coins in Circulation card
         var totalCoinsEl = document.getElementById("statTotalCoins");
         if (totalCoinsEl) {
-          totalCoinsEl.textContent = (Number(data.totalCoinsInCirculation) || 0).toLocaleString();
+          var tCoins = Math.max(0, Number(data.totalCoinsInCirculation) || 0);
+          totalCoinsEl.innerHTML = `${tCoins.toLocaleString()} <span style="font-size: 11px; color: var(--text-dim); display: block; margin-top: 2px;">Clean Circulating Coins</span>`;
         }
 
         var cleanPending = (data.pendingWithdrawals || 0);
