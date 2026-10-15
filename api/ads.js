@@ -447,6 +447,25 @@ module.exports = async (req, res) => {
         return;
       }
 
+      let spinCycleStart = user.spinAdsCycleStartedAt ? Number(user.spinAdsCycleStartedAt) : 0;
+      let spinWatchedToday = Number(user.spinAdsWatchedToday || 0);
+
+      if (!spinCycleStart || (now - spinCycleStart >= SPIN_CYCLE_MS)) {
+        spinWatchedToday = 0;
+        spinCycleStart = now;
+      }
+
+      if (spinWatchedToday >= MAX_SPIN_ADS_PER_DAY) {
+        const remainingMs = Math.max(0, SPIN_CYCLE_MS - (now - spinCycleStart));
+        res.status(400).json({
+          error: "Limit of 6 tickets reached! Next tickets available in 10 hours.",
+          remainingMs,
+          spinWatchedToday,
+          maxAds: MAX_SPIN_ADS_PER_DAY
+        });
+        return;
+      }
+
       const { watchDurationMs } = req.body || {};
       const duration = Number(watchDurationMs) || 0;
       const lastWatchedAt = Number(user.lastSpinAdWatchedAt || 0);
@@ -481,25 +500,6 @@ module.exports = async (req, res) => {
           flagged: true,
           revoked: true,
           correctTickets: Number(user.spinTickets || 0)
-        });
-        return;
-      }
-
-      let spinCycleStart = user.spinAdsCycleStartedAt ? Number(user.spinAdsCycleStartedAt) : 0;
-      let spinWatchedToday = Number(user.spinAdsWatchedToday || 0);
-
-      if (!spinCycleStart || (now - spinCycleStart >= SPIN_CYCLE_MS)) {
-        spinWatchedToday = 0;
-        spinCycleStart = now;
-      }
-
-      if (spinWatchedToday >= MAX_SPIN_ADS_PER_DAY) {
-        const remainingMs = Math.max(0, SPIN_CYCLE_MS - (now - spinCycleStart));
-        res.status(400).json({
-          error: "Limit of 6 tickets reached! Next tickets available in 10 hours.",
-          remainingMs,
-          spinWatchedToday,
-          maxAds: MAX_SPIN_ADS_PER_DAY
         });
         return;
       }
@@ -564,13 +564,15 @@ module.exports = async (req, res) => {
         setPayload.spinReminderSent = false;
       }
 
-      // ATOMIC compare-and-set: the claim only succeeds if lastSpinAdWatchedAt is still exactly the value
-      // we read at the start. Two simultaneous requests for ONE ad both read the same old value, but only
-      // the first write changes it - the second matches 0 documents and gets NO ticket.
+      // ATOMIC compare-and-set claim: only one concurrent claim can succeed
       const claimSpinRes = await usersCol.updateOne(
         {
           _id: user._id,
-          lastSpinAdWatchedAt: (user.lastSpinAdWatchedAt == null ? null : user.lastSpinAdWatchedAt)
+          $or: [
+            { lastSpinAdWatchedAt: { $exists: false } },
+            { lastSpinAdWatchedAt: null },
+            { lastSpinAdWatchedAt: { $lte: now - 4000 } }
+          ]
         },
         {
           $inc: { spinTickets: 1, totalAdsWatched: 1 },
@@ -601,6 +603,28 @@ module.exports = async (req, res) => {
     }
 
     // 4B. ACTION: REGULAR WATCH & EARN (Earn Tab Ads)
+    let cycleStart = user.adsCycleStartedAt ? Number(user.adsCycleStartedAt) : 0;
+    let watchedToday = Number(user.adsWatchedToday || 0);
+    let earnedToday = Number(user.adsEarnedToday || 0);
+
+    if (!cycleStart || (now - cycleStart >= CYCLE_MS)) {
+      watchedToday = 0;
+      earnedToday = 0;
+      cycleStart = now;
+    }
+
+    if (watchedToday >= MAX_ADS_PER_DAY) {
+      const remainingMs = Math.max(0, CYCLE_MS - (now - cycleStart));
+      res.status(400).json({
+        error: "Daily limit of 10 ads reached! Next ads available in 24 hours.",
+        remainingMs,
+        adsWatchedToday: watchedToday,
+        adsEarnedToday: earnedToday,
+        adsCycleStartedAt: cycleStart
+      });
+      return;
+    }
+
     const { watchDurationMs } = req.body || {};
     const duration = Number(watchDurationMs) || 0;
     const lastWatchedAt = Number(user.lastWatchAdAt || 0);
@@ -620,9 +644,9 @@ module.exports = async (req, res) => {
     }
 
     // 2. Strict Watch Duration Anti-Cheat Enforcement:
-    // Ad #1 (Rewarded Ad 49079): must watch at least 9 seconds
+    // Ad #1 (Rewarded Ad 49079): must watch at least 8 seconds
     // Ads #2..10 (Interstitial Ads int-49020): must watch at least 5 seconds
-    const minRequiredDuration = (watchedToday === 0) ? 9000 : 5000;
+    const minRequiredDuration = (watchedToday === 0) ? 8000 : 5000;
     if (duration < minRequiredDuration) {
       const strikes = Number(user.adSkipUnder9sStrikes || 0) + 1;
       const updateData = {
@@ -638,28 +662,6 @@ module.exports = async (req, res) => {
         flagged: true,
         revoked: true,
         correctBalance: Number(user.balance || 0)
-      });
-      return;
-    }
-
-    let cycleStart = user.adsCycleStartedAt ? Number(user.adsCycleStartedAt) : 0;
-    let watchedToday = Number(user.adsWatchedToday || 0);
-    let earnedToday = Number(user.adsEarnedToday || 0);
-
-    if (!cycleStart || (now - cycleStart >= CYCLE_MS)) {
-      watchedToday = 0;
-      earnedToday = 0;
-      cycleStart = now;
-    }
-
-    if (watchedToday >= MAX_ADS_PER_DAY) {
-      const remainingMs = Math.max(0, CYCLE_MS - (now - cycleStart));
-      res.status(400).json({
-        error: "Daily limit of 10 ads reached! Next ads available in 24 hours.",
-        remainingMs,
-        adsWatchedToday: watchedToday,
-        adsEarnedToday: earnedToday,
-        adsCycleStartedAt: cycleStart
       });
       return;
     }
@@ -748,7 +750,11 @@ module.exports = async (req, res) => {
     const claimAdRes = await usersCol.findOneAndUpdate(
       {
         _id: user._id,
-        lastWatchAdAt: (user.lastWatchAdAt == null ? null : user.lastWatchAdAt)
+        $or: [
+          { lastWatchAdAt: { $exists: false } },
+          { lastWatchAdAt: null },
+          { lastWatchAdAt: { $lte: now - 4000 } }
+        ]
       },
       {
         $inc: {
@@ -768,21 +774,14 @@ module.exports = async (req, res) => {
       { returnDocument: "after" }
     );
 
-    const updatedUser = claimAdRes && (claimAdRes.value || (claimAdRes._id ? claimAdRes : null));
+    let updatedUser = claimAdRes && (claimAdRes.value || (claimAdRes._id ? claimAdRes : null));
     if (!updatedUser) {
-      // Duplicate / parallel request for the same ad: reward was already given by the first request.
-      // NOT flagged - this is not fraud, just a duplicate call.
-      res.status(409).json({
-        error: "This ad reward was already credited.",
-        duplicate: true,
-        correctBalance: Number(user.balance || 0)
-      });
-      return;
+      updatedUser = await usersCol.findOne({ _id: user._id });
     }
 
-    const finalWatchedToday = Number(updatedUser.adsWatchedToday || watchedToday + 1);
-    const finalEarnedToday = Number(updatedUser.adsEarnedToday || earnedToday + currentAdReward);
-    const finalBalance = Number(updatedUser.balance || 0);
+    const finalWatchedToday = Number((updatedUser && updatedUser.adsWatchedToday) || newWatched);
+    const finalEarnedToday = Number((updatedUser && updatedUser.adsEarnedToday) || newEarned);
+    const finalBalance = Number((updatedUser && updatedUser.balance) || (user.balance || 0) + currentAdReward);
 
     res.status(200).json({
       ok: true,
