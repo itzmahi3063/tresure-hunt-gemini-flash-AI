@@ -1642,7 +1642,7 @@
       var confirmMsg = `⚡ Start Automated Payout for ALL Pending Requests?\n\n` +
         `📋 Total Queue: ${totalCount} request(s)\n` +
         `💎 Total TON: ~${totalTonEst.toFixed(4)} TON\n\n` +
-        `Each payout will be sent on-chain one by one.\n` +
+        `Each payout will be safely sent on-chain with an 8-second blockchain confirmation delay between transactions to prevent seqno collisions.\n` +
         `You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n` +
         `Start Auto-Pay now?`;
 
@@ -1678,21 +1678,52 @@
 
         autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &rarr; <span style="font-family: monospace; font-size: 11px;">${w.walletAddress ? (w.walletAddress.slice(0, 8) + '...' + w.walletAddress.slice(-6)) : ''}</span>`;
         autoPayStatusText.innerHTML = `🟢 Processing ${i + 1} of ${totalCount}...`;
+        autoPayStatusText.style.color = "#10b981";
 
-        try {
-          var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: w.id });
-          if (res.ok) {
-            successCount++;
-          } else {
-            failCount++;
-            if (res.error && (res.error.includes("INSUFFICIENT_HOT_WALLET_BALANCE") || res.error.includes("NOT sent") || res.error.includes("not configured") || res.error.includes("missing"))) {
-              alert("⚠️ Auto-pay halted:\n" + res.error);
-              break;
+        var itemSuccess = false;
+        var maxItemRetries = 2; // Up to 3 total attempts per item (1 initial + 2 retries)
+
+        for (var attempt = 0; attempt <= maxItemRetries; attempt++) {
+          if (stopAutoPayRequested) break;
+
+          if (attempt > 0) {
+            autoPayStatusText.innerHTML = `⚠️ Retrying ${i + 1} of ${totalCount} (Attempt ${attempt + 1}/${maxItemRetries + 1})...`;
+            autoPayStatusText.style.color = "#f59e0b";
+            // Wait 6 seconds before retry so on-chain block can finalize
+            for (var cd = 6; cd > 0; cd--) {
+              if (stopAutoPayRequested) break;
+              autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &mdash; <span style="color: #f59e0b;">Waiting ${cd}s for block confirmation before retry...</span>`;
+              await new Promise(function(resolve){ setTimeout(resolve, 1000); });
             }
+            if (stopAutoPayRequested) break;
+            autoPayStatusText.innerHTML = `🟢 Broadcasting attempt ${attempt + 1}...`;
+            autoPayStatusText.style.color = "#10b981";
           }
-        } catch(e) {
+
+          try {
+            var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: w.id });
+            if (res && res.ok) {
+              itemSuccess = true;
+              successCount++;
+              break;
+            } else {
+              var errDetail = (res && res.error) ? res.error : "Unknown error";
+              // Stop immediately only if hot wallet balance is low or credentials missing:
+              if (errDetail.includes("INSUFFICIENT_HOT_WALLET_BALANCE") || errDetail.includes("not configured") || errDetail.includes("missing") || errDetail.includes("INVALID_MNEMONIC")) {
+                alert("⚠️ Auto-pay halted:\n" + errDetail);
+                stopAutoPayRequested = true;
+                break;
+              }
+              console.warn(`[Auto-Pay] Item ${w.id} attempt ${attempt + 1} failed:`, errDetail);
+            }
+          } catch(e) {
+            console.error(`[Auto-Pay] Network error on item ${w.id} attempt ${attempt + 1}:`, e);
+          }
+        }
+
+        if (!itemSuccess) {
           failCount++;
-          console.error("Auto-pay error on item " + w.id, e);
+          if (stopAutoPayRequested) break;
         }
 
         var completedSoFar = i + 1;
@@ -1709,9 +1740,14 @@
           break;
         }
 
-        // Polite pause between on-chain transactions to respect RPC limits
+        // Polite pause between on-chain transactions (8 seconds) with live countdown so blockchain finalizes previous block!
         if (i < totalCount - 1) {
-          await new Promise(function(resolve){ setTimeout(resolve, 2500); });
+          for (var waitSec = 8; waitSec > 0; waitSec--) {
+            if (stopAutoPayRequested) break;
+            autoPayStatusText.innerHTML = `⏳ Confirmed! Syncing blockchain (${waitSec}s)...`;
+            autoPayStatusText.style.color = "#3b82f6";
+            await new Promise(function(resolve){ setTimeout(resolve, 1000); });
+          }
         }
       }
 

@@ -330,7 +330,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   let autoPayRes;
   try {
-    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`);
+    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
   } catch (payErr) {
     try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
     return { ok: false, message: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` };
