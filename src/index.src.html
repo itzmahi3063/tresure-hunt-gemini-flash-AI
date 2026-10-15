@@ -468,33 +468,226 @@
     50% { opacity: 0.35; transform: scale(0.85); }
   }
 
+  /* 3D Coin & Orbital Ring Visual System */
   .mine-visual-wrap {
     position: relative;
-    width: 190px;
-    height: 185px;
-    margin: 16px auto 10px;
+    width: 210px;
+    height: 195px;
+    margin: 12px auto 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    perspective: 1000px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mine-glow {
+    position: absolute;
+    width: 175px;
+    height: 175px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent-glow) 0%, rgba(32, 184, 163, 0) 70%);
+    pointer-events: none;
+    transition: background 0.45s ease;
+  }
+  .mine-coin-container {
+    position: relative;
+    width: 170px;
+    height: 170px;
+    transform-style: preserve-3d;
+    z-index: 5;
+  }
+  .miner-tab-coin {
+    width: 130px;
+    height: 130px;
+  }
+  .coin-3d-flipper {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    animation: coinIdleSlowSpin 11s linear infinite;
+    will-change: transform;
+    transition: transform 0.15s ease-out;
+  }
+  .coin-3d-flipper.fast-spin {
+    animation: coinFastSpin 0.76s cubic-bezier(0.18, 0.88, 0.28, 1.15) forwards !important;
+  }
+  @keyframes coinIdleSlowSpin {
+    0% {
+      transform: rotateY(0deg) translateY(0px) rotateZ(0deg);
+    }
+    25% {
+      transform: rotateY(90deg) translateY(-4px) rotateZ(1.2deg);
+    }
+    50% {
+      transform: rotateY(180deg) translateY(-7px) rotateZ(0deg);
+    }
+    75% {
+      transform: rotateY(270deg) translateY(-4px) rotateZ(-1.2deg);
+    }
+    100% {
+      transform: rotateY(360deg) translateY(0px) rotateZ(0deg);
+    }
+  }
+  @keyframes coinFastSpin {
+    0% {
+      transform: rotateY(0deg) scale(1);
+    }
+    35% {
+      transform: rotateY(360deg) scale(1.12);
+    }
+    70% {
+      transform: rotateY(720deg) scale(1.06);
+    }
+    100% {
+      transform: rotateY(1080deg) scale(1);
+    }
+  }
+  .coin-face {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .mine-glow {
-    position: absolute;
-    width: 165px;
-    height: 165px;
-    border-radius: 50%;
-    background: radial-gradient(circle, var(--accent-glow) 0%, rgba(32, 184, 163, 0) 70%);
-    pointer-events: none;
+  .coin-face-front {
+    transform: rotateY(0deg);
+  }
+  .coin-face-back {
+    transform: rotateY(180deg);
   }
   .mine-img {
-    width: 170px;
-    height: 170px;
+    width: 100%;
+    height: 100%;
     object-fit: contain;
-    filter: drop-shadow(0 12px 28px var(--accent-glow));
-    animation: floatLogo 3.6s ease-in-out infinite;
+    display: block;
+    border-radius: 50%;
+    filter: drop-shadow(0 10px 24px var(--accent-glow));
+    pointer-events: none;
   }
-  @keyframes floatLogo {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-8px) rotate(1.5deg); }
+
+  /* Specular Light Sweep / Shine Effect */
+  .coin-shine-sweep {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 6;
+  }
+  .coin-shine-sweep::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -130%;
+    width: 75%;
+    height: 200%;
+    background: linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.12) 25%,
+      rgba(255, 255, 255, 0.78) 50%,
+      rgba(255, 255, 255, 0.98) 52%,
+      rgba(255, 255, 255, 0.32) 58%,
+      rgba(255, 255, 255, 0) 80%
+    );
+    transform: rotate(26deg);
+    animation: coinShineGleam 3.8s ease-in-out infinite;
+  }
+  @keyframes coinShineGleam {
+    0%, 35% { left: -130%; opacity: 0; }
+    40% { opacity: 1; }
+    65% { left: 165%; opacity: 1; }
+    70%, 100% { left: 165%; opacity: 0; }
+  }
+  .coin-3d-flipper.fast-spin .coin-shine-sweep::after {
+    animation: coinTapShineFlash 0.75s ease-out forwards !important;
+  }
+  @keyframes coinTapShineFlash {
+    0% { left: -110%; opacity: 0; }
+    25% { opacity: 1; filter: brightness(2); }
+    100% { left: 180%; opacity: 0; }
+  }
+
+  /* Orbital Glowing Energy Ring (matches media_1792073685818_bbdf5758.png) */
+  .coin-orbit-wrap {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 255px;
+    height: 195px;
+    pointer-events: none;
+    z-index: 9;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .miner-tab-orbit {
+    width: 205px;
+    height: 155px;
+  }
+  .coin-orbit-wrap.flare-active {
+    opacity: 1;
+    animation: orbitRingFlare 0.78s cubic-bezier(0.16, 0.86, 0.3, 1) forwards;
+  }
+  @keyframes orbitRingFlare {
+    0% {
+      transform: translate(-50%, -50%) scale(0.68) rotate(-35deg);
+      opacity: 0;
+      filter: brightness(2) drop-shadow(0 0 10px var(--ring-glow-color, #fac30a));
+    }
+    18% {
+      transform: translate(-50%, -50%) scale(1.14) rotate(0deg);
+      opacity: 1;
+      filter: brightness(2.4) drop-shadow(0 0 28px var(--ring-glow-color, #fac30a));
+    }
+    60% {
+      transform: translate(-50%, -50%) scale(1.03) rotate(140deg);
+      opacity: 0.95;
+      filter: brightness(1.8) drop-shadow(0 0 18px var(--ring-glow-color, #fac30a));
+    }
+    100% {
+      transform: translate(-50%, -50%) scale(1.24) rotate(270deg);
+      opacity: 0;
+      filter: brightness(1) drop-shadow(0 0 0px transparent);
+    }
+  }
+  .coin-orbit-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Tap Sparks */
+  .coin-tap-spark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 12;
+    transform: translate(-50%, -50%);
+    animation: sparkFlyOut 0.65s cubic-bezier(0.15, 0.85, 0.35, 1) forwards;
+  }
+  @keyframes sparkFlyOut {
+    0% {
+      transform: translate(-50%, -50%) scale(1.2);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(calc(-50% + var(--tx, 40px)), calc(-50% + var(--ty, -40px))) scale(0.15);
+      opacity: 0;
+    }
   }
 
   .lvl-badge-row {
@@ -2725,12 +2918,17 @@
   /* Miner Hero Visual with Glowing Aura */
   .miner-hero-wrap {
     position: relative;
-    width: 150px;
-    height: 150px;
+    width: 170px;
+    height: 160px;
     display: flex;
     align-items: center;
     justify-content: center;
     margin: 4px auto 8px;
+    perspective: 1000px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   .miner-glow-aura {
     position: absolute;
@@ -2748,21 +2946,15 @@
     100% { transform: scale(1.1); opacity: 1; }
   }
   .miner-hero-img {
-    width: 130px !important;
-    height: 130px !important;
-    max-width: 130px !important;
-    max-height: 130px !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
     object-fit: contain !important;
-    z-index: 2;
+    border-radius: 50%;
     filter: drop-shadow(0 10px 20px rgba(32, 191, 164, 0.25));
-    animation: minerFloating 4s ease-in-out infinite;
-    transition: transform 0.3s ease, filter 0.3s ease;
     display: block !important;
-  }
-  @keyframes minerFloating {
-    0% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-7px) rotate(1.5deg); }
-    100% { transform: translateY(0px) rotate(0deg); }
+    pointer-events: none;
   }
 
   /* Level Pill Badge below hero */
@@ -6596,7 +6788,7 @@
   <!-- Header -->
   <header class="header">
     <div class="logo-badge">
-      <img src="assets/logo.webp?v=20261014_3" alt="TREASURE">
+      <img src="assets/logo.webp?v=20261015_1" alt="TREASURE">
     </div>
     <div class="info">
       <div class="name">TREASURE HUNT</div>
@@ -6691,9 +6883,51 @@
       </div>
 
       <!-- 3D Logo positioned directly under status pill, matching Nautilus layout -->
-      <div class="mine-visual-wrap">
+      <div class="mine-visual-wrap" id="mineVisualWrap">
         <div class="mine-glow" id="homeMineGlow"></div>
-        <img src="assets/logo.webp?v=20261014_3" alt="TREASURE Mining" class="mine-img" id="homeMineImg">
+        <div class="mine-coin-container" id="homeCoinContainer">
+          <div class="coin-3d-flipper" id="homeCoinFlipper">
+            <div class="coin-face coin-face-front">
+              <img src="assets/miner_lvl1.webp?v=20261015_1" alt="TREASURE Mining" class="mine-img" id="homeMineImg">
+              <div class="coin-shine-sweep"></div>
+            </div>
+            <div class="coin-face coin-face-back">
+              <img src="assets/miner_lvl1.webp?v=20261015_1" alt="TREASURE Mining" class="mine-img" id="homeMineImgBack">
+              <div class="coin-shine-sweep"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Glowing Orbital Energy Ring matching media_1792073685818_bbdf5758.png (flares on tap) -->
+        <div class="coin-orbit-wrap" id="homeOrbitRing">
+          <svg class="coin-orbit-svg" viewBox="0 0 280 190" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <filter id="ringGlowHome" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="8" result="b1" />
+                <feGaussianBlur stdDeviation="3" result="b2" />
+                <feMerge>
+                  <feMergeNode in="b1" />
+                  <feMergeNode in="b2" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+              <linearGradient id="orbitRingGradHome" x1="0%" y1="0%" x2="100%" y2="60%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+                <stop offset="20%" stop-color="var(--ring-glow-color, #fac30a)" stop-opacity="0.9" />
+                <stop offset="55%" stop-color="#ffffff" stop-opacity="1" />
+                <stop offset="85%" stop-color="var(--ring-glow-color, #fac30a)" stop-opacity="0.95" />
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0.1" />
+              </linearGradient>
+            </defs>
+            <g transform="rotate(-20 140 95)">
+              <ellipse cx="140" cy="95" rx="114" ry="42" stroke="var(--ring-glow-color, #fac30a)" stroke-width="11" opacity="0.52" filter="url(#ringGlowHome)" />
+              <ellipse cx="140" cy="95" rx="114" ry="42" stroke="url(#orbitRingGradHome)" stroke-width="4.5" stroke-linecap="round" filter="url(#ringGlowHome)" />
+              <ellipse cx="140" cy="95" rx="114" ry="42" stroke="#ffffff" stroke-width="2" opacity="0.9" />
+              <circle cx="28" cy="95" r="4.5" fill="#ffffff" filter="url(#ringGlowHome)" />
+              <circle cx="28" cy="95" r="8.5" fill="var(--ring-glow-color, #fac30a)" opacity="0.8" filter="url(#ringGlowHome)" />
+              <circle cx="252" cy="95" r="3.5" fill="#ffffff" filter="url(#ringGlowHome)" />
+            </g>
+          </svg>
+        </div>
       </div>
 
       <!-- Level Badge Pill: LV.1 Starter -->
@@ -6715,7 +6949,7 @@
         <div class="mining-complete-text" id="mineTitle">MINING COMPLETE!</div>
         <div class="mining-reward-big" id="mineReward">
           <span id="mineRewardAmount">+80</span>
-          <img src="assets/logo.webp?v=20261014_3" alt="Coin" class="mine-reward-coin-icon">
+          <img src="assets/logo.webp?v=20261015_1" alt="Coin" class="mine-reward-coin-icon">
         </div>
       </div>
 
@@ -6899,9 +7133,51 @@
         </div>
 
         <!-- 3D Miner Hero Visual with Glowing Aura -->
-        <div class="miner-hero-wrap">
+        <div class="miner-hero-wrap" id="minerHeroWrap">
           <div class="miner-glow-aura" id="mGlowAura"></div>
-          <img src="assets/miner_lvl1.webp?v=20261014_3" alt="Miner Core" class="miner-hero-img" id="mHeroImg" width="130" height="130" style="width: 130px; height: 130px; max-width: 130px; max-height: 130px; object-fit: contain; display: block;">
+          <div class="mine-coin-container miner-tab-coin" id="mCoinContainer">
+            <div class="coin-3d-flipper" id="mCoinFlipper">
+              <div class="coin-face coin-face-front">
+                <img src="assets/miner_lvl1.webp?v=20261015_1" alt="Miner Core" class="miner-hero-img" id="mHeroImg" width="130" height="130" style="width: 130px; height: 130px; max-width: 130px; max-height: 130px; object-fit: contain; display: block;">
+                <div class="coin-shine-sweep"></div>
+              </div>
+              <div class="coin-face coin-face-back">
+                <img src="assets/miner_lvl1.webp?v=20261015_1" alt="Miner Core" class="miner-hero-img" id="mHeroImgBack" width="130" height="130" style="width: 130px; height: 130px; max-width: 130px; max-height: 130px; object-fit: contain; display: block;">
+                <div class="coin-shine-sweep"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Glowing Orbital Energy Ring (flares on tap) -->
+          <div class="coin-orbit-wrap miner-tab-orbit" id="mOrbitRing">
+            <svg class="coin-orbit-svg" viewBox="0 0 280 190" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <filter id="ringGlowTab" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="8" result="b1" />
+                  <feGaussianBlur stdDeviation="3" result="b2" />
+                  <feMerge>
+                    <feMergeNode in="b1" />
+                    <feMergeNode in="b2" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <linearGradient id="orbitRingGradTab" x1="0%" y1="0%" x2="100%" y2="60%">
+                  <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+                  <stop offset="20%" stop-color="var(--ring-glow-color, #fac30a)" stop-opacity="0.9" />
+                  <stop offset="55%" stop-color="#ffffff" stop-opacity="1" />
+                  <stop offset="85%" stop-color="var(--ring-glow-color, #fac30a)" stop-opacity="0.95" />
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0.1" />
+                </linearGradient>
+              </defs>
+              <g transform="rotate(-20 140 95)">
+                <ellipse cx="140" cy="95" rx="114" ry="42" stroke="var(--ring-glow-color, #fac30a)" stroke-width="11" opacity="0.52" filter="url(#ringGlowTab)" />
+                <ellipse cx="140" cy="95" rx="114" ry="42" stroke="url(#orbitRingGradTab)" stroke-width="4.5" stroke-linecap="round" filter="url(#ringGlowTab)" />
+                <ellipse cx="140" cy="95" rx="114" ry="42" stroke="#ffffff" stroke-width="2" opacity="0.9" />
+                <circle cx="28" cy="95" r="4.5" fill="#ffffff" filter="url(#ringGlowTab)" />
+                <circle cx="28" cy="95" r="8.5" fill="var(--ring-glow-color, #fac30a)" opacity="0.8" filter="url(#ringGlowTab)" />
+                <circle cx="252" cy="95" r="3.5" fill="#ffffff" filter="url(#ringGlowTab)" />
+              </g>
+            </svg>
+          </div>
         </div>
 
         <!-- Level Pill Badge: Lv.1 Starter -->
@@ -6937,12 +7213,12 @@
         <!-- Reward Amount Row -->
         <div class="miner-reward-amount-row">
           <span class="plus-num" id="mRewardNum">+80</span>
-          <img src="assets/miner_lvl1.webp?v=20261014_3" class="miner-coin-mini" id="mCoinMiniImg" alt="Coin">
+          <img src="assets/miner_lvl1.webp?v=20261015_1" class="miner-coin-mini" id="mCoinMiniImg" alt="Coin">
         </div>
 
         <!-- Action Collect / Mining Button (Matching Screenshot 2) -->
         <button class="miner-action-btn" id="mTabCollectBtn" type="button">
-          <img src="assets/miner_lvl1.webp?v=20261014_3" class="btn-coin-icon" id="mBtnCoinIcon" alt="Coin">
+          <img src="assets/miner_lvl1.webp?v=20261015_1" class="btn-coin-icon" id="mBtnCoinIcon" alt="Coin">
           <span id="mTabCollectBtnTxt">Collect TREASURE Coins</span>
         </button>
       </div>
@@ -6950,7 +7226,7 @@
       <!-- Evolution Card (Matching Screenshot 2) -->
       <div class="miner-evolution-card">
         <div class="evo-header">
-          <img src="assets/miner_lvl1.webp?v=20261014_3" class="evo-header-icon" id="mEvoHeaderIcon" alt="Evo">
+          <img src="assets/miner_lvl1.webp?v=20261015_1" class="evo-header-icon" id="mEvoHeaderIcon" alt="Evo">
           <div class="evo-title">Treasure Evolution</div>
         </div>
 
@@ -10170,23 +10446,23 @@
   var LEVEL_MULTIPLIERS = [1.0, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0];
   var UPGRADE_COSTS = [1000, 4500, 7000, 10000, 20000, 40000, 80000, 100000, 200000];
 
-  // Specific dynamic color shades and aura glow for each miner tier
+  // Specific dynamic color shades, aura glow, and orbital ring color for each miner tier
   var LEVEL_THEMES = [
-    { level: 1, glowRgb: "32, 210, 185", dropShadow: "rgba(32, 210, 185, 0.40)", pillColor: "#20bfa4" },  // Starter: Teal Cyan
-    { level: 2, glowRgb: "20, 220, 130", dropShadow: "rgba(20, 220, 130, 0.40)", pillColor: "#14dc82" },  // Developed: Emerald Green
-    { level: 3, glowRgb: "30, 150, 255", dropShadow: "rgba(30, 150, 255, 0.40)", pillColor: "#1e96ff" },  // Refined: Cobalt Blue
-    { level: 4, glowRgb: "170, 70, 255", dropShadow: "rgba(170, 70, 255, 0.40)", pillColor: "#aa46ff" },  // Vanguard: Royal Purple
-    { level: 5, glowRgb: "255, 45, 80",  dropShadow: "rgba(255, 45, 80, 0.40)",  pillColor: "#ff2d50" },  // Apex: Crimson Red
-    { level: 6, glowRgb: "255, 105, 0",  dropShadow: "rgba(255, 105, 0, 0.45)",  pillColor: "#ff6900" },  // Celestial: Fiery Blaze Orange
-    { level: 7, glowRgb: "240, 40, 180", dropShadow: "rgba(240, 40, 180, 0.40)", pillColor: "#f028b4" },  // Quantum: Neon Magenta
-    { level: 8, glowRgb: "90, 80, 255",  dropShadow: "rgba(90, 80, 255, 0.40)",  pillColor: "#5a50ff" },  // Mythic: Royal Sapphire
-    { level: 9, glowRgb: "255, 205, 30", dropShadow: "rgba(255, 205, 30, 0.50)", pillColor: "#ffcd1e" },  // Sovereign: Pure Sun Gold
-    { level: 10, glowRgb: "0, 240, 255", dropShadow: "rgba(0, 240, 255, 0.50)",  pillColor: "#00f0ff", isRainbow: true } // Transcendent: Prismatic Diamond
+    { level: 1, glowRgb: "250, 195, 10", dropShadow: "rgba(250, 195, 10, 0.45)", pillColor: "#fac30a" },  // Starter: Golden Sun
+    { level: 2, glowRgb: "16, 205, 120", dropShadow: "rgba(16, 205, 120, 0.45)", pillColor: "#10cd78" },  // Developed: Emerald Jade
+    { level: 3, glowRgb: "6, 200, 240",  dropShadow: "rgba(6, 200, 240, 0.45)",  pillColor: "#06c8f0" },  // Refined: Cyan Electric
+    { level: 4, glowRgb: "37, 99, 235",  dropShadow: "rgba(37, 99, 235, 0.45)",  pillColor: "#2563eb" },  // Vanguard: Deep Sapphire
+    { level: 5, glowRgb: "147, 51, 234", dropShadow: "rgba(147, 51, 234, 0.45)", pillColor: "#9333ea" },  // Apex: Royal Amethyst
+    { level: 6, glowRgb: "236, 72, 153", dropShadow: "rgba(236, 72, 153, 0.45)", pillColor: "#ec4899" },  // Celestial: Neon Magenta Pink
+    { level: 7, glowRgb: "239, 68, 68",  dropShadow: "rgba(239, 68, 68, 0.45)",  pillColor: "#ef4444" },  // Quantum: Crimson Flame Red
+    { level: 8, glowRgb: "249, 115, 22", dropShadow: "rgba(249, 115, 22, 0.45)", pillColor: "#f97316" },  // Mythic: Blazing Sunset Orange
+    { level: 9, glowRgb: "226, 232, 240", dropShadow: "rgba(226, 232, 240, 0.55)", pillColor: "#cbd5e1" }, // Sovereign: Platinum Silver
+    { level: 10, glowRgb: "0, 240, 255", dropShadow: "rgba(0, 240, 255, 0.60)",  pillColor: "#00f0ff", isRainbow: true } // Transcendent: Prismatic Rainbow
   ];
 
   function getLevelLogo(lvl) {
     var l = Math.max(1, Math.min(10, lvl || 1));
-    return "assets/miner_lvl" + l + ".webp?v=20261014_3";
+    return "assets/miner_lvl" + l + ".webp?v=20261015_1";
   }
 
   function handleResponse(r) {
@@ -10471,6 +10747,87 @@
     });
   }
 
+  function spawnCoinTapParticles(container, color) {
+    if (!container) return;
+    var colors = ["#ffffff", color || "#fac30a", "#fef08a", "#ffffff"];
+    for (var i = 0; i < 7; i++) {
+      var p = document.createElement("div");
+      p.className = "coin-tap-spark";
+      var angle = (i * 51) + (Math.random() * 18 - 9);
+      var dist = 55 + Math.random() * 35;
+      var rad = angle * (Math.PI / 180);
+      var tx = Math.cos(rad) * dist;
+      var ty = Math.sin(rad) * dist;
+      var c = colors[i % colors.length];
+      p.style.setProperty("--tx", tx.toFixed(1) + "px");
+      p.style.setProperty("--ty", ty.toFixed(1) + "px");
+      p.style.backgroundColor = c;
+      p.style.boxShadow = "0 0 10px " + c;
+      container.appendChild(p);
+      (function(el){
+        setTimeout(function(){
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }, 650);
+      })(p);
+    }
+  }
+
+  function attachCoinTapInteractions() {
+    function handleCoinTap(flipperId, ringId, wrapEl) {
+      var flipper = document.getElementById(flipperId);
+      var ring = document.getElementById(ringId);
+      if (!flipper) return;
+
+      // Telegram Haptic Feedback
+      try {
+        if (window.Telegram && Telegram.WebApp && Telegram.WebApp.HapticFeedback) {
+          Telegram.WebApp.HapticFeedback.impactOccurred("medium");
+        }
+      } catch(e) {}
+
+      // Fast spin animation (spins rapidly once, then resets straight forward)
+      flipper.classList.remove("fast-spin");
+      void flipper.offsetWidth; // Force reflow
+      flipper.classList.add("fast-spin");
+
+      // Orbital energy ring flare (matches media_1792073685818_bbdf5758.png)
+      if (ring) {
+        ring.classList.remove("flare-active");
+        void ring.offsetWidth;
+        ring.classList.add("flare-active");
+      }
+
+      // Radiant sparkle particles
+      if (wrapEl) {
+        var ringColor = wrapEl.style.getPropertyValue("--ring-glow-color") || "#fac30a";
+        spawnCoinTapParticles(wrapEl, ringColor);
+      }
+
+      // Settle smoothly after fast spin (re-aligns straight forward)
+      clearTimeout(flipper._spinTimeout);
+      flipper._spinTimeout = setTimeout(function() {
+        flipper.classList.remove("fast-spin");
+        if (ring) ring.classList.remove("flare-active");
+      }, 780);
+    }
+
+    var homeWrap = document.getElementById("mineVisualWrap");
+    if (homeWrap && !homeWrap.hasAttribute("data-tap-bound")) {
+      homeWrap.setAttribute("data-tap-bound", "true");
+      homeWrap.addEventListener("click", function(e) {
+        handleCoinTap("homeCoinFlipper", "homeOrbitRing", homeWrap);
+      });
+    }
+
+    var tabWrap = document.getElementById("minerHeroWrap");
+    if (tabWrap && !tabWrap.hasAttribute("data-tap-bound")) {
+      tabWrap.setAttribute("data-tap-bound", "true");
+      tabWrap.addEventListener("click", function(e) {
+        handleCoinTap("mCoinFlipper", "mOrbitRing", tabWrap);
+      });
+    }
+  }
+
   function renderMining() {
     var now = Date.now();
     var interval = Number(user.mineIntervalMs) || (2 * 60 * 60 * 1000);
@@ -10497,10 +10854,12 @@
     var timerText = document.getElementById("timerText");
     var mineRewardAmount = document.getElementById("mineRewardAmount");
     var mineLogoImg = document.getElementById("homeMineImg") || document.querySelector(".mine-img");
+    var mineLogoImgBack = document.getElementById("homeMineImgBack");
     var minerLvlTag = document.getElementById("minerLvlTag");
     var minerLvlName = document.getElementById("minerLvlName");
 
     if (mineLogoImg && (!mineLogoImg.src || mineLogoImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImg.src = currentLogo;
+    if (mineLogoImgBack && (!mineLogoImgBack.src || mineLogoImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImgBack.src = currentLogo;
     if (minerLvlTag) minerLvlTag.textContent = "LV." + currentLvl;
     if (minerLvlName) minerLvlName.textContent = lvlName;
     if (mineRewardAmount) mineRewardAmount.textContent = "+" + reward;
@@ -10535,6 +10894,7 @@
     var mStatusPill = document.getElementById("mStatusPill");
     var mStatusPillTxt = document.getElementById("mStatusPillTxt");
     var mHeroImg = document.getElementById("mHeroImg");
+    var mHeroImgBack = document.getElementById("mHeroImgBack");
     var mBadgeLvlTag = document.getElementById("mBadgeLvlTag");
     var mBadgeLvlName = document.getElementById("mBadgeLvlName");
     var mStatLevel = document.getElementById("mStatLevel");
@@ -10549,13 +10909,37 @@
     var mTabCollectBtnTxt = document.getElementById("mTabCollectBtnTxt");
     var mEvoHeaderIcon = document.getElementById("mEvoHeaderIcon");
 
-    if (mHeroImg) mHeroImg.src = currentLogo;
+    if (mHeroImg && (!mHeroImg.src || mHeroImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImg.src = currentLogo;
+    if (mHeroImgBack && (!mHeroImgBack.src || mHeroImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImgBack.src = currentLogo;
     if (mCoinMiniImg) mCoinMiniImg.src = currentLogo;
     if (mBtnCoinIcon) mBtnCoinIcon.src = currentLogo;
     if (mEvoHeaderIcon) mEvoHeaderIcon.src = currentLogo;
 
-    // Apply dynamic colored aura & shadow matching this miner's tier
+    // Apply dynamic colored aura, drop shadow, and orbital ring matching this miner's tier
     var theme = LEVEL_THEMES[currentLvl - 1] || LEVEL_THEMES[0];
+    var ringColor = theme.pillColor || "#fac30a";
+
+    var homeVisualWrap = document.getElementById("mineVisualWrap");
+    if (homeVisualWrap) {
+      homeVisualWrap.style.setProperty("--ring-glow-color", ringColor);
+      homeVisualWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
+    }
+    var homeGlow = document.getElementById("homeMineGlow");
+    if (homeGlow) {
+      if (theme.isRainbow) {
+        homeGlow.style.background = "radial-gradient(circle, rgba(255, 255, 255, 0.65) 0%, rgba(0, 240, 255, 0.38) 32%, rgba(240, 50, 200, 0.25) 62%, transparent 75%)";
+      } else {
+        homeGlow.style.background = "radial-gradient(circle, rgba(" + theme.glowRgb + ", 0.54) 0%, rgba(" + theme.glowRgb + ", 0.16) 48%, transparent 72%)";
+      }
+    }
+    if (mineLogoImg) mineLogoImg.style.filter = "drop-shadow(0 10px 24px " + theme.dropShadow + ")";
+    if (mineLogoImgBack) mineLogoImgBack.style.filter = "drop-shadow(0 10px 24px " + theme.dropShadow + ")";
+
+    var tabHeroWrap = document.getElementById("minerHeroWrap");
+    if (tabHeroWrap) {
+      tabHeroWrap.style.setProperty("--ring-glow-color", ringColor);
+      tabHeroWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
+    }
     var mGlowAura = document.getElementById("mGlowAura");
     if (mGlowAura) {
       if (theme.isRainbow) {
@@ -10567,6 +10951,12 @@
     if (mHeroImg) {
       mHeroImg.style.filter = "drop-shadow(0 10px 22px " + theme.dropShadow + ")";
     }
+    if (mHeroImgBack) {
+      mHeroImgBack.style.filter = "drop-shadow(0 10px 22px " + theme.dropShadow + ")";
+    }
+
+    // Attach coin tap interactions
+    attachCoinTapInteractions();
 
     if (mBadgeLvlTag) mBadgeLvlTag.textContent = "LV." + currentLvl;
     if (mBadgeLvlName) mBadgeLvlName.textContent = lvlName;
