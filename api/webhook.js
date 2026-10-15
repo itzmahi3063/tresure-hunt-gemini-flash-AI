@@ -1913,6 +1913,73 @@ module.exports = async (req, res) => {
         return;
       }
 
+      if (command === "/setrequestlimit" || command === "/setlimit") {
+        const val = parseInt(parts[1], 10);
+        if (!val || val < 100 || val > 100000) {
+          let curr = 2500;
+          if (db) {
+            const s = await db.collection("settings").findOne({ key: "app_settings" });
+            if (s && typeof s.dailyRequestLimit === "number" && s.dailyRequestLimit > 0) curr = s.dailyRequestLimit;
+          }
+          await sendTelegramMsg(botToken, chatId, `⚙️ <b>Daily 24-Hour Request Limit</b>\n\nCurrent Limit: <b>${curr.toLocaleString()} requests / 24h</b>\n\nTo update the limit, send:\n<code>/setrequestlimit 2500</code>\n<i>(Enter any number between 100 and 100,000)</i>`);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        if (db) {
+          await db.collection("settings").updateOne(
+            { key: "app_settings" },
+            { $set: { dailyRequestLimit: val, updatedAt: Date.now() } },
+            { upsert: true }
+          );
+        }
+
+        await sendTelegramMsg(botToken, chatId, `✅ <b>Daily Request Limit Updated!</b>\n\nUsers can now make up to <b>${val.toLocaleString()} requests per 24 hours</b>.`);
+        res.status(200).json({ ok: true, requestLimitUpdated: true });
+        return;
+      }
+
+      if (command === "/resetlimit" || command === "/clearlimit") {
+        const targetUid = parts[1] ? parts[1].trim() : "";
+        if (!targetUid) {
+          await sendTelegramMsg(botToken, chatId, `ℹ️ <b>Reset User Daily Limit</b>\n\nUsage:\n<code>/resetlimit &lt;telegramId&gt;</code>\n\nExample:\n<code>/resetlimit 123456789</code>\n\n<i>Instantly resets the user's 24-hour request count to 0 so they can continue playing immediately.</i>`);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const tid = String(targetUid);
+        const numId = Number(targetUid);
+        const usersCol = db ? db.collection("users") : null;
+        if (!usersCol) {
+          res.status(500).json({ error: "Database not connected" });
+          return;
+        }
+
+        const targetUser = await usersCol.findOne({
+          $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])]
+        });
+
+        if (!targetUser) {
+          await sendTelegramMsg(botToken, chatId, `❌ User with ID <code>${escapeHtml(tid)}</code> not found in database.`);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        await usersCol.updateMany(
+          { $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])] },
+          {
+            $set: {
+              dailyReqCount: 0,
+              dailyReqCycleStart: Date.now()
+            }
+          }
+        );
+
+        await sendTelegramMsg(botToken, chatId, `✅ <b>User Daily Limit Reset!</b>\n\nUser ID: <code>${tid}</code>\n24-hour request count has been reset to 0. They can make requests immediately.`);
+        res.status(200).json({ ok: true, limitReset: true });
+        return;
+      }
+
       let isAwaitingTask = false;
       let isAwaitingRefUid = false;
       let isAwaitingBroadcast = false;

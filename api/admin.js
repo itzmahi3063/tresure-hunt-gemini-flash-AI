@@ -720,8 +720,9 @@ module.exports = async (req, res) => {
         const watchAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
+        const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
 
-        res.status(200).json({ ok: true, tasks: mapped, watchAdReward, coinPriceUsd, adMissionReward });
+        res.status(200).json({ ok: true, tasks: mapped, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit });
         return;
       }
 
@@ -731,7 +732,8 @@ module.exports = async (req, res) => {
         const watchAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
-        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward });
+        const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
+        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit });
         return;
       }
 
@@ -1694,6 +1696,29 @@ module.exports = async (req, res) => {
           ok: true,
           coinPriceUsd: parsedPrice,
           message: `TREASURE Coin price successfully set to $${parsedPrice} USD per coin!`
+        });
+        return;
+      }
+
+      // 13. Update Daily Request Limit
+      if (action === "update_daily_request_limit") {
+        const { limit } = req.body || {};
+        const parsedLimit = parseInt(limit, 10);
+        if (isNaN(parsedLimit) || parsedLimit < 100 || parsedLimit > 100000) {
+          res.status(400).json({ error: "Daily limit must be a positive number between 100 and 100,000" });
+          return;
+        }
+
+        await db.collection("settings").updateOne(
+          { key: "app_settings" },
+          { $set: { dailyRequestLimit: parsedLimit, updatedAt: Date.now() } },
+          { upsert: true }
+        );
+
+        res.status(200).json({
+          ok: true,
+          dailyRequestLimit: parsedLimit,
+          message: `Daily request limit successfully set to ${parsedLimit.toLocaleString()} requests per 24 hours!`
         });
         return;
       }
