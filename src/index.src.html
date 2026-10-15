@@ -8928,7 +8928,11 @@
 
     // If user entered via referral link or Mini App without starting the bot (allows_write_to_pm is not true),
     // ask Telegram's native message permission first; once allowed, auto-send the verification image!
-    if (!botWritePermissionGranted && tg && typeof tg.requestWriteAccess === "function") {
+    var hasPermission = Boolean(
+      botWritePermissionGranted || 
+      (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.allows_write_to_pm === true)
+    );
+    if (!hasPermission && tg && typeof tg.requestWriteAccess === "function") {
       showIdFeedback("🔔 Please allow @treasure_hunt12_bot to send you messages to receive your 4-digit code...", false);
       try {
         tg.requestWriteAccess(function(allowed) {
