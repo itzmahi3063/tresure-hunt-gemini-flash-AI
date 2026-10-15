@@ -1712,10 +1712,14 @@ module.exports = async (req, res) => {
       }
 
       // SENDER IS VERIFIED ADMIN!
+      const totalMinersCount = db ? await db.collection("users").countDocuments({}) : 0;
+      const pendingWCount = db ? await db.collection("withdrawals").countDocuments({ status: "PENDING" }) : 0;
       const adminUrl = `${baseUrl}/admin.html`;
       const replyText = 
         `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
         `Welcome back, <b>${escapeHtml(firstName)}</b> (ID: <code>${senderId}</code>)!\n\n` +
+        `👥 <b>Total Miners:</b> <code>${totalMinersCount.toLocaleString()}</code>\n` +
+        `💸 <b>Pending Requests:</b> <code>${pendingWCount.toLocaleString()}</code>\n\n` +
         `Tap a button below to manage the platform:`;
 
       await sendTelegramMsg(botToken, chatId, replyText, {

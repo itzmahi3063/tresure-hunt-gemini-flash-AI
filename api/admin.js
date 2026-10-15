@@ -479,29 +479,28 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 3. Search User (UID or Username)
-      if (action === "search_user") {
+      // 3. Search User (UID or Username) or List Recent Miners
+      if (action === "search_user" || action === "users" || action === "recent_users") {
         const q = String(req.query.q || "").trim();
-        if (!q) {
-          res.status(400).json({ error: "Search query required" });
-          return;
+        let query = {};
+        if (q) {
+          const cleanUsername = q.replace(/^@/, "");
+          const numId = Number(q);
+          const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const escapedUsername = cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+          query = {
+            $or: [
+              { telegramId: q },
+              ...(numId ? [{ telegramId: numId }] : []),
+              { username: { $regex: escapedUsername, $options: "i" } },
+              { firstName: { $regex: escapedQ, $options: "i" } }
+            ]
+          };
         }
 
-        const cleanUsername = q.replace(/^@/, "");
-        const numId = Number(q);
-        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const escapedUsername = cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-        const query = {
-          $or: [
-            { telegramId: q },
-            ...(numId ? [{ telegramId: numId }] : []),
-            { username: { $regex: escapedUsername, $options: "i" } },
-            { firstName: { $regex: escapedQ, $options: "i" } }
-          ]
-        };
-
-        const found = await usersCol.find(query).limit(20).toArray();
+        const totalMiners = await usersCol.countDocuments({});
+        const found = await usersCol.find(query).sort({ _id: -1 }).limit(25).toArray();
         const mapped = found.map(u => ({
           id: String(u._id),
           telegramId: String(u.telegramId),
@@ -544,7 +543,7 @@ module.exports = async (req, res) => {
           watchAdsEarnedCoins: Number(u.totalAdsWatched || 0) * 10
         }));
 
-        res.status(200).json({ ok: true, users: mapped });
+        res.status(200).json({ ok: true, users: mapped, totalMiners, isSearch: !!q });
         return;
       }
 
