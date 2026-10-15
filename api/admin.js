@@ -318,6 +318,14 @@ module.exports = async (req, res) => {
           ]
         });
 
+        const pendingSuspiciousCount = await withdrawalsCol.countDocuments({
+          status: "PENDING",
+          $or: [
+            { isSuspicious: true },
+            { isSuspiciousWithdrawalDistance: true }
+          ]
+        });
+
         res.status(200).json({
           ok: true,
           totalUsers,
@@ -328,6 +336,7 @@ module.exports = async (req, res) => {
           bannedGrace,
           highRiskUnbannedCount,
           pendingWithdrawals: pendingW,
+          pendingSuspiciousCount,
           totalPendingUsdt: Number(totalPendingUsdt.toFixed(2)),
           totalPendingTon: Number(totalPendingTon.toFixed(4)),
           approvedWithdrawals: approvedW,
@@ -340,9 +349,12 @@ module.exports = async (req, res) => {
 
       // 2. Withdrawals List
       if (action === "withdrawals") {
+        const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
-        if (req.query.status && req.query.status !== "ALL") {
-          filter.status = req.query.status.toUpperCase();
+        if (reqStatus === "PENDING" || reqStatus === "SUSPICIOUS") {
+          filter.status = "PENDING";
+        } else if (reqStatus !== "ALL") {
+          filter.status = reqStatus;
         }
 
         const rawList = await withdrawalsCol
@@ -366,8 +378,23 @@ module.exports = async (req, res) => {
           });
         }
 
+        let pendingSuspiciousCount = 0;
+
         const list = rawList.map(w => {
           const u = usersMap[String(w.telegramId)] || {};
+          const isSusp = Boolean(
+            u.isSuspicious ||
+            u.isHighRiskHacker ||
+            u.isFakeAdBypasser ||
+            (u.adSkipUnder9sStrikes > 0) ||
+            w.isSuspicious ||
+            w.isSuspiciousWithdrawalDistance
+          );
+
+          if (w.status === "PENDING" && isSusp) {
+            pendingSuspiciousCount++;
+          }
+
           return {
             id: String(w._id),
             telegramId: w.telegramId,
@@ -376,10 +403,11 @@ module.exports = async (req, res) => {
             currentBalance: Number(u.balance || 0),
             recruitsCount: Number(u.recruitsCount || 0),
             isBanned: !!u.isBanned,
-            isSuspicious: !!u.isSuspicious,
-            suspiciousReason: u.suspiciousReason || "",
+            isSuspicious: isSusp,
+            isSuspiciousWithdrawalDistance: !!w.isSuspiciousWithdrawalDistance,
+            suspiciousReason: w.suspiciousReason || u.suspiciousReason || "",
             isHighRiskHacker: !!u.isHighRiskHacker,
-            securityFlag: u.securityFlag || "",
+            securityFlag: w.securityFlag || u.securityFlag || "",
             isSuspendedMultipleAccount: !!u.isSuspendedMultipleAccount,
             deviceViolationsCount: Number(u.deviceViolationsCount || 0),
             registeredIp: u.registeredIp || u.lastIp || "",
@@ -397,7 +425,19 @@ module.exports = async (req, res) => {
           };
         });
 
-        res.status(200).json({ ok: true, withdrawals: list });
+        // Filter list based on selected view
+        let filteredList = list;
+        if (reqStatus === "SUSPICIOUS") {
+          filteredList = list.filter(w => w.status === "PENDING" && w.isSuspicious);
+        } else if (reqStatus === "PENDING") {
+          filteredList = list.filter(w => w.status === "PENDING" && !w.isSuspicious);
+        }
+
+        res.status(200).json({
+          ok: true,
+          withdrawals: filteredList,
+          pendingSuspiciousCount: pendingSuspiciousCount
+        });
         return;
       }
 
@@ -958,6 +998,85 @@ module.exports = async (req, res) => {
         }
 
         res.status(200).json({ ok: true, message: `Withdrawal rejected and ${refundAmt.toLocaleString()} coins refunded to user.` });
+        return;
+      }
+
+      // 2b. Ban All Suspicious Withdrawals
+      if (action === "ban_all_suspicious_withdrawals") {
+        const pendingWithdrawals = await withdrawalsCol.find({ status: "PENDING" }).toArray();
+        if (pendingWithdrawals.length === 0) {
+          res.status(200).json({ ok: true, count: 0, message: "No pending withdrawals to review." });
+          return;
+        }
+
+        const userIds = [...new Set(pendingWithdrawals.map(w => String(w.telegramId)))];
+        const foundUsers = await usersCol.find({
+          $or: [
+            { telegramId: { $in: userIds } },
+            { telegramId: { $in: userIds.map(Number).filter(Boolean) } }
+          ]
+        }).toArray();
+
+        const userMap = {};
+        foundUsers.forEach(u => { userMap[String(u.telegramId)] = u; });
+
+        const suspiciousWithdrawalIds = [];
+        const suspiciousUserIds = new Set();
+
+        for (const w of pendingWithdrawals) {
+          const u = userMap[String(w.telegramId)] || {};
+          const isSusp = Boolean(
+            u.isSuspicious ||
+            u.isHighRiskHacker ||
+            u.isFakeAdBypasser ||
+            (u.adSkipUnder9sStrikes > 0) ||
+            w.isSuspicious ||
+            w.isSuspiciousWithdrawalDistance
+          );
+          if (isSusp) {
+            suspiciousWithdrawalIds.push(w._id);
+            if (u._id) suspiciousUserIds.add(u._id);
+          }
+        }
+
+        const validUserObjIds = [...suspiciousUserIds];
+        const now = Date.now();
+
+        if (validUserObjIds.length > 0) {
+          await usersCol.updateMany(
+            { _id: { $in: validUserObjIds } },
+            {
+              $set: {
+                isBanned: true,
+                banReason: "Suspicious / automated cluster activity banned by admin",
+                bannedAt: now,
+                bannedAtDate: new Date(),
+                isSuspicious: true
+              }
+            }
+          );
+        }
+
+        if (suspiciousWithdrawalIds.length > 0) {
+          await withdrawalsCol.updateMany(
+            { _id: { $in: suspiciousWithdrawalIds }, status: "PENDING" },
+            {
+              $set: {
+                status: "REJECTED",
+                reason: "Suspicious / high-risk activity detected. Request rejected and user banned.",
+                rejectedAt: now,
+                rejectedAtDate: new Date()
+              }
+            }
+          );
+        }
+
+        res.status(200).json({
+          ok: true,
+          bannedUsersCount: validUserObjIds.length,
+          rejectedWithdrawalsCount: suspiciousWithdrawalIds.length,
+          message: `Successfully banned ${validUserObjIds.length} suspicious user(s) and rejected ${suspiciousWithdrawalIds.length} withdrawal(s)!`
+        });
         return;
       }
 

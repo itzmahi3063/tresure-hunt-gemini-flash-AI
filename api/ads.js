@@ -3,6 +3,7 @@ const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 const MAX_ADS_PER_DAY = 10;
 const AD_REWARD = 15;
@@ -181,6 +182,10 @@ module.exports = async (req, res) => {
     const usersCol = db.collection("users");
     const tokensCol = db.collection("captcha_tokens");
     const uid = String(tgUser.id);
+
+    if (!(await checkDailyRequestQuota(usersCol, uid, res))) {
+      return;
+    }
 
     let user = await findOrCreateUser(usersCol, tgUser);
     if (user && user.isBanned) {

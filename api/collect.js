@@ -4,6 +4,7 @@ const { findOrCreateUser } = require("../lib/userHelper");
 const { mineIsReady, MINE_REWARD, getMultiplierForLevel } = require("../lib/gameLogic");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -32,6 +33,10 @@ module.exports = async (req, res) => {
   try {
     const db = await getDb();
     const users = db.collection("users");
+
+    if (!(await checkDailyRequestQuota(users, telegramId, res))) {
+      return;
+    }
     let user = await findOrCreateUser(users, tgUser);
 
     if (user && user.isBanned) {

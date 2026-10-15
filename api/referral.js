@@ -2,6 +2,7 @@ const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 const MILESTONES_CONFIG = [
   { id: 1, required: 5, reward: 100, title: "Invite 5 Friends" },
@@ -33,6 +34,10 @@ module.exports = async (req, res) => {
   try {
     const db = await getDb();
     const usersCol = db.collection("users");
+
+    if (!(await checkDailyRequestQuota(usersCol, uid, res))) {
+      return;
+    }
 
     let user = await findOrCreateUser(usersCol, tgUser);
 

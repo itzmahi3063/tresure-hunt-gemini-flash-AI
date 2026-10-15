@@ -6,6 +6,7 @@ const { processMiningReminders } = require("../lib/miningReminder");
 const { ObjectId } = require("mongodb");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 module.exports = async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -111,6 +112,10 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const tasksCol = db.collection("tasks");
     const usersCol = db.collection("users");
+
+    if (!(await checkDailyRequestQuota(usersCol, telegramId, res))) {
+      return;
+    }
 
     // Retrieve or merge unified user record
     const user = await findOrCreateUser(usersCol, tgUser);

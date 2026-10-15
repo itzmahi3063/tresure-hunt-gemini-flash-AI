@@ -6,6 +6,7 @@ const { generateVerificationImage } = require("../lib/verificationImage");
 const { notifyInviterReferralSuccess } = require("../lib/miningReminder");
 const { createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 const { REFERRAL_VELOCITY_WINDOW_MS, REFERRAL_VELOCITY_THRESHOLD } = require("../lib/constants");
 
 let cachedBotUsername = null;
@@ -82,6 +83,10 @@ module.exports = async (req, res) => {
     const now = Date.now();
     const db = await getDb();
     const users = db.collection("users");
+
+    if (!(await checkDailyRequestQuota(users, telegramId, res))) {
+      return;
+    }
 
     const rawStartParam = String(
       (req.query && req.query.start_param) ||
