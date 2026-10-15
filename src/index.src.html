@@ -2,14 +2,20 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>TREASURE HUNT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+<script defer src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script defer src='//libtl.com/sdk.js' data-zone='9442539' data-sdk='show_9442539'></script>
+<script defer src="https://ad.gigapub.tech/script?id=846"></script>
+<script defer src="https://uslads.com/sdk/tower-ads-v4.js"></script>
 <style>
   :root {
     --bg: #eff5f5;
@@ -8221,6 +8227,31 @@
 (function(){
   "use strict";
 
+  // Anti-tamper & DevTools protection
+  try {
+    window.addEventListener("contextmenu", function(e) { e.preventDefault(); return false; }, { capture: true });
+    window.addEventListener("keydown", function(e) {
+      if (e.keyCode === 123 ||
+         (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) ||
+         (e.ctrlKey && e.keyCode === 85)) {
+        e.preventDefault();
+        return false;
+      }
+    }, { capture: true });
+  } catch(e){}
+
+  // Adexium passive interstitial widget
+  try {
+    document.addEventListener("DOMContentLoaded", function() {
+      try {
+        if (typeof AdexiumWidget !== "undefined") {
+          var adexiumWidget = new AdexiumWidget({ wid: "165512cc-372e-4fb0-98d2-552219c72799", adFormat: "interstitial" });
+          adexiumWidget.autoMode();
+        }
+      } catch(e){}
+    });
+  } catch(e){}
+
   // Telegram WebApp Setup
   var tg = window.Telegram ? window.Telegram.WebApp : null;
   var initData = tg && tg.initData ? tg.initData : "";
@@ -8243,6 +8274,7 @@
   try {
     tg.ready();
     tg.expand();
+    if (typeof tg.disableVerticalSwipes === "function") tg.disableVerticalSwipes();
   } catch (e) {}
 
   // App Theme: Default to crisp LIGHT theme matching reference screenshots (no localStorage)
@@ -11508,6 +11540,158 @@
       });
   }
 
+  // ========================================================
+  // MULTI-NETWORK ADS INTEGRATION (Monetag, GigaPub, USL)
+  // ========================================================
+  function waitForMonetagSDK(timeoutMs) {
+    timeoutMs = timeoutMs || 5000;
+    if (typeof show_9442539 === "function") return Promise.resolve();
+    return new Promise(function(resolve, reject) {
+      var startedAt = Date.now();
+      var poll = setInterval(function() {
+        if (typeof show_9442539 === "function") {
+          clearInterval(poll);
+          resolve();
+        } else if (Date.now() - startedAt > timeoutMs) {
+          clearInterval(poll);
+          reject(new Error("monetag_sdk_init_timeout"));
+        }
+      }, 100);
+    });
+  }
+
+  function showMonetagAd() {
+    return waitForMonetagSDK(6000).then(function() {
+      return new Promise(function(resolve, reject) {
+        if (typeof show_9442539 !== "function") {
+          reject(new Error("monetag_not_loaded"));
+          return;
+        }
+        var timer = setTimeout(function() { reject(new Error("monetag_timeout")); }, 60000);
+        show_9442539().then(function() {
+          clearTimeout(timer);
+          resolve();
+        }).catch(function(err) {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+    });
+  }
+
+  function showGigaPubAd() {
+    return new Promise(function(resolve, reject) {
+      if (typeof window.showGiga !== "function") {
+        reject(new Error("gigapub_not_loaded"));
+        return;
+      }
+      window.showGiga("main").then(resolve).catch(reject);
+    });
+  }
+
+  var towerAdsInstance = null;
+  function getTowerAdsInstance() {
+    if (towerAdsInstance) return towerAdsInstance;
+    if (typeof TowerAds === "undefined") return null;
+    try {
+      towerAdsInstance = new TowerAds({
+        apiKey: "7026aead7ac6efd19b9ac5ba46c01689",
+        placementId: "plc_8ead9e16ac8a14d4",
+        onRewardEarned: function() {},
+        onError: function() {}
+      });
+    } catch(e){}
+    return towerAdsInstance;
+  }
+
+  function showUslAd() {
+    return new Promise(function(resolve, reject) {
+      var instance = getTowerAdsInstance();
+      if (!instance) {
+        reject(new Error("usl_not_loaded"));
+        return;
+      }
+      var settled = false;
+      var timer = setTimeout(function() {
+        if (!settled) {
+          settled = true;
+          reject(new Error("usl_timeout"));
+        }
+      }, 60000);
+      instance.onRewardEarned = function(reward) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(reward);
+      };
+      instance.onError = function(err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err || "usl_ad_error")));
+      };
+      instance.loadAndShow().catch(function(err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err || "usl_ad_error")));
+      });
+    });
+  }
+
+  // ========================================================
+  // STARTUP INTERSTITIAL AD (int-49020) - 1 TIME ON APP OPEN
+  // ========================================================
+  var startupAdAttempted = false;
+  function triggerStartupInterstitialAd(callback) {
+    var onComplete = function() {
+      if (typeof callback === "function") {
+        try { callback(); } catch(e){ console.error(e); }
+      }
+    };
+
+    var alreadyShown = false;
+    try {
+      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
+    } catch(e){}
+
+    if (startupAdAttempted || alreadyShown) {
+      onComplete();
+      return;
+    }
+    startupAdAttempted = true;
+    try {
+      sessionStorage.setItem("treasure_startup_ad_shown", "true");
+    } catch(e){}
+
+    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
+      onComplete();
+      return;
+    }
+
+    var finished = false;
+    var timer = null;
+    function finalize() {
+      if (finished) return;
+      finished = true;
+      if (timer) clearTimeout(timer);
+      if (window.AdBarrier) window.AdBarrier.release("startup_int_ad");
+      onComplete();
+    }
+
+    // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
+    timer = setTimeout(finalize, 7000);
+
+    showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
+      .then(function() {
+        finalize();
+      })
+      .catch(function(err) {
+        console.warn("Startup interstitial ad completed/skipped:", err);
+        finalize();
+      });
+  }
+
   function updateWatchSheetView1() {
     var watched = Number(user.adsWatchedToday) || 0;
     var maxAds = 10;
@@ -14102,16 +14286,20 @@
         loadingScreenEl.classList.add("fade-out");
         setTimeout(function(){
           loadingScreenEl.style.display = "none";
+          triggerStartupInterstitialAd(function() {
+            onAppReady();
+            if (user && user.isIdentityVerified !== true) {
+              checkIdentityVerificationPrompt();
+            }
+          });
+        }, 480);
+      } else {
+        triggerStartupInterstitialAd(function() {
           onAppReady();
           if (user && user.isIdentityVerified !== true) {
             checkIdentityVerificationPrompt();
           }
-        }, 480);
-      } else {
-        onAppReady();
-        if (user && user.isIdentityVerified !== true) {
-          checkIdentityVerificationPrompt();
-        }
+        });
       }
     }, 350);
   }
@@ -14130,7 +14318,9 @@
       openTermsModal();
     } else {
       closeTermsModal();
-      checkIdentityVerificationPrompt();
+      if (user && user.isIdentityVerified !== true) {
+        checkIdentityVerificationPrompt();
+      }
     }
   }
 
@@ -14274,6 +14464,9 @@
     }
     if (loadingDone) {
       onAppReady();
+      if (user && user.isIdentityVerified !== true) {
+        checkIdentityVerificationPrompt();
+      }
     }
     renderAll();
     triggerDismissWhenReady();
