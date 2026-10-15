@@ -11,11 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
-<script defer src="https://sad.adsgram.ai/js/sad.min.js"></script>
-<script defer src='//libtl.com/sdk.js' data-zone='9442539' data-sdk='show_9442539'></script>
-<script defer src="https://ad.gigapub.tech/script?id=846"></script>
-<script defer src="https://uslads.com/sdk/tower-ads-v4.js"></script>
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
 <style>
   :root {
     --bg: #eff5f5;
@@ -8240,18 +8236,6 @@
     }, { capture: true });
   } catch(e){}
 
-  // Adexium passive interstitial widget
-  try {
-    document.addEventListener("DOMContentLoaded", function() {
-      try {
-        if (typeof AdexiumWidget !== "undefined") {
-          var adexiumWidget = new AdexiumWidget({ wid: "165512cc-372e-4fb0-98d2-552219c72799", adFormat: "interstitial" });
-          adexiumWidget.autoMode();
-        }
-      } catch(e){}
-    });
-  } catch(e){}
-
   // Telegram WebApp Setup
   var tg = window.Telegram ? window.Telegram.WebApp : null;
   var initData = tg && tg.initData ? tg.initData : "";
@@ -11386,127 +11370,117 @@
     }).then(handleResponse);
   }
 
-  function initAdMissions() {
-    renderAdMissions();
-  }
+  // ========================================================
+  // AD MISSIONS (Adsgram Task Ad: task-53937)
+  // Shows active Adsgram task ads with GO button & +20 Coins
+  // If no ads available, displays: "Ad mission not available right now"
+  // ========================================================
+  var adMissionsRendered = false;
 
-  var defaultAdMissions = [
-    { id: 1, title: "1ST.GAME", reward: 20 },
-    { id: 2, title: "1ST.GAME", reward: 20 },
-    { id: 3, title: "1ST.GAME", reward: 20 },
-    { id: 4, title: "1ST.GAME", reward: 20 }
-  ];
-
-  function getCompletedAdMissionsKey() {
-    var d = new Date();
-    var dateKey = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
-    var uId = (user && user.telegramId) || "guest";
-    return "ad_missions_completed_" + uId + "_" + dateKey;
-  }
-
-  function getCompletedAdMissions() {
-    try {
-      var raw = localStorage.getItem(getCompletedAdMissionsKey());
-      return raw ? JSON.parse(raw) : [];
-    } catch(e) {
-      return [];
-    }
-  }
-
-  function markAdMissionCompleted(id) {
-    try {
-      var completed = getCompletedAdMissions();
-      if (completed.indexOf(id) === -1) {
-        completed.push(id);
-        localStorage.setItem(getCompletedAdMissionsKey(), JSON.stringify(completed));
-      }
-    } catch(e) {}
-  }
-
-  function renderAdMissions() {
+  function initAdMissions(forceReload) {
     var container = document.getElementById("adMissionsBody");
     if (!container) return;
 
-    var completedList = getCompletedAdMissions();
-    var goText = (typeof t === "function" ? t("mission_go_btn") : "GO");
-    var doneText = "DONE";
+    if (adMissionsRendered && !forceReload) return;
+    adMissionsRendered = true;
 
-    var html = "";
-    defaultAdMissions.forEach(function(mission) {
-      var isDone = completedList.indexOf(mission.id) !== -1;
-      html +=
-        '<div class="ad-mission-card" data-mission-id="' + mission.id + '">' +
-          '<div class="ad-mission-left">' +
-            '<div class="ad-mission-icon-wrap">' +
-              '<img src="assets/first_game_logo.svg" alt="1ST.GAME" onerror="this.outerHTML=\'<div style=\\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#70cb18;color:#fff;font-size:22px;border-radius:50%;\\\'>☝️</div>\'" />' +
-            '</div>' +
-            '<div class="ad-mission-info">' +
-              '<div class="ad-mission-title">' + mission.title + '</div>' +
-              '<div class="ad-mission-reward">+' + mission.reward + ' Coins</div>' +
-            '</div>' +
-          '</div>' +
-          '<button type="button" class="ad-mission-btn' + (isDone ? ' done' : '') + '" ' + (isDone ? 'disabled' : '') + ' data-action="run-ad-mission" data-mission-id="' + mission.id + '">' +
-            (isDone ? doneText : goText) +
-          '</button>' +
-        '</div>';
-    });
+    ensureAdsgramLoaded().then(function(loaded) {
+      if (!loaded) {
+        container.innerHTML = '<div class="ad-missions-empty">Ad mission not available right now</div>';
+        return;
+      }
 
-    container.innerHTML = html;
+      var goText = (typeof t === "function" ? t("mission_go_btn") : "GO");
+      var rewardText = "+20 Coins";
 
-    var btns = container.querySelectorAll('.ad-mission-btn[data-action="run-ad-mission"]');
-    btns.forEach(function(btn) {
-      btn.addEventListener("click", function(e) {
-        e.stopPropagation();
-        var missionId = Number(btn.getAttribute("data-mission-id")) || 1;
-        if (btn.disabled || btn.classList.contains("done")) return;
+      container.innerHTML =
+        '<adsgram-task data-block-id="' + ADSGRAM_TASK_BLOCK_ID + '" class="ad-mission-task">' +
+          '<p slot="reward" class="ad-mission-reward">' + rewardText + '</p>' +
+          '<div slot="button" class="ad-mission-btn">' + goText + '</div>' +
+          '<div slot="claim" class="ad-mission-btn ad-mission-btn-claim">CLAIM</div>' +
+          '<div slot="done" class="ad-mission-btn ad-mission-btn-done">DONE</div>' +
+        '</adsgram-task>' +
+        '<div class="ad-missions-empty" id="adMissionsEmpty" style="display:none;">Ad mission not available right now</div>';
 
-        if (!window.AdBarrier.acquire("ad_mission_" + missionId)) {
-          showToast("⚠️ Another ad is currently active. Please wait.");
-          return;
-        }
+      var taskEl = container.querySelector("adsgram-task");
+      var emptyEl = document.getElementById("adMissionsEmpty");
+      var stateResolved = false;
 
-        showToast("🎬 Opening Ad Mission...");
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;border-width:2px;"></span>';
+      function showEmpty() {
+        if (stateResolved) return;
+        stateResolved = true;
+        if (taskEl) taskEl.style.display = "none";
+        if (emptyEl) emptyEl.style.display = "block";
+      }
 
-        playFullscreenAd(function(watchRes) {
-          window.AdBarrier.release("ad_mission_" + missionId);
-          adsApiPost({ action: "claim_ad_mission", missionId: missionId }).then(function(claimRes) {
-            if (claimRes && claimRes.ok) {
-              markAdMissionCompleted(missionId);
-              if (claimRes.newBalance !== undefined) {
-                user.balance = claimRes.newBalance;
-              } else if (claimRes.data && claimRes.data.newBalance !== undefined) {
-                user.balance = claimRes.data.newBalance;
-              } else {
-                user.balance = (Number(user.balance) || 0) + 20;
+      function showFilled() {
+        stateResolved = true;
+        if (taskEl) taskEl.style.display = "block";
+        if (emptyEl) emptyEl.style.display = "none";
+      }
+
+      if (taskEl) {
+        // User completed Adsgram task -> claim reward
+        taskEl.addEventListener("reward", function(event) {
+          adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
+            .then(function(claimRes) {
+              if (claimRes && claimRes.ok) {
+                if (claimRes.newBalance !== undefined) {
+                  user.balance = claimRes.newBalance;
+                } else if (claimRes.data && claimRes.data.newBalance !== undefined) {
+                  user.balance = claimRes.data.newBalance;
+                } else {
+                  user.balance = (Number(user.balance) || 0) + 20;
+                }
+                renderBalance();
+                showToast("🎉 Mission complete! +20 Coins added!");
+                if (tg && tg.HapticFeedback) {
+                  try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
+                }
               }
-              renderBalance();
-              showToast("🎉 Mission complete! +20 Coins added!");
-              if (tg && tg.HapticFeedback) {
-                try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
-              }
-              renderAdMissions();
-            } else {
-              btn.disabled = false;
-              btn.textContent = goText;
-              showToast("⚠️ " + ((claimRes && claimRes.error) || (claimRes && claimRes.data && claimRes.data.error) || "Could not claim reward."));
-            }
-          }).catch(function(err) {
-            btn.disabled = false;
-            btn.textContent = goText;
-            showToast("⚠️ Network issue claiming mission reward.");
-          });
-        }, function(err) {
-          window.AdBarrier.release("ad_mission_" + missionId);
-          btn.disabled = false;
-          btn.textContent = goText;
-          if (err !== "busy" && err !== "too_short") {
-            showToast("⚠️ Ad closed before completion.");
-          }
+            })
+            .catch(function(err) {
+              console.warn("Claim ad mission error:", err);
+            });
         });
-      });
+
+        // Triggered when Adsgram has no tasks/banners for this user/block
+        taskEl.addEventListener("onBannerNotFound", function(event) {
+          showEmpty();
+        });
+
+        // Triggered when error occurs loading task
+        taskEl.addEventListener("onError", function(event) {
+          showEmpty();
+        });
+      }
+
+      // 3.5s timeout: if Adsgram has not rendered a visible task, gracefully show empty message
+      setTimeout(function() {
+        if (!stateResolved && taskEl) {
+          var hasContent = false;
+          try {
+            hasContent = Boolean(
+              (taskEl.offsetHeight > 20) ||
+              (taskEl.shadowRoot && taskEl.shadowRoot.innerHTML && taskEl.shadowRoot.innerHTML.length > 50) ||
+              (taskEl.children && taskEl.children.length > 4)
+            );
+          } catch(e){}
+
+          if (hasContent) {
+            showFilled();
+          } else {
+            showEmpty();
+          }
+        }
+      }, 3500);
+    }).catch(function() {
+      container.innerHTML = '<div class="ad-missions-empty">Ad mission not available right now</div>';
     });
+  }
+
+  function renderAdMissions() {
+    initAdMissions(true);
   }
 
   // ========================================================
@@ -11538,105 +11512,6 @@
         showToast("⚠️ " + msg);
         if (typeof onSkippedOrFailed === "function") onSkippedOrFailed(err);
       });
-  }
-
-  // ========================================================
-  // MULTI-NETWORK ADS INTEGRATION (Monetag, GigaPub, USL)
-  // ========================================================
-  function waitForMonetagSDK(timeoutMs) {
-    timeoutMs = timeoutMs || 5000;
-    if (typeof show_9442539 === "function") return Promise.resolve();
-    return new Promise(function(resolve, reject) {
-      var startedAt = Date.now();
-      var poll = setInterval(function() {
-        if (typeof show_9442539 === "function") {
-          clearInterval(poll);
-          resolve();
-        } else if (Date.now() - startedAt > timeoutMs) {
-          clearInterval(poll);
-          reject(new Error("monetag_sdk_init_timeout"));
-        }
-      }, 100);
-    });
-  }
-
-  function showMonetagAd() {
-    return waitForMonetagSDK(6000).then(function() {
-      return new Promise(function(resolve, reject) {
-        if (typeof show_9442539 !== "function") {
-          reject(new Error("monetag_not_loaded"));
-          return;
-        }
-        var timer = setTimeout(function() { reject(new Error("monetag_timeout")); }, 60000);
-        show_9442539().then(function() {
-          clearTimeout(timer);
-          resolve();
-        }).catch(function(err) {
-          clearTimeout(timer);
-          reject(err);
-        });
-      });
-    });
-  }
-
-  function showGigaPubAd() {
-    return new Promise(function(resolve, reject) {
-      if (typeof window.showGiga !== "function") {
-        reject(new Error("gigapub_not_loaded"));
-        return;
-      }
-      window.showGiga("main").then(resolve).catch(reject);
-    });
-  }
-
-  var towerAdsInstance = null;
-  function getTowerAdsInstance() {
-    if (towerAdsInstance) return towerAdsInstance;
-    if (typeof TowerAds === "undefined") return null;
-    try {
-      towerAdsInstance = new TowerAds({
-        apiKey: "7026aead7ac6efd19b9ac5ba46c01689",
-        placementId: "plc_8ead9e16ac8a14d4",
-        onRewardEarned: function() {},
-        onError: function() {}
-      });
-    } catch(e){}
-    return towerAdsInstance;
-  }
-
-  function showUslAd() {
-    return new Promise(function(resolve, reject) {
-      var instance = getTowerAdsInstance();
-      if (!instance) {
-        reject(new Error("usl_not_loaded"));
-        return;
-      }
-      var settled = false;
-      var timer = setTimeout(function() {
-        if (!settled) {
-          settled = true;
-          reject(new Error("usl_timeout"));
-        }
-      }, 60000);
-      instance.onRewardEarned = function(reward) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(reward);
-      };
-      instance.onError = function(err) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err instanceof Error ? err : new Error(String(err || "usl_ad_error")));
-      };
-      instance.loadAndShow().catch(function(err) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err instanceof Error ? err : new Error(String(err || "usl_ad_error")));
-      });
-    });
   }
 
   // ========================================================
