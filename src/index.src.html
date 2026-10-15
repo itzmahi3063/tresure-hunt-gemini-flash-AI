@@ -8756,6 +8756,19 @@
             if (typeof checkLanguagePrompt === "function") {
               checkLanguagePrompt();
             }
+            // Transitioning to Home: invoke apiGet() to atomically claim referral welcome bonus on Home entrance
+            if (typeof apiGet === "function") {
+              apiGet().then(function(userRes){
+                if (userRes && userRes.ok && userRes.data) {
+                  var prevBal = Number(user.balance) || 0;
+                  Object.assign(user, userRes.data);
+                  if (typeof userRes.data.balance === "number" && userRes.data.balance > prevBal) {
+                    showToast("🎁 +50 TREASURE Referral Welcome Bonus!");
+                  }
+                  if (typeof renderAll === "function") renderAll();
+                }
+              }).catch(function(){});
+            }
           }, 600);
         }).catch(function(err){
           confirmBtn.disabled = false;

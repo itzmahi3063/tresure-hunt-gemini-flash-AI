@@ -334,7 +334,7 @@ module.exports = async (req, res) => {
           { $set: { isIdentityVerified: true, identityVerifiedAt: now } }
         );
 
-        // Process referral: reward inviter ONLY when the recruited user completes verification!
+        // Bind referredBy if passed in start_param and not yet set (DO NOT reward until user enters Home!)
         let referrerId = user.referredBy;
         const paramToTest = String((req.body && req.body.start_param) || tgUser.start_param || (req.query && req.query.start_param) || "").trim();
         if (!referrerId && paramToTest) {
@@ -346,85 +346,7 @@ module.exports = async (req, res) => {
           }
         }
 
-        let userBalance = Number(user.balance) || 0;
-        let referralRewardGiven = false;
-
-        if (referrerId && String(referrerId) !== telegramId) {
-          const inviter = await findUserById(users, referrerId);
-          if (inviter && String(inviter.telegramId) !== telegramId) {
-            const welcomeBonus = 50; // New verified recruit gets 50 HOOCOOH
-
-            // ATOMIC one-time claim: only succeeds if referralRewarded is not already true.
-            // Whichever request wins this update (modifiedCount 1) pays the inviter + sends the
-            // notification. Any duplicate/parallel request gets modifiedCount 0 and does NOTHING,
-            // so one referred user can NEVER reward the inviter twice or trigger a 2nd message.
-            const claimRefRes = await users.updateOne(
-              { _id: user._id, referralRewarded: { $ne: true } },
-              {
-                $set: {
-                  referredBy: String(inviter.telegramId),
-                  referralRewarded: true,
-                  referralRewardedAt: now
-                },
-                $inc: { balance: welcomeBonus }
-              }
-            );
-
-            if (claimRefRes && claimRefRes.modifiedCount === 1) {
-              const freshRecruit = await users.findOne({ _id: user._id });
-              userBalance = Number(freshRecruit ? freshRecruit.balance : (userBalance + welcomeBonus)) || 0;
-              user.balance = userBalance;
-
-              // Reward inviter: +1 recruit, +100 HOOCOOH to earnings and balance + track referral velocity (NEWTUBE-TON architecture)
-              const nowDate = new Date();
-              const inviterUpdateRes = await users.findOneAndUpdate(
-                { _id: inviter._id },
-                {
-                  $inc: {
-                    recruitsCount: 1,
-                    refEarnings: 100,
-                    balance: 100
-                  },
-                  $push: { recentReferralSignups: { $each: [nowDate], $slice: -50 } }
-                },
-                { returnDocument: "after" }
-              );
-              const inviterDoc = inviterUpdateRes?.value !== undefined ? inviterUpdateRes.value : inviterUpdateRes;
-              if (inviterDoc && !inviterDoc.velocityFlaggedAt) {
-                const windowStart = Date.now() - REFERRAL_VELOCITY_WINDOW_MS;
-                const recentCount = (inviterDoc.recentReferralSignups || []).filter(t => new Date(t).getTime() >= windowStart).length;
-                if (recentCount >= REFERRAL_VELOCITY_THRESHOLD) {
-                  const justFlagged = await users.updateOne(
-                    { _id: inviterDoc._id, velocityFlaggedAt: { $exists: false } },
-                    { $set: { velocityFlaggedAt: nowDate, velocityFlaggedReason: "referral_velocity" } }
-                  );
-                  const adminId = process.env.ADMIN_TELEGRAM_ID;
-                  const bToken = process.env.TELEGRAM_BOT_TOKEN;
-                  if (justFlagged.modifiedCount > 0 && adminId && bToken) {
-                    const minutes = Math.round(REFERRAL_VELOCITY_WINDOW_MS / 60000);
-                    const alertMsg =
-                      `⚠️ <b>Referral velocity alert (no action taken)</b>\n\n` +
-                      `Referrer <code>${inviter.telegramId}</code> just crossed <b>${REFERRAL_VELOCITY_THRESHOLD}+</b> referral signups within <b>${minutes} minutes</b>.\n\n` +
-                      `Review their referral activity in the Admin Panel.`;
-                    fetch(`https://api.telegram.org/bot${bToken}/sendMessage`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ chat_id: String(adminId), text: alertMsg, parse_mode: "HTML" })
-                    }).catch(() => {});
-                  }
-                }
-              }
-
-              // Notify inviter via Telegram bot with Open HOOCOOH Mine button (sent exactly once)
-              const reqProto = req.headers["x-forwarded-proto"] || "https";
-              const reqHost = req.headers["x-forwarded-host"] || req.headers.host;
-              const userBaseUrl = reqHost ? `${reqProto}://${reqHost}` : "";
-              notifyInviterReferralSuccess(process.env.TELEGRAM_BOT_TOKEN, inviter, user, userBaseUrl).catch(() => {});
-
-              referralRewardGiven = true;
-            }
-          }
-        }
+        const userBalance = Number(user.balance) || 0;
 
         res.status(200).json({
           ok: true,
@@ -432,7 +354,6 @@ module.exports = async (req, res) => {
           identityVerifiedAt: now,
           expiresAt: now + (24 * 60 * 60 * 1000),
           balance: userBalance,
-          referralRewardGiven: referralRewardGiven,
           message: "Identity verified successfully!"
         });
         return;
@@ -469,9 +390,78 @@ module.exports = async (req, res) => {
             { _id: user._id, $or: [{ referredBy: null }, { referredBy: { $exists: false } }] },
             { $set: { referredBy: String(inviter.telegramId) } }
           );
+        }
+      }
+    }
 
-          // NOTE: Reward (+50 to recruit, +100 to inviter) is strictly withheld until
-          // the recruit completes Identity Verification in submit_code!
+    // REFERRAL RULE:
+    // Referral is counted ONLY when the recruited user has verified their identity AND entered Home!
+    if (user.isIdentityVerified === true && user.referralRewarded !== true && user.referredBy && String(user.referredBy) !== telegramId) {
+      const welcomeBonus = 50; // Recruit gets 50 TREASURE welcome bonus
+
+      // Atomic one-time claim: only succeeds if referralRewarded is not already true
+      const claimRefRes = await users.updateOne(
+        { _id: user._id, isIdentityVerified: true, referralRewarded: { $ne: true } },
+        {
+          $set: {
+            referralRewarded: true,
+            referralRewardedAt: now
+          },
+          $inc: { balance: welcomeBonus }
+        }
+      );
+
+      if (claimRefRes && claimRefRes.modifiedCount === 1) {
+        user.balance = (Number(user.balance) || 0) + welcomeBonus;
+        user.referralRewarded = true;
+
+        const inviter = await findUserById(users, user.referredBy);
+        if (inviter && String(inviter.telegramId) !== telegramId) {
+          const nowDate = new Date();
+          const inviterUpdateRes = await users.findOneAndUpdate(
+            { _id: inviter._id },
+            {
+              $inc: {
+                recruitsCount: 1,
+                refEarnings: 100,
+                balance: 100
+              },
+              $push: { recentReferralSignups: { $each: [nowDate], $slice: -50 } }
+            },
+            { returnDocument: "after" }
+          );
+
+          const inviterDoc = inviterUpdateRes?.value !== undefined ? inviterUpdateRes.value : inviterUpdateRes;
+          if (inviterDoc && !inviterDoc.velocityFlaggedAt) {
+            const windowStart = Date.now() - REFERRAL_VELOCITY_WINDOW_MS;
+            const recentCount = (inviterDoc.recentReferralSignups || []).filter(t => new Date(t).getTime() >= windowStart).length;
+            if (recentCount >= REFERRAL_VELOCITY_THRESHOLD) {
+              const justFlagged = await users.updateOne(
+                { _id: inviterDoc._id, velocityFlaggedAt: { $exists: false } },
+                { $set: { velocityFlaggedAt: nowDate, velocityFlaggedReason: "referral_velocity" } }
+              );
+              const adminId = process.env.ADMIN_TELEGRAM_ID;
+              const bToken = process.env.TELEGRAM_BOT_TOKEN;
+              if (justFlagged.modifiedCount > 0 && adminId && bToken) {
+                const minutes = Math.round(REFERRAL_VELOCITY_WINDOW_MS / 60000);
+                const alertMsg =
+                  `⚠️ <b>Referral velocity alert (no action taken)</b>\n\n` +
+                  `Referrer <code>${inviter.telegramId}</code> just crossed <b>${REFERRAL_VELOCITY_THRESHOLD}+</b> referral signups within <b>${minutes} minutes</b>.\n\n` +
+                  `Review their referral activity in the Admin Panel.`;
+                fetch(`https://api.telegram.org/bot${bToken}/sendMessage`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ chat_id: String(adminId), text: alertMsg, parse_mode: "HTML" })
+                }).catch(() => {});
+              }
+            }
+          }
+
+          // Notify inviter via Telegram bot
+          const reqProto = req.headers["x-forwarded-proto"] || "https";
+          const reqHost = req.headers["x-forwarded-host"] || req.headers.host;
+          const userBaseUrl = reqHost ? `${reqProto}://${reqHost}` : "";
+          notifyInviterReferralSuccess(process.env.TELEGRAM_BOT_TOKEN, inviter, user, userBaseUrl).catch(() => {});
         }
       }
     }

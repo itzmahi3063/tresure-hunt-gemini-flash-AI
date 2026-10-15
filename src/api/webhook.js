@@ -6,8 +6,14 @@ const { generateVerificationImage } = require("../lib/verificationImage");
 const { processMiningReminders } = require("../lib/miningReminder");
 const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers } = require("../lib/userHelper");
+const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
+
+let cachedWelcomeBannerFileId = null;
+let cachedAdminIds = null;
+let cachedAdminIdsTime = 0;
+const ADMIN_CACHE_TTL = 60 * 1000; // 60 seconds
 
 function escapeHtml(text) {
   if (!text) return "";
@@ -18,6 +24,10 @@ function escapeHtml(text) {
 }
 
 async function getAdminTelegramIds(db) {
+  const now = Date.now();
+  if (cachedAdminIds && (now - cachedAdminIdsTime < ADMIN_CACHE_TTL)) {
+    return cachedAdminIds;
+  }
   const ids = new Set();
   
   // 1. From Vercel Environment Variable (comma separated or single)
@@ -47,6 +57,8 @@ async function getAdminTelegramIds(db) {
     console.error("Error fetching admin IDs from DB:", e);
   }
 
+  cachedAdminIds = ids;
+  cachedAdminIdsTime = now;
   return ids;
 }
 
@@ -63,7 +75,28 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       basePayload.reply_markup = options.reply_markup;
     }
 
-    // If photoBuffer is provided, send as multipart photo
+    // 0. Instant sendPhoto by Telegram file_id (~50ms JSON request!)
+    const photoFileId = options.photoFileId || (typeof options.photo === "string" && !options.photo.startsWith("http") ? options.photo : null);
+    if (photoFileId) {
+      try {
+        const photoPayload = Object.assign({}, basePayload, {
+          photo: photoFileId,
+          caption: text
+        });
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(photoPayload)
+        });
+        const data = await res.json();
+        if (data && data.ok) return data;
+        console.warn("sendPhoto by file_id was not ok, falling back to buffer/url:", data);
+      } catch (fileIdErr) {
+        console.warn("sendPhoto by file_id error, falling back:", fileIdErr.message);
+      }
+    }
+
+    // 1. If photoBuffer is provided, send as multipart photo & cache the resulting file_id
     if (options.photoBuffer) {
       try {
         const formData = new FormData();
@@ -71,7 +104,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
         const mimeType = options.photoMime || "image/jpeg";
         const ext = mimeType.includes("png") ? "png" : "jpg";
         const blob = new Blob([options.photoBuffer], { type: mimeType });
-        formData.append("photo", blob, `hoocooh_${Date.now()}.${ext}`);
+        formData.append("photo", blob, `treasure_${Date.now()}.${ext}`);
         formData.append("caption", text);
         formData.append("parse_mode", "HTML");
         if (options.reply_markup) {
@@ -82,14 +115,30 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: formData
         });
         const data = await res.json();
-        if (data && data.ok) return data;
+        if (data && data.ok) {
+          // Cache file_id for subsequent sends
+          if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
+            const largest = data.result.photo[data.result.photo.length - 1];
+            if (largest && largest.file_id) {
+              cachedWelcomeBannerFileId = largest.file_id;
+              if (options.cacheFileIdKey && options.db) {
+                options.db.collection("settings").updateOne(
+                  { key: options.cacheFileIdKey },
+                  { $set: { fileId: largest.file_id, updatedAt: Date.now() } },
+                  { upsert: true }
+                ).catch(() => {});
+              }
+            }
+          }
+          return data;
+        }
         console.warn("sendPhoto buffer was not ok, falling back to sendMessage:", data);
       } catch (photoErr) {
         console.warn("sendPhoto buffer error, falling back to sendMessage:", photoErr.message);
       }
     }
 
-    // If photoUrl is provided, send as photo with caption
+    // 2. If photoUrl is provided, send as photo with caption & cache resulting file_id
     if (options.photoUrl) {
       try {
         const photoPayload = Object.assign({}, basePayload, {
@@ -102,7 +151,22 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: JSON.stringify(photoPayload)
         });
         const data = await res.json();
-        if (data && data.ok) return data;
+        if (data && data.ok) {
+          if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
+            const largest = data.result.photo[data.result.photo.length - 1];
+            if (largest && largest.file_id) {
+              cachedWelcomeBannerFileId = largest.file_id;
+              if (options.cacheFileIdKey && options.db) {
+                options.db.collection("settings").updateOne(
+                  { key: options.cacheFileIdKey },
+                  { $set: { fileId: largest.file_id, updatedAt: Date.now() } },
+                  { upsert: true }
+                ).catch(() => {});
+              }
+            }
+          }
+          return data;
+        }
         console.warn("sendPhoto was not ok, falling back to sendMessage:", data);
       } catch (photoErr) {
         console.warn("sendPhoto error, falling back to sendMessage:", photoErr);
@@ -130,13 +194,13 @@ const WELCOME_MESSAGES = {
   en: {
     name: "English",
     text: 
-`⛏️ <b>Welcome to TREASURE Mine!</b>
+`🏹 <b>Welcome to TREASURE HUNT!</b>
 
-🌕 <b>Mine the depths, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
+🌕 <b>Hunt the riches, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
 
 🎮 <b>How it works:</b>
 
-• Dive deep to Mine & Earn
+• Dive deep to Hunt & Earn
 • Complete tasks to stack more TREASURE Coins
 • Upgrade your mining gear for bigger rewards
 • Invite friends to expand your crew & Earn
@@ -144,8 +208,8 @@ const WELCOME_MESSAGES = {
 
 <b>Convert TREASURE Coins ➔ USDT 💲</b>
 
-👇 <b>Tap the button below to start your dive!</b> 👇`,
-    btnStart: "⛏️ Start treasure mine",
+👇 <b>Tap the button below to start your hunt!</b> 👇`,
+    btnStart: "🏹 Play Treasure Hunt",
     btnLang: "🌐 Select your language",
     promptLang: "• <b>Language</b>\nChoose your language:",
     toastChanged: "✅ Language set to English!"
@@ -153,13 +217,13 @@ const WELCOME_MESSAGES = {
   ru: {
     name: "Русский",
     text: 
-`⛏️ <b>Добро пожаловать в TREASURE Mine!</b>
+`🏹 <b>Добро пожаловать в TREASURE HUNT!</b>
 
-🌕 <b>Добывайте в глубинах, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
+🌕 <b>Охотьтесь за сокровищами, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
 
 🎮 <b>Как это работает:</b>
 
-• Погружайтесь в шахту, чтобы майнить и зарабатывать
+• Погружайтесь в охоту, чтобы добывать и зарабатывать
 • Выполняйте задания, чтобы получить больше монет
 • Улучшайте снаряжение для максимальных наград
 • Приглашайте друзей в свою команду и зарабатывайте вместе
@@ -167,8 +231,8 @@ const WELCOME_MESSAGES = {
 
 <b>Конвертируйте TREASURE Coins ➔ USDT 💲</b>
 
-👇 <b>Нажмите кнопку ниже, чтобы начать погружение!</b> 👇`,
-    btnStart: "⛏️ Начать майнинг hoocooh",
+👇 <b>Нажмите кнопку ниже, чтобы начать охоту!</b> 👇`,
+    btnStart: "🏹 Играть в Treasure Hunt",
     btnLang: "🌐 Выбрать язык",
     promptLang: "• <b>Язык</b>\nВыберите ваш язык:",
     toastChanged: "✅ Язык изменен на Русский!"
@@ -176,22 +240,22 @@ const WELCOME_MESSAGES = {
   ar: {
     name: "العربية",
     text: 
-`⛏️ <b>مرحبًا بك في TREASURE Mine!</b>
+`🏹 <b>مرحبًا بك في TREASURE HUNT!</b>
 
-🌕 <b>قم بالتعدين في الأعماق، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
+🌕 <b>ابحث عن الكنوز، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
 
 🎮 <b>كيف يعمل:</b>
 
-• انغمس в الأعماق للتعدين والربح
+• انغمس в رحلة البحث عن الكنوز والربح
 • أكمل المهام لجمع المزيد من عملات TREASURE
-• قم بترقية معدات التعدين للحصول على أكبر المكافآت
+• قم بترقية معداتك للحصول على أكبر المكافآت
 • ادعُ أصدقاءك للانضمام إلى فريقك والربح معًا
 • اسحب أرباحك مباشرة كعملة USDT!
 
 <b>تحويل عملات TREASURE ➔ USDT 💲</b>
 
-👇 <b>اضغط على الزر أدناه لبدء التعدين!</b> 👇`,
-    btnStart: "⛏️ ابدأ تعدين hoocooh",
+👇 <b>اضغط على الزر أدناه لبدء المغامرة!</b> 👇`,
+    btnStart: "🏹 العب Treasure Hunt",
     btnLang: "🌐 اختر لغتك",
     promptLang: "• <b>اللغة</b>\nاختر لغتك:",
     toastChanged: "✅ تم تعيين اللغة إلى العربية!"
@@ -397,7 +461,7 @@ async function handleAdminBanWithdrawalUser(db, botToken, wid) {
 
   const tid = String(w.telegramId);
   const numId = Number(w.telegramId);
-  const banReason = "Violation of TREASURE Mine rules detected during withdrawal review";
+  const banReason = "Violation of TREASURE HUNT rules detected during withdrawal review";
 
   await usersCol.updateMany(
     { $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])] },
@@ -419,7 +483,7 @@ async function handleAdminBanWithdrawalUser(db, botToken, wid) {
   );
 
   if (botToken && w.telegramId) {
-    const msg = `⛔ <b>Account Suspended</b>\n\nYour TREASURE Mine account has been suspended.\n<b>Reason:</b> ${banReason}\n\n<i>⚠️ Notice: If this suspension is not lifted within 7 days, all your account progress, coins, and referrals will be permanently deleted while account remains suspended.</i>`;
+    const msg = `⛔ <b>Account Suspended</b>\n\nYour TREASURE HUNT account has been suspended.\n<b>Reason:</b> ${banReason}\n\n<i>⚠️ Notice: If this suspension is not lifted within 7 days, all your account progress, coins, and referrals will be permanently deleted while account remains suspended.</i>`;
     sendTelegramMsg(botToken, tid, msg);
   }
 
@@ -838,6 +902,11 @@ module.exports = async (req, res) => {
     if (isCronWebhook) {
       try {
         const db = await getDb();
+        if (action === "cron_broadcast" || action === "broadcast" || (req.query && req.query.cron === "broadcast")) {
+          const bRes = await processBroadcastQueue(db, botToken, 5500);
+          res.status(200).json({ ok: true, task: "cron_broadcast", ...bRes });
+          return;
+        }
         const result = await processMiningReminders(db, botToken, baseUrl);
         res.status(200).json({ ok: true, task: "cron_worker", ...result });
         return;
@@ -1106,7 +1175,7 @@ module.exports = async (req, res) => {
         }
 
         const promptText = 
-          `➕ <b>Add New Task to TREASURE Mine</b>\n\n` +
+          `➕ <b>Add New Task to TREASURE HUNT</b>\n\n` +
           `Send your task details in this format:\n` +
           `<code>Title | Link</code>\n\n` +
           `Or with a custom target user limit:\n` +
@@ -1259,6 +1328,9 @@ module.exports = async (req, res) => {
           [
             { text: "📋 Tasks", callback_data: "adm_tasks_page_0" },
             { text: "➕ Add Task", callback_data: "adm_task_prompt" }
+          ],
+          [
+            { text: "📢 Broadcast Message", callback_data: "adm_broadcast_prompt" }
           ]
         ];
 
@@ -1267,6 +1339,78 @@ module.exports = async (req, res) => {
         } else {
           await sendTelegramMsg(botToken, cbChatId, replyText, { reply_markup: { inline_keyboard: menuKeyboard } });
         }
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // Admin Broadcast - Prompt Input
+      if (cbData === "adm_broadcast_prompt") {
+        const adminIds = await getAdminTelegramIds(db);
+        if (!adminIds.has(cbSenderId)) {
+          await answerCallbackQuery(botToken, cb.id, "Unauthorized: Admin only", true);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        if (db) {
+          await db.collection("settings").updateOne(
+            { key: "admin_state_" + cbSenderId },
+            { $set: { state: "awaiting_broadcast", updatedAt: Date.now() } },
+            { upsert: true }
+          );
+        }
+
+        const promptText = 
+          `📢 <b>Broadcast to All Miners</b>\n\n` +
+          `Please reply with the message text you want to broadcast to all miners:\n\n` +
+          `<b>Or use command:</b>\n` +
+          `<code>/broadcast &lt;your message here&gt;</code>\n\n` +
+          `<b>Example:</b>\n` +
+          `<code>/broadcast 🚀 Mining boost is active! Hop in and earn double coins!</code>\n\n` +
+          `<i>Or open the Admin WebApp to attach photos and custom buttons.</i>`;
+
+        await answerCallbackQuery(botToken, cb.id);
+        await sendTelegramMsg(botToken, cbChatId, promptText, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "❌ Cancel", callback_data: "adm_back_menu" }],
+              [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+            ]
+          }
+        });
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // Admin Broadcast - Status Check
+      if (cbData === "adm_broadcast_status") {
+        const adminIds = await getAdminTelegramIds(db);
+        if (!adminIds.has(cbSenderId)) {
+          await answerCallbackQuery(botToken, cb.id, "Unauthorized: Admin only", true);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        await answerCallbackQuery(botToken, cb.id);
+        const bStatus = await processBroadcastQueue(db, botToken, 5500);
+        const statMsg = 
+          `📢 <b>Broadcast Delivery Status</b>\n\n` +
+          `⚡ <b>Active Job:</b> ${bStatus.active ? "Yes (Running)" : "None active"}\n` +
+          (bStatus.active ?
+            `👥 <b>Total:</b> ${bStatus.totalUsers}\n` +
+            `✅ <b>Sent:</b> ${bStatus.sentCount}\n` +
+            `❌ <b>Failed / Blocked:</b> ${bStatus.failCount}\n` +
+            `⏳ <b>Remaining:</b> ${bStatus.remainingUsers}` :
+            `<i>All queued broadcast deliveries are complete!</i>`);
+
+        await sendTelegramMsg(botToken, cbChatId, statMsg, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🔄 Refresh Status", callback_data: "adm_broadcast_status" }],
+              [{ text: "🔙 Back to Admin", callback_data: "adm_back_menu" }]
+            ]
+          }
+        });
         res.status(200).json({ ok: true });
         return;
       }
@@ -1293,7 +1437,113 @@ module.exports = async (req, res) => {
     const command = firstWord.split("@")[0]; // removes bot username e.g. /admin@mybot -> /admin
 
     // ----------------------------------------------------
-    // Command: /admin
+    // Command: /start (Top Priority: Instant Response)
+    // ----------------------------------------------------
+    if (command === "/start") {
+      let userLang = "en";
+      let hasSelected = false;
+      let db = null;
+      let u = null;
+      try {
+        db = await getDb();
+        if (db) {
+          if (!cachedWelcomeBannerFileId) {
+            try {
+              const bDoc = await db.collection("settings").findOne({ key: "welcome_banner_file_id" });
+              if (bDoc && bDoc.fileId) cachedWelcomeBannerFileId = bDoc.fileId;
+            } catch(e){}
+          }
+
+          u = await db.collection("users").findOne({
+            $or: [{ telegramId: String(senderId) }, { telegramId: Number(senderId) }]
+          });
+          if (u) {
+            if (u.isBanned) {
+              const banMsg = 
+                `🚫 <b>Access Denied: Account Suspended</b>\n\n` +
+                `Your account has been permanently suspended due to security violation or automated script tampering.\n\n` +
+                `<i>Reason: ${escapeHtml(u.banReason || "Security violation detected")}</i>`;
+              await sendTelegramMsg(botToken, chatId, banMsg);
+              res.status(200).json({ ok: true, banned: true });
+              return;
+            }
+            if (u.language) userLang = u.language;
+            if (u.languageSelected === true) hasSelected = true;
+          }
+        }
+      } catch(e){}
+
+      let appUrl = `${baseUrl}/index.html?lang=${userLang}`;
+      if (!hasSelected) {
+        appUrl += `&needLang=1`;
+      }
+      const startParam = parts[1] || "";
+      if (startParam) {
+        appUrl += `&tgWebAppStartParam=${encodeURIComponent(startParam)}`;
+        try {
+          if (db) {
+            const inviterId = String(startParam).replace(/^ref_/, "").trim();
+            if (inviterId && /^\d+$/.test(inviterId) && String(inviterId) !== String(senderId)) {
+              const inviter = await db.collection("users").findOne({
+                $or: [{ telegramId: inviterId }, { telegramId: Number(inviterId) }]
+              });
+              if (inviter && String(inviter.telegramId) !== String(senderId)) {
+                await db.collection("users").updateOne(
+                  { telegramId: String(senderId), referredBy: { $in: [null, undefined] } },
+                  { $set: { referredBy: String(inviter.telegramId) } }
+                );
+              }
+            }
+          }
+        } catch(refErr){}
+      }
+
+      const langDict = WELCOME_MESSAGES[userLang] || WELCOME_MESSAGES.en;
+
+      const sendOptions = {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: langDict.btnStart,
+                web_app: { url: appUrl }
+              }
+            ],
+            [
+              {
+                text: langDict.btnLang,
+                callback_data: "choose_lang"
+              }
+            ]
+          ]
+        }
+      };
+
+      if (cachedWelcomeBannerFileId) {
+        sendOptions.photoFileId = cachedWelcomeBannerFileId;
+      } else {
+        let welcomePhotoBuf = null;
+        try {
+          const p = path.join(process.cwd(), "public/assets/welcome_banner.jpg");
+          if (fs.existsSync(p)) {
+            welcomePhotoBuf = fs.readFileSync(p);
+          }
+        } catch(e){}
+        sendOptions.photoBuffer = welcomePhotoBuf;
+        sendOptions.photoMime = "image/jpeg";
+        sendOptions.photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=6`;
+        sendOptions.cacheFileIdKey = "welcome_banner_file_id";
+        sendOptions.db = db;
+      }
+
+      await sendTelegramMsg(botToken, chatId, langDict.text, sendOptions);
+
+      res.status(200).json({ ok: true, sent: true });
+      return;
+    }
+
+    // ----------------------------------------------------
+    // Command: /admin (Fast Admin Menu)
     // ----------------------------------------------------
     if (command === "/admin") {
       let db = null;
@@ -1301,15 +1551,12 @@ module.exports = async (req, res) => {
       const adminIds = await getAdminTelegramIds(db);
 
       // Strict Security Check:
-      // If the sender is NOT the admin ID, do ABSOLUTELY NOTHING.
-      // Silently return 200 OK so regular users get no response.
       if (!senderId || !adminIds.has(senderId)) {
         res.status(200).json({ ok: true, ignored: true });
         return;
       }
 
       // SENDER IS VERIFIED ADMIN!
-      // Send secure WebApp launch button for Admin Panel & Withdrawals button
       const adminUrl = `${baseUrl}/admin.html`;
       const replyText = 
         `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
@@ -1344,6 +1591,12 @@ module.exports = async (req, res) => {
                 text: "➕ Add Task",
                 callback_data: "adm_task_prompt"
               }
+            ],
+            [
+              {
+                text: "📢 Broadcast Message",
+                callback_data: "adm_broadcast_prompt"
+              }
             ]
           ]
         }
@@ -1362,6 +1615,61 @@ module.exports = async (req, res) => {
     const isAdmin = senderId && adminIds.has(senderId);
 
     if (isAdmin) {
+      // 0. Direct Command /broadcast
+      if (command === "/broadcast") {
+        const broadcastText = text.replace(/^\/broadcast(@\w+)?/i, "").trim();
+        if (!broadcastText) {
+          const usageMsg = 
+            `📢 <b>Broadcast to All Miners</b>\n\n` +
+            `Usage:\n` +
+            `<code>/broadcast &lt;your message here&gt;</code>\n\n` +
+            `<b>Example:</b>\n` +
+            `<code>/broadcast 🚀 Big Update! Mine upgrade rewards are boosted 2x this weekend!</code>\n\n` +
+            `<i>Or open the Admin Panel WebApp to attach photos and custom buttons.</i>`;
+          await sendTelegramMsg(botToken, chatId, usageMsg, {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              ]
+            }
+          });
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        await sendTelegramMsg(botToken, chatId, "⏳ <b>Starting Broadcast...</b>\nSending to miners, please wait...");
+        const bResult = await startOrContinueBroadcast(
+          db,
+          botToken,
+          {
+            message: broadcastText,
+            buttonText: "🏹 Play Treasure Hunt",
+            buttonUrl: `${baseUrl}/index.html`
+          },
+          5500
+        );
+
+        const summaryMsg = 
+          `📢 <b>Broadcast Report</b>\n\n` +
+          `👥 <b>Total Users:</b> ${bResult.totalUsers}\n` +
+          `✅ <b>Sent so far:</b> ${bResult.sentCount}\n` +
+          `❌ <b>Failed / Blocked:</b> ${bResult.failCount}\n` +
+          `⏳ <b>Status:</b> ${bResult.completed ? "✅ Completed!" : "⚡ Queued for Cron-Job.org delivery"}\n\n` +
+          (bResult.completed ? "All users received the message!" : `Remaining ${bResult.remainingUsers} users are being delivered automatically in background.`);
+
+        await sendTelegramMsg(botToken, chatId, summaryMsg, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+            ]
+          }
+        });
+
+        res.status(200).json({ ok: true, broadcast: bResult });
+        return;
+      }
+
       if (command === "/setadreward" || command === "/adreward") {
         const val = parseInt(parts[1], 10);
         if (!val || val < 1 || val > 100000) {
@@ -1446,12 +1754,52 @@ module.exports = async (req, res) => {
 
       let isAwaitingTask = false;
       let isAwaitingRefUid = false;
+      let isAwaitingBroadcast = false;
       if (db) {
         const adminStateDoc = await db.collection("settings").findOne({ key: "admin_state_" + senderId });
         if (adminStateDoc) {
           if (adminStateDoc.state === "awaiting_task") isAwaitingTask = true;
           if (adminStateDoc.state === "awaiting_ref_uid") isAwaitingRefUid = true;
+          if (adminStateDoc.state === "awaiting_broadcast") isAwaitingBroadcast = true;
         }
+      }
+
+      // Handle awaiting broadcast response from admin
+      if (isAwaitingBroadcast && text && !text.startsWith("/")) {
+        if (db) {
+          await db.collection("settings").deleteOne({ key: "admin_state_" + senderId });
+        }
+        await sendTelegramMsg(botToken, chatId, "⏳ <b>Starting Broadcast...</b>\nSending to miners, please wait...");
+        const bResult = await startOrContinueBroadcast(
+          db,
+          botToken,
+          {
+            message: text.trim(),
+            buttonText: "🏹 Play Treasure Hunt",
+            buttonUrl: `${baseUrl}/index.html`
+          },
+          5500
+        );
+
+        const summaryMsg = 
+          `📢 <b>Broadcast Report</b>\n\n` +
+          `👥 <b>Total Users:</b> ${bResult.totalUsers}\n` +
+          `✅ <b>Sent so far:</b> ${bResult.sentCount}\n` +
+          `❌ <b>Failed / Blocked:</b> ${bResult.failCount}\n` +
+          `⏳ <b>Status:</b> ${bResult.completed ? "✅ Completed!" : "⚡ Queued for Cron-Job.org delivery"}\n\n` +
+          (bResult.completed ? "All users received the message!" : `Remaining ${bResult.remainingUsers} users are being delivered automatically in background.`);
+
+        await sendTelegramMsg(botToken, chatId, summaryMsg, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+            ]
+          }
+        });
+
+        res.status(200).json({ ok: true, broadcast: bResult });
+        return;
       }
 
       // 1. Direct Command or Prompt response for Check User Referrals
@@ -1530,7 +1878,7 @@ module.exports = async (req, res) => {
 
         if (!rawInput && isAddTaskCmd) {
           const promptText = 
-            `➕ <b>Add New Task to TREASURE Mine</b>\n\n` +
+            `➕ <b>Add New Task to TREASURE HUNT</b>\n\n` +
             `Send your task details in this format:\n` +
             `<code>Title | Link</code>\n\n` +
             `Or with a custom target user limit:\n` +
@@ -1651,98 +1999,6 @@ module.exports = async (req, res) => {
           return;
         }
       }
-    }
-
-    // ----------------------------------------------------
-    // Command: /start
-    // ----------------------------------------------------
-    if (command === "/start") {
-      let userLang = "en";
-      let hasSelected = false;
-      let db = null;
-      let u = null;
-      try {
-        db = await getDb();
-        if (db) {
-          u = await db.collection("users").findOne({
-            $or: [{ telegramId: String(senderId) }, { telegramId: Number(senderId) }]
-          });
-          if (u) {
-            if (u.isBanned) {
-              const banMsg = 
-                `🚫 <b>Access Denied: Account Suspended</b>\n\n` +
-                `Your account has been permanently suspended due to security violation or automated script tampering.\n\n` +
-                `<i>Reason: ${escapeHtml(u.banReason || "Security violation detected")}</i>`;
-              await sendTelegramMsg(botToken, chatId, banMsg);
-              res.status(200).json({ ok: true, banned: true });
-              return;
-            }
-            if (u.language) userLang = u.language;
-            if (u.languageSelected === true) hasSelected = true;
-          }
-        }
-      } catch(e){}
-
-      let appUrl = `${baseUrl}/index.html?lang=${userLang}`;
-      if (!hasSelected) {
-        appUrl += `&needLang=1`;
-      }
-      const startParam = parts[1] || "";
-      if (startParam) {
-        appUrl += `&tgWebAppStartParam=${encodeURIComponent(startParam)}`;
-        try {
-          if (db) {
-            const inviterId = String(startParam).replace(/^ref_/, "").trim();
-            if (inviterId && /^\d+$/.test(inviterId) && String(inviterId) !== String(senderId)) {
-              const inviter = await db.collection("users").findOne({
-                $or: [{ telegramId: inviterId }, { telegramId: Number(inviterId) }]
-              });
-              if (inviter && String(inviter.telegramId) !== String(senderId)) {
-                await db.collection("users").updateOne(
-                  { telegramId: String(senderId), referredBy: { $in: [null, undefined] } },
-                  { $set: { referredBy: String(inviter.telegramId) } }
-                );
-              }
-            }
-          }
-        } catch(refErr){}
-      }
-
-      let welcomePhotoBuf = null;
-      try {
-        const p = path.join(process.cwd(), "public/assets/welcome_banner.jpg");
-        if (fs.existsSync(p)) {
-          welcomePhotoBuf = fs.readFileSync(p);
-        }
-      } catch(e){}
-
-      const photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=4`;
-      const langDict = WELCOME_MESSAGES[userLang] || WELCOME_MESSAGES.en;
-
-      await sendTelegramMsg(botToken, chatId, langDict.text, {
-        photoBuffer: welcomePhotoBuf,
-        photoMime: "image/jpeg",
-        photoUrl: photoUrl,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: langDict.btnStart,
-                web_app: { url: appUrl }
-              }
-            ],
-            [
-              {
-                text: langDict.btnLang,
-                callback_data: "choose_lang"
-              }
-            ]
-          ]
-        }
-      });
-
-      res.status(200).json({ ok: true, sent: true });
-      return;
     }
 
     // All other messages - return 200 OK
