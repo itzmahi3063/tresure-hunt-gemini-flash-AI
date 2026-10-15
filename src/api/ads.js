@@ -202,11 +202,15 @@ module.exports = async (req, res) => {
     if (req.method === "GET") {
       const getAction = req.query && (req.query.action || req.query.type);
       if (getAction === "check_s2s" || getAction === "poll_s2s") {
-        const lastS2s = Number(user.lastAdsgramS2sRewardAt || 0);
+        const lastS2s = Math.max(
+          Number(user.lastAdsgramS2sRewardAt || 0),
+          Number(user.lastAdsgramS2sTaskRewardAt || 0)
+        );
         const lastConsumed = Math.max(
           Number(user.lastAdsgramS2sConsumedAt || 0),
           Number(user.lastWatchEarnS2sConsumedAt || 0),
-          Number(user.lastSpinS2sConsumedAt || 0)
+          Number(user.lastSpinS2sConsumedAt || 0),
+          Number(user.lastAdsgramS2sTaskConsumedAt || 0)
         );
         const isVerified = (lastS2s > 0) && (lastS2s > lastConsumed) && ((now - lastS2s) < 300000);
         res.status(200).json({

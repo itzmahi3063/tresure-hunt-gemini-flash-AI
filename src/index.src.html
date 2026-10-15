@@ -11301,7 +11301,7 @@
     if (s2sWaitingModal) s2sWaitingModal.classList.add("open");
 
     clearInterval(s2sTimerInterval);
-    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 3;
+    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 10;
     if (s2sCountdownTimer) {
       s2sCountdownTimer.style.display = "block";
       s2sCountdownTimer.style.color = "#f59e0b";
@@ -11539,37 +11539,60 @@
       }
 
       var isClaimingMission = false;
-      if (taskEl) {
-        // User completed Adsgram task -> claim reward immediately
-        taskEl.addEventListener("reward", function(event) {
-          if (isClaimingMission) return;
-          isClaimingMission = true;
-          showToast("⏳ Claiming mission reward...");
-          adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
-            .then(function(claimRes) {
-              isClaimingMission = false;
-              var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
-              if (resData && (resData.ok || claimRes.ok)) {
-                var earnedReward = Number(resData.reward || window.AD_MISSION_REWARD || (user && user.adMissionReward) || 20);
-                if (resData.newBalance !== undefined) {
-                  user.balance = resData.newBalance;
+      var missionGoClickedAt = 0;
+
+      container.addEventListener("click", function(e) {
+        var btn = e.target && e.target.closest(".ad-mission-btn");
+        if (btn && !btn.classList.contains("ad-mission-btn-done")) {
+          missionGoClickedAt = Date.now();
+        }
+      });
+
+      function triggerAdMissionS2sVerification() {
+        if (isClaimingMission) return;
+        isClaimingMission = true;
+
+        openS2sWaitingModal(
+          "Verifying ad mission with Adsgram server...",
+          "Waiting for server confirmation...",
+          10,
+          function(isVerified) {
+            adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
+              .then(function(claimRes) {
+                isClaimingMission = false;
+                closeS2sWaitingModal();
+                var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
+                if (resData && (resData.ok || claimRes.ok)) {
+                  var earnedReward = Number(resData.reward || window.AD_MISSION_REWARD || (user && user.adMissionReward) || 20);
+                  if (resData.newBalance !== undefined) {
+                    user.balance = resData.newBalance;
+                  } else {
+                    user.balance = (Number(user.balance) || 0) + earnedReward;
+                  }
+                  renderBalance();
+                  showToast("🎉 Mission complete! +" + earnedReward + " Coins added!");
+                  if (tg && tg.HapticFeedback) {
+                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
+                  }
                 } else {
-                  user.balance = (Number(user.balance) || 0) + earnedReward;
+                  var errMsg = (resData && resData.error) || "Could not verify mission. Please complete the full task and try again.";
+                  showToast("⚠️ " + errMsg);
                 }
-                renderBalance();
-                showToast("🎉 Mission complete! +" + earnedReward + " Coins added!");
-                if (tg && tg.HapticFeedback) {
-                  try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
-                }
-              } else {
-                showToast("⚠️ Could not claim mission. Please try again.");
-              }
-            })
-            .catch(function(err) {
-              isClaimingMission = false;
-              console.warn("Claim ad mission error:", err);
-              showToast("⚠️ Network issue claiming mission.");
-            });
+              })
+              .catch(function(err) {
+                isClaimingMission = false;
+                closeS2sWaitingModal();
+                console.warn("Claim ad mission error:", err);
+                showToast("⚠️ Network issue claiming mission.");
+              });
+          }
+        );
+      }
+
+      if (taskEl) {
+        // User completed Adsgram task -> verify via S2S modal (10s countdown)
+        taskEl.addEventListener("reward", function(event) {
+          triggerAdMissionS2sVerification();
         });
 
         // Triggered when Adsgram has no tasks/banners for this user/block
@@ -11582,6 +11605,22 @@
           showEmpty();
         });
       }
+
+      // Check return from external ad when app regains visibility / focus
+      window.addEventListener("focus", function() {
+        if (missionGoClickedAt > 0 && (Date.now() - missionGoClickedAt < 180000) && !isClaimingMission) {
+          missionGoClickedAt = 0;
+          setTimeout(triggerAdMissionS2sVerification, 400);
+        }
+      });
+      document.addEventListener("visibilitychange", function() {
+        if (document.visibilityState === "visible") {
+          if (missionGoClickedAt > 0 && (Date.now() - missionGoClickedAt < 180000) && !isClaimingMission) {
+            missionGoClickedAt = 0;
+            setTimeout(triggerAdMissionS2sVerification, 400);
+          }
+        }
+      });
 
       // 3.5s timeout: if Adsgram has not rendered a visible task, gracefully show empty message
       setTimeout(function() {
@@ -11845,7 +11884,7 @@
               openS2sWaitingModal(
                 "Verifying ad view with Adsgram server...",
                 "Waiting for server confirmation...",
-                3,
+                10,
                 function(isEarlyVerified) {
                   doClaim();
                 }
@@ -12424,7 +12463,7 @@
           openS2sWaitingModal(
             "Verifying spin ad view with Adsgram server...",
             "Waiting for server confirmation...",
-            3,
+            10,
             function(isEarlyVerified) {
               doSpinClaim();
             }
