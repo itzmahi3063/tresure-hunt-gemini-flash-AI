@@ -11453,28 +11453,33 @@
       }
 
       if (taskEl) {
-        // User completed Adsgram task -> claim reward
+        // User completed Adsgram task -> claim reward with S2S confirmation
         taskEl.addEventListener("reward", function(event) {
-          adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
-            .then(function(claimRes) {
-              if (claimRes && claimRes.ok) {
-                if (claimRes.newBalance !== undefined) {
-                  user.balance = claimRes.newBalance;
-                } else if (claimRes.data && claimRes.data.newBalance !== undefined) {
-                  user.balance = claimRes.data.newBalance;
+          showToast("⏳ Confirming mission with Adsgram...");
+          setTimeout(function() {
+            adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
+              .then(function(claimRes) {
+                var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
+                if (resData && (resData.ok || claimRes.ok)) {
+                  if (resData.newBalance !== undefined) {
+                    user.balance = resData.newBalance;
+                  } else {
+                    user.balance = (Number(user.balance) || 0) + 20;
+                  }
+                  renderBalance();
+                  showToast("🎉 Mission complete! +20 Coins added!");
+                  if (tg && tg.HapticFeedback) {
+                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
+                  }
                 } else {
-                  user.balance = (Number(user.balance) || 0) + 20;
+                  showToast("⚠️ Could not claim mission. Please try again.");
                 }
-                renderBalance();
-                showToast("🎉 Mission complete! +20 Coins added!");
-                if (tg && tg.HapticFeedback) {
-                  try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
-                }
-              }
-            })
-            .catch(function(err) {
-              console.warn("Claim ad mission error:", err);
-            });
+              })
+              .catch(function(err) {
+                console.warn("Claim ad mission error:", err);
+                showToast("⚠️ Network issue claiming mission.");
+              });
+          }, 1200);
         });
 
         // Triggered when Adsgram has no tasks/banners for this user/block
@@ -11697,16 +11702,15 @@
               openS2sWaitingModal("Verifying ad view with ad network...", "Awaiting server confirmation...");
             }
 
-            // Small grace period for Adsgram S2S HTTP postback to reach backend
-            setTimeout(function() {
-              var postData = {
-                action: "watch_ad",
-                watchDurationMs: elapsed
-              };
-              if (captchaToken) {
-                postData.captchaToken = captchaToken;
-              }
+            var postData = {
+              action: "watch_ad",
+              watchDurationMs: elapsed
+            };
+            if (captchaToken) {
+              postData.captchaToken = captchaToken;
+            }
 
+            function doClaim() {
               adsApiPost(postData).then(function(res) {
                 if (res && res.ok && res.data) {
                   if (watched === 0) {
@@ -11736,7 +11740,7 @@
                     if (tg && tg.HapticFeedback) {
                       try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
                     }
-                  }, (watched === 0 ? 800 : 100));
+                  }, (watched === 0 ? 600 : 100));
                 } else {
                   if (watched === 0) closeS2sWaitingModal();
                   sheetStartAdBtn.disabled = false;
@@ -11750,7 +11754,31 @@
                 sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
                 showToast("⚠️ Network issue while claiming ad reward.");
               });
-            }, (watched === 0 ? 1500 : 200));
+            }
+
+            if (watched === 0) {
+              var s2sAttempts = 0;
+              function pollS2s() {
+                s2sAttempts++;
+                fetch("/api/ads?action=check_s2s", {
+                  headers: getClientHeaders({ "Content-Type": "application/json" })
+                }).then(handleResponse).then(function(s2sRes) {
+                  if (s2sRes && s2sRes.ok && s2sRes.data && s2sRes.data.verified) {
+                    updateS2sWaitingModal("✅ Verified by Adsgram! Crediting reward...", true);
+                    doClaim();
+                  } else if (s2sAttempts < 4) {
+                    setTimeout(pollS2s, 1200);
+                  } else {
+                    doClaim();
+                  }
+                }).catch(function() {
+                  doClaim();
+                });
+              }
+              setTimeout(pollS2s, 1000);
+            } else {
+              doClaim();
+            }
           }
 
           var requiresCaptcha = (watched > 0 && ((watched + 1) % 3 === 0));
@@ -12270,13 +12298,13 @@
 
           openS2sWaitingModal("Verifying ad view with ad network...", "Awaiting server confirmation...");
 
-          setTimeout(function() {
-            var postData = {
-              action: "spin_watch_ad",
-              watchDurationMs: elapsed,
-              actionToken: currentActionTokens.spin_watch_ad
-            };
+          var postData = {
+            action: "spin_watch_ad",
+            watchDurationMs: elapsed,
+            actionToken: currentActionTokens.spin_watch_ad
+          };
 
+          function doSpinClaim() {
             adsApiPost(postData).then(function(res) {
               if (res && res.ok && res.data) {
                 updateS2sWaitingModal("✅ Server confirmed! Ticket credited...", true);
@@ -12292,7 +12320,7 @@
                   if (tg && tg.HapticFeedback) {
                     try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
                   }
-                }, 800);
+                }, 600);
               } else {
                 closeS2sWaitingModal();
                 watchSpinAdActionBtn.disabled = false;
@@ -12306,7 +12334,27 @@
               watchSpinAdActionBtn.innerHTML = '<span>🎬 Watch Ad (+1 Ticket)</span>';
               showToast("⚠️ Network issue while claiming ticket.");
             });
-          }, 1500);
+          }
+
+          var spinS2sAttempts = 0;
+          function pollSpinS2s() {
+            spinS2sAttempts++;
+            fetch("/api/ads?action=check_s2s", {
+              headers: getClientHeaders({ "Content-Type": "application/json" })
+            }).then(handleResponse).then(function(s2sRes) {
+              if (s2sRes && s2sRes.ok && s2sRes.data && s2sRes.data.verified) {
+                updateS2sWaitingModal("✅ Verified by Adsgram!", true);
+                doSpinClaim();
+              } else if (spinS2sAttempts < 4) {
+                setTimeout(pollSpinS2s, 1200);
+              } else {
+                doSpinClaim();
+              }
+            }).catch(function() {
+              doSpinClaim();
+            });
+          }
+          setTimeout(pollSpinS2s, 1000);
         })
         .catch(function(err) {
           window.AdBarrier.release("adsgram_spin");
