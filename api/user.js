@@ -437,17 +437,15 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // Verification: Check status (24 hours validity check)
+      // Verification: Check status
       if (action === "check_status" || action === "check_verification_status") {
-        const isVerified24h = Boolean(
+        const isVerified = Boolean(
           user &&
-          user.isIdentityVerified === true &&
-          user.identityVerifiedAt &&
-          (Date.now() - Number(user.identityVerifiedAt) < 24 * 60 * 60 * 1000)
+          user.isIdentityVerified === true
         );
         res.status(200).json({
           ok: true,
-          isVerified: isVerified24h
+          isVerified: isVerified
         });
         return;
       }
@@ -525,11 +523,7 @@ module.exports = async (req, res) => {
       language: user.language || "en",
       languageSelected: user.languageSelected === true,
       termsAccepted: user.termsAccepted === true,
-      isIdentityVerified: Boolean(
-        user.isIdentityVerified === true &&
-        user.identityVerifiedAt &&
-        (now - Number(user.identityVerifiedAt) < 24 * 60 * 60 * 1000)
-      ),
+      isIdentityVerified: Boolean(user && user.isIdentityVerified === true),
       identityVerifiedAt: user.identityVerifiedAt || 0,
       referralRewarded: user.referralRewarded === true,
       penaltyNotice: user.penaltyNotice || null,

@@ -6547,8 +6547,8 @@
 
     <div class="id-verify-badge">SECURITY CHECK</div>
     <h2 class="id-verify-title">Verify It's you</h2>
-    <p class="id-verify-sub">
-      A secure 4-digit verification code has been sent inside our bot 
+    <p class="id-verify-sub" id="idVerifySub">
+      Tap <strong>Send Code to Bot</strong> below to receive your secure 4-digit verification code photo inside 
       <a href="https://t.me/treasure_hunt12_bot" target="_blank" class="id-bot-link" id="idVerifyBotLink">@treasure_hunt12_bot</a>.
     </p>
 
@@ -6571,7 +6571,7 @@
     </div>
 
     <!-- Timer & Feedback -->
-    <div class="id-timer-row" id="idTimerRow">
+    <div class="id-timer-row" id="idTimerRow" style="display: none;">
       <span class="id-timer-icon">⏳</span>
       <span id="idTimerTxt">Validity: 02:00</span>
     </div>
@@ -6585,7 +6585,7 @@
       </button>
 
       <button type="button" class="id-resend-btn" id="idResendCodeBtn">
-        <span>🔄 Resend Code to Bot</span>
+        <span>📩 Send Code to Bot</span>
       </button>
     </div>
   </div>
@@ -8358,11 +8358,24 @@
     idVerifyModal.style.display = "flex";
     idVerifyModal.style.opacity = "";
     clearDigitInputs();
+
+    var resendBtn = document.getElementById("idResendCodeBtn");
+    var timerRow = document.getElementById("idTimerRow");
+    if (!idTimerInterval) {
+      if (resendBtn) {
+        resendBtn.innerHTML = "<span>📩 Send Code to Bot</span>";
+        resendBtn.disabled = false;
+      }
+      if (timerRow) {
+        timerRow.style.display = "none";
+      }
+    }
   }
 
   function closeIdentityVerifyModal() {
     if (!idVerifyModal) return;
     clearInterval(idTimerInterval);
+    idTimerInterval = null;
     idVerifyModal.style.opacity = "0";
     idVerifyModal.style.transition = "opacity 0.24s ease";
     setTimeout(function(){
@@ -8396,6 +8409,7 @@
     var timerTxt = document.getElementById("idTimerTxt");
     var timerRow = document.getElementById("idTimerRow");
     var resendBtn = document.getElementById("idResendCodeBtn");
+    if (timerRow) timerRow.style.display = "flex";
 
     function update() {
       var remaining = Math.max(0, Math.floor((idCodeExpiresAt - Date.now()) / 1000));
@@ -8412,8 +8426,12 @@
 
       if (remaining <= 0) {
         clearInterval(idTimerInterval);
+        idTimerInterval = null;
         if (timerTxt) timerTxt.textContent = "Code expired. Please click Resend Code.";
-        if (resendBtn) resendBtn.disabled = false;
+        if (resendBtn) {
+          resendBtn.disabled = false;
+          resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
+        }
       }
     }
 
@@ -8505,6 +8523,8 @@
       }
 
       botWritePermissionGranted = true;
+      var timerRow = document.getElementById("idTimerRow");
+      if (timerRow) timerRow.style.display = "flex";
       startIdCodeTimer(res.data.expiresAt || (Date.now() + 120000));
       showIdFeedback("✅ 4-digit code image sent to @treasure_hunt12_bot! Check your Telegram chat.", false);
       clearDigitInputs();
@@ -8520,7 +8540,7 @@
 
   function requestNewVerificationCode(forceResend) {
     // Strictly never send verification code if user is not on the Verify page or is already verified
-    if (!idVerifyModal || idVerifyModal.style.display !== "flex") return;
+    if (!idVerifyModal || idVerifyModal.style.display !== "flex" || idVerifyModal.style.opacity === "0") return;
     if (user && user.isIdentityVerified === true) return;
 
     var now = Date.now();
@@ -8577,13 +8597,28 @@
       return;
     }
 
+    var dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem("treasure_id_verify_dismissed") === "true";
+    } catch(e){}
+    if (dismissed) return;
+
     openIdentityVerifyModal();
-    requestNewVerificationCode();
   }
 
   function setupIdentityVerifyModal() {
     if (window._idVerifyModalSetupDone) return;
     window._idVerifyModalSetupDone = true;
+
+    // Close button (✕)
+    var closeBtn = document.getElementById("closeIdVerifyBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", function(e){
+        e.preventDefault();
+        try { sessionStorage.setItem("treasure_id_verify_dismissed", "true"); } catch(ex){}
+        closeIdentityVerifyModal();
+      });
+    }
 
     var cells = document.querySelectorAll(".id-digit-cell");
     cells.forEach(function(cell, idx){
@@ -8639,7 +8674,7 @@
     if (openBtn) openBtn.addEventListener("click", launchBotChat);
     if (linkBtn) linkBtn.addEventListener("click", launchBotChat);
 
-    // Resend code button
+    // Resend / Request code button
     var resendBtn = document.getElementById("idResendCodeBtn");
     if (resendBtn) {
       resendBtn.addEventListener("click", function(){
@@ -10069,7 +10104,6 @@
     var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "me";
     if (user.termsAccepted === true || isTermsLocallyAccepted(currentUid)) {
       closeTermsModal();
-      checkIdentityVerificationPrompt();
       return;
     }
     openTermsModal();
@@ -10094,7 +10128,6 @@
       setTimeout(function(){
         btn.disabled = false;
         btn.innerHTML = '<span>Agree & Continue</span>';
-        checkIdentityVerificationPrompt();
       }, 300);
     });
   }
@@ -13913,7 +13946,6 @@
     // Security check: Must verify identity before withdrawing
     if (user.isIdentityVerified !== true && !isUserLocallyVerified()) {
       openIdentityVerifyModal();
-      requestNewVerificationCode();
       showToast("⚠️ Security Check: Please verify your account before withdrawing.");
       return;
     }
@@ -14163,17 +14195,11 @@
           loadingScreenEl.style.display = "none";
           triggerStartupInterstitialAd(function() {
             onAppReady();
-            if (user && user.isIdentityVerified !== true) {
-              checkIdentityVerificationPrompt();
-            }
           });
         }, 480);
       } else {
         triggerStartupInterstitialAd(function() {
           onAppReady();
-          if (user && user.isIdentityVerified !== true) {
-            checkIdentityVerificationPrompt();
-          }
         });
       }
     }, 350);
@@ -14339,9 +14365,6 @@
     }
     if (loadingDone) {
       onAppReady();
-      if (user && user.isIdentityVerified !== true) {
-        checkIdentityVerificationPrompt();
-      }
     }
     renderAll();
     triggerDismissWhenReady();
