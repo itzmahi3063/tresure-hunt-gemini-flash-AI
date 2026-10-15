@@ -20,7 +20,7 @@
       }
     },
     {
-      "src": "/api/setup-indexes(?:\\.js)?$",
+      "src": "/api/(?:admin/)?setup-indexes(?:\\.js)?$",
       "dest": "/api/admin.js?action=setup_indexes",
       "headers": {
         "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
