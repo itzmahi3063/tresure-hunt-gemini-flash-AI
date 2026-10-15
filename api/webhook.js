@@ -21,6 +21,8 @@ function escapeHtml(text) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
 let lastWebhookPurgeRun = 0;
 const PURGE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 function triggerBackgroundPurge(db) {
