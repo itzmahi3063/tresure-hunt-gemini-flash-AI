@@ -322,9 +322,11 @@ module.exports = async (req, res) => {
           status: "PENDING",
           $or: [
             { isSuspicious: true },
-            { isSuspiciousWithdrawalDistance: true }
+            { isSuspiciousWithdrawalDistance: true },
+            { securityFlag: { $exists: true, $ne: "" } }
           ]
         });
+        const pendingCleanW = Math.max(0, pendingW - pendingSuspiciousCount);
 
         res.status(200).json({
           ok: true,
@@ -335,7 +337,8 @@ module.exports = async (req, res) => {
           bannedPurged,
           bannedGrace,
           highRiskUnbannedCount,
-          pendingWithdrawals: pendingW,
+          pendingWithdrawals: pendingCleanW,
+          totalPendingWithdrawals: pendingW,
           pendingSuspiciousCount,
           totalPendingUsdt: Number(totalPendingUsdt.toFixed(2)),
           totalPendingTon: Number(totalPendingTon.toFixed(4)),
@@ -351,7 +354,11 @@ module.exports = async (req, res) => {
       if (action === "withdrawals") {
         const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
-        if (reqStatus === "PENDING" || reqStatus === "SUSPICIOUS") {
+        if (reqStatus === "PENDING") {
+          filter.status = "PENDING";
+          filter.isSuspicious = { $ne: true };
+          filter.isSuspiciousWithdrawalDistance = { $ne: true };
+        } else if (reqStatus === "SUSPICIOUS") {
           filter.status = "PENDING";
         } else if (reqStatus !== "ALL") {
           filter.status = reqStatus;
@@ -360,7 +367,7 @@ module.exports = async (req, res) => {
         const rawList = await withdrawalsCol
           .find(filter)
           .sort({ createdAt: -1 })
-          .limit(100)
+          .limit(200)
           .toArray();
 
         // Attach user info
@@ -378,21 +385,42 @@ module.exports = async (req, res) => {
           });
         }
 
-        let pendingSuspiciousCount = 0;
+        const dbPendingSuspiciousCount = await withdrawalsCol.countDocuments({
+          status: "PENDING",
+          $or: [
+            { isSuspicious: true },
+            { isSuspiciousWithdrawalDistance: true },
+            { securityFlag: { $exists: true, $ne: "" } }
+          ]
+        });
+
+        let localSuspiciousCount = 0;
 
         const list = rawList.map(w => {
           const u = usersMap[String(w.telegramId)] || {};
           const isSusp = Boolean(
+            w.isSuspicious ||
+            w.isSuspiciousWithdrawalDistance ||
+            w.securityFlag ||
+            w.suspiciousReason ||
             u.isSuspicious ||
             u.isHighRiskHacker ||
             u.isFakeAdBypasser ||
+            u.permanentWarning ||
+            u.isBanned ||
+            (u.balance < 0) ||
+            u.isSuspendedMultipleAccount ||
+            (u.deviceViolationsCount > 0) ||
             (u.adSkipUnder9sStrikes > 0) ||
-            w.isSuspicious ||
-            w.isSuspiciousWithdrawalDistance
+            (u.spinUnder5sStrikes >= 3) ||
+            u.securityFlag ||
+            u.suspiciousReason ||
+            u.penaltyNotice ||
+            calculateFraudRiskScore(u) >= 50
           );
 
           if (w.status === "PENDING" && isSusp) {
-            pendingSuspiciousCount++;
+            localSuspiciousCount++;
           }
 
           return {
@@ -405,7 +433,7 @@ module.exports = async (req, res) => {
             isBanned: !!u.isBanned,
             isSuspicious: isSusp,
             isSuspiciousWithdrawalDistance: !!w.isSuspiciousWithdrawalDistance,
-            suspiciousReason: w.suspiciousReason || u.suspiciousReason || "",
+            suspiciousReason: w.suspiciousReason || u.suspiciousReason || (isSusp ? "Security / risk policy flagged" : ""),
             isHighRiskHacker: !!u.isHighRiskHacker,
             securityFlag: w.securityFlag || u.securityFlag || "",
             isSuspendedMultipleAccount: !!u.isSuspendedMultipleAccount,
@@ -436,7 +464,7 @@ module.exports = async (req, res) => {
         res.status(200).json({
           ok: true,
           withdrawals: filteredList,
-          pendingSuspiciousCount: pendingSuspiciousCount
+          pendingSuspiciousCount: Math.max(dbPendingSuspiciousCount, localSuspiciousCount)
         });
         return;
       }

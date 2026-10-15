@@ -299,7 +299,16 @@ module.exports = async (req, res) => {
           user.isSuspicious ||
           user.isHighRiskHacker ||
           user.isFakeAdBypasser ||
-          (user.adSkipUnder9sStrikes > 0)
+          user.permanentWarning ||
+          user.isBanned ||
+          (user.balance < 0) ||
+          user.isSuspendedMultipleAccount ||
+          (user.deviceViolationsCount > 0) ||
+          (user.adSkipUnder9sStrikes > 0) ||
+          (user.spinUnder5sStrikes >= 3) ||
+          user.securityFlag ||
+          user.suspiciousReason ||
+          user.penaltyNotice
         );
 
         // Record withdrawal transaction in MongoDB with PENDING status

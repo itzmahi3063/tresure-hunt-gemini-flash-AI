@@ -520,13 +520,31 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
   // Filter items into clean vs suspicious
   const enrichedList = allPending.map(w => {
     const u = usersMap[String(w.telegramId)] || {};
+    const susReason = String(u.suspiciousReason || w.suspiciousReason || "").toLowerCase();
+    const secFlag = String(u.securityFlag || w.securityFlag || "").toLowerCase();
+    const hasKeyword = susReason.includes("tamper") || susReason.includes("bot") || susReason.includes("hack") || 
+                       susReason.includes("exploit") || susReason.includes("script") || susReason.includes("cluster") ||
+                       secFlag.includes("red_flag") || secFlag.includes("hacker") || secFlag.includes("cluster");
+
     const isSusp = Boolean(
+      w.isSuspicious ||
+      w.isSuspiciousWithdrawalDistance ||
+      w.securityFlag ||
+      w.suspiciousReason ||
       u.isSuspicious ||
       u.isHighRiskHacker ||
       u.isFakeAdBypasser ||
+      u.permanentWarning ||
+      u.isBanned ||
+      (u.balance < 0) ||
+      u.isSuspendedMultipleAccount ||
+      (u.deviceViolationsCount > 0) ||
       (u.adSkipUnder9sStrikes > 0) ||
-      w.isSuspicious ||
-      w.isSuspiciousWithdrawalDistance
+      (u.spinUnder5sStrikes >= 3) ||
+      u.securityFlag ||
+      u.suspiciousReason ||
+      u.penaltyNotice ||
+      hasKeyword
     );
     return Object.assign({}, w, { isSusp, user: u });
   });

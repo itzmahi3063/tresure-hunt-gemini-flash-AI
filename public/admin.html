@@ -575,7 +575,7 @@
           </span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <button class="btn-success" id="bulkApproveBtn" style="font-size: 12px; padding: 6px 14px; font-weight: 800;">⚡ Approve All Pending</button>
+          <button class="btn-success" id="bulkApproveBtn" style="font-size: 12px; padding: 6px 14px; font-weight: 800;">⚡ Approve Clean Pending</button>
           <button class="btn-danger" id="banAllSuspiciousBtn" style="display: none; font-size: 12px; padding: 6px 14px; font-weight: 800; background: #dc2626; border-color: #ef4444;">🚫 Ban All Suspicious</button>
           <button class="btn-danger" id="stopAutoPayBtn" style="display: none; font-size: 12px; padding: 6px 14px; font-weight: 800;">⏹️ Turn OFF Auto-Pay</button>
         </div>
@@ -616,7 +616,7 @@
       </div>
 
       <div class="filter-row">
-        <button class="pill-filter active" data-filter="PENDING">Pending Clean</button>
+        <button class="pill-filter active" data-filter="PENDING">Pending (Clean Only)</button>
         <button class="pill-filter" data-filter="SUSPICIOUS" id="susFilterBtn" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
           ⚠️ Suspicious & High Risk <span id="susFilterBadge" style="display: none; background: #ef4444; color: #fff; padding: 1px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 800; margin-left: 4px;">0</span>
         </button>
@@ -1297,9 +1297,12 @@
     try {
       var data = await apiAdmin("GET", { action: "stats" });
       if (data.ok) {
-        var active60d = (data.activeUsers60d !== undefined ? data.activeUsers60d : (data.totalUsers || 0));
-        document.getElementById("statTotalUsers").innerHTML = `${(data.totalUsers || 0).toLocaleString()} <span style="font-size: 11px; color: var(--text-dim); display: block; margin-top: 2px;">Active (60d): <strong style="color: var(--accent);">${active60d.toLocaleString()}</strong></span>`;
-        document.getElementById("statPendingW").textContent = (data.pendingWithdrawals || 0).toLocaleString();
+        var cleanPending = (data.pendingWithdrawals || 0);
+        var susCount = (data.pendingSuspiciousCount || 0);
+        var pendingEl = document.getElementById("statPendingW");
+        if (pendingEl) {
+          pendingEl.innerHTML = `${cleanPending.toLocaleString()} <span style="font-size: 11px; color: ${susCount > 0 ? '#ef4444' : 'var(--text-dim)'}; display: block; margin-top: 2px;">Clean: <strong>${cleanPending}</strong> · Suspicious: <strong style="color: #ef4444;">${susCount}</strong></span>`;
+        }
         
         var pendingUsdtStr = "$" + (data.totalPendingUsdt || 0).toFixed(2);
         var pendingTonStr = (data.totalPendingTon !== undefined ? Number(data.totalPendingTon).toFixed(4) : "0.0000") + " TON";
@@ -1728,16 +1731,26 @@
         return;
       }
 
-      var list = data.withdrawals;
+      // Double protection: strictly exclude any suspicious, high-risk, or banned requests
+      var list = (data.withdrawals || []).filter(function(w){
+        return w.status === "PENDING" && !w.isSuspicious && !w.isHighRiskHacker && !w.isBanned;
+      });
+
+      if (list.length === 0) {
+        alert("No clean pending withdrawals to approve!");
+        return;
+      }
+
       var totalCount = list.length;
       var totalTonEst = list.reduce(function(sum, w){ return sum + (parseFloat(w.tonAmount) || 0); }, 0);
 
-      var confirmMsg = `⚡ Start Automated Payout for ALL Pending Requests?\n\n` +
-        `📋 Total Queue: ${totalCount} request(s)\n` +
+      var confirmMsg = `⚡ Start Automated Payout for CLEAN Pending Requests ONLY?\n\n` +
+        `📋 Clean Queue: ${totalCount} request(s)\n` +
         `💎 Total TON: ~${totalTonEst.toFixed(4)} TON\n\n` +
+        `🛡️ Notice: Suspicious, high-risk, and banned accounts are 100% EXCLUDED from this payout.\n` +
         `Each payout will be safely sent on-chain with an 8-second blockchain confirmation delay between transactions to prevent seqno collisions.\n` +
         `You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n` +
-        `Start Auto-Pay now?`;
+        `Start Auto-Pay for clean requests now?`;
 
       if (!confirm(confirmMsg)) return;
 
