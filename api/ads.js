@@ -574,20 +574,22 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // 2. Strict 9-Second Watch Rule Anti-Cheat Enforcement:
-    // Only flag if user ACTUALLY skipped the ad before 9 seconds (duration < 9000ms):
-    if (duration < 9000) {
+    // 2. Strict Watch Duration Anti-Cheat Enforcement:
+    // Ad #1 (Rewarded Ad 49079): must watch at least 9 seconds
+    // Ads #2..10 (Interstitial Ads int-49020): must watch at least 5 seconds
+    const minRequiredDuration = (watchedToday === 0) ? 9000 : 5000;
+    if (duration < minRequiredDuration) {
       const strikes = Number(user.adSkipUnder9sStrikes || 0) + 1;
       const updateData = {
         adSkipUnder9sStrikes: strikes,
         isSuspicious: true,
         securityFlag: "RED_FLAG_AD_SKIP_EXPLOIT",
-        suspiciousReason: `Skipped Watch & Earn ad under 9s (${(duration / 1000).toFixed(1)}s elapsed) while attempting to credit coins into balance.`,
+        suspiciousReason: `Skipped Watch & Earn ad under ${minRequiredDuration / 1000}s (${(duration / 1000).toFixed(1)}s elapsed) while attempting to credit coins into balance.`,
         lastSuspiciousAt: now
       };
       await usersCol.updateOne({ _id: user._id }, { $set: updateData });
       res.status(403).json({
-        error: "🚨 Security Warning: Ad was skipped under 9 seconds! Coin reward rejected/revoked from balance and your account has been RED-FLAGGED.",
+        error: `🚨 Security Warning: Ad was skipped under ${minRequiredDuration / 1000} seconds! Coin reward rejected and your account has been RED-FLAGGED.`,
         flagged: true,
         revoked: true,
         correctBalance: Number(user.balance || 0)

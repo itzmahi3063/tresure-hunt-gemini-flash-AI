@@ -177,7 +177,7 @@ module.exports = async (req, res) => {
         const expiresAt = now + (2 * 60 * 1000); // 2 minutes
 
         const captionText =
-          `🔐 <b>TREASURE MINE · Verify It's you</b>\n\n` +
+          `🏹 <b>TREASURE HUNT · Verify It's you</b>\n\n` +
           `Here is your secure 4-digit verification code.\n` +
           `👉 <b>Check the image above!</b>\n\n` +
           `⏱ <b>Validity: 2 minutes</b>\n` +
@@ -206,6 +206,25 @@ module.exports = async (req, res) => {
           }
         } catch (photoErr) {
           console.warn("sendPhoto exception:", photoErr.message);
+        }
+
+        // Fallback: if sendPhoto failed due to photo issues, deliver code as clean Telegram text message
+        if (!sentSuccess && !tgErrorDesc.includes("blocked") && !tgErrorDesc.includes("chat not found")) {
+          try {
+            const fallbackMsgRes = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: telegramId,
+                text: `🏹 <b>TREASURE HUNT · Verify It's you</b>\n\nYour 4-digit verification code is: <code>${codeStr}</code>\n\n⏱ <b>Validity: 2 minutes</b>\n<i>Enter this code in the app to unlock access.</i>`,
+                parse_mode: "HTML"
+              })
+            });
+            const fallbackData = await fallbackMsgRes.json();
+            if (fallbackData && fallbackData.ok) {
+              sentSuccess = true;
+            }
+          } catch(e) {}
         }
 
         if (sentSuccess) {

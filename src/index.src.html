@@ -8480,10 +8480,9 @@
   }
 
   function checkIdentityVerificationPrompt() {
-    if (!loadingDone) return;
     var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "me";
 
-    if ((user && user.isIdentityVerified === true) || isUserLocallyVerified()) {
+    if (user && user.isIdentityVerified === true) {
       if (idVerifyModal) idVerifyModal.style.display = "none";
       return;
     }
@@ -9980,6 +9979,7 @@
     var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "me";
     if (user.termsAccepted === true || isTermsLocallyAccepted(currentUid)) {
       closeTermsModal();
+      checkIdentityVerificationPrompt();
       return;
     }
     openTermsModal();
@@ -10004,6 +10004,7 @@
       setTimeout(function(){
         btn.disabled = false;
         btn.innerHTML = '<span>Agree & Continue</span>';
+        checkIdentityVerificationPrompt();
       }, 300);
     });
   }
@@ -11254,7 +11255,8 @@
       if (result && result.error) {
         throw new Error(result.description || "Ad playback error occurred.");
       }
-      if (result && result.done === false) {
+      var isRewardedAd = (String(finalBlockId).indexOf("int-") !== 0);
+      if (isRewardedAd && result && result.done === false) {
         throw new Error("Ad was closed before finishing — please watch the full ad to receive your reward.");
       }
       return result;
@@ -11467,17 +11469,19 @@
       sheetStartAdBtn.innerHTML = '<span>⏳ Loading Ad...</span>';
 
       var startedAt = Date.now();
+      var targetBlockId = (watched === 0) ? ADSGRAM_REWARD_BLOCK_ID : ADSGRAM_INTERSTITIAL_BLOCK_ID;
+      var minWatchMs = (watched === 0) ? 9000 : 5000;
 
-      showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID)
+      showAdsgramAd(targetBlockId)
         .then(function() {
           var elapsed = Date.now() - startedAt;
           window.AdBarrier.release("adsgram_watch");
 
-          // Strict 9s minimum watch duration anti-cheat
-          if (elapsed < 9000) {
+          // Strict minimum watch duration anti-cheat (9s for rewarded ad 1, 5s for interstitial ads 2..10)
+          if (elapsed < minWatchMs) {
             sheetStartAdBtn.disabled = false;
             sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-            showToast("⚠️ Ad was watched under 9 seconds! Reward cannot be granted.");
+            showToast("⚠️ Ad was watched under " + (minWatchMs / 1000) + " seconds! Reward cannot be granted.");
             return;
           }
 
@@ -11634,44 +11638,50 @@
       if (tabBtnTxt) tabBtnTxt.textContent = "Verifying...";
     }
 
-    // Direct captcha verification (No ads!)
-    openSecurityCaptcha(function onCaptchaSuccess(verifiedCaptchaToken) {
-      if (window._isMiningClaimLocked) return;
-      window._isMiningClaimLocked = true;
+    // Play Interstitial Ad (int-49020) before mining collect
+    playFullscreenAd(function onAdWatched() {
+      // Puzzle captcha verification
+      openSecurityCaptcha(function onCaptchaSuccess(verifiedCaptchaToken) {
+        if (window._isMiningClaimLocked) return;
+        window._isMiningClaimLocked = true;
 
-      // 3. INSTANT OPTIMISTIC LOCK & COUNTDOWN (Zero-delay timer appearance):
-      var prevLastCollected = user.lastMineCollectedAt;
-      user.lastMineCollectedAt = Date.now();
-      renderMining(); // Instantly activates countdown clock and disables buttons in 0ms!
+        // 3. INSTANT OPTIMISTIC LOCK & COUNTDOWN (Zero-delay timer appearance):
+        var prevLastCollected = user.lastMineCollectedAt;
+        user.lastMineCollectedAt = Date.now();
+        renderMining(); // Instantly activates countdown clock and disables buttons in 0ms!
 
-      apiCollect(verifiedCaptchaToken).then(function(res){
-        window._isMiningClaimLocked = false;
-        if (!res.ok) {
-          user.lastMineCollectedAt = prevLastCollected; // rollback on server error
-          var errText = (res.data && res.data.error) ? res.data.error : ("Error (" + res.status + ")");
-          showToast(errText);
+        apiCollect(verifiedCaptchaToken).then(function(res){
+          window._isMiningClaimLocked = false;
+          if (!res.ok) {
+            user.lastMineCollectedAt = prevLastCollected; // rollback on server error
+            var errText = (res.data && res.data.error) ? res.data.error : ("Error (" + res.status + ")");
+            showToast(errText);
+            renderMining();
+            return;
+          }
+          user.balance = res.data.balance;
+          user.lastMineCollectedAt = res.data.lastMineCollectedAt;
+          if (res.data.minerLevel) {
+            user.minerLevel = res.data.minerLevel;
+            user.level = res.data.minerLevel;
+            try { localStorage.setItem("hoocooh_miner_level", String(res.data.minerLevel)); } catch(e){}
+          }
+          if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
+            try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("success"); } catch(e){}
+          }
+          showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
+          renderAll();
+        }).catch(function(err){
+          window._isMiningClaimLocked = false;
+          user.lastMineCollectedAt = prevLastCollected;
+          var msg = (err && err.message) ? err.message : "Connection failed";
+          showToast(msg);
           renderMining();
-          return;
-        }
-        user.balance = res.data.balance;
-        user.lastMineCollectedAt = res.data.lastMineCollectedAt;
-        if (res.data.minerLevel) {
-          user.minerLevel = res.data.minerLevel;
-          user.level = res.data.minerLevel;
-          try { localStorage.setItem("hoocooh_miner_level", String(res.data.minerLevel)); } catch(e){}
-        }
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
-          try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("success"); } catch(e){}
-        }
-        showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
-        renderAll();
-      }).catch(function(err){
-        window._isMiningClaimLocked = false;
-        user.lastMineCollectedAt = prevLastCollected;
-        var msg = (err && err.message) ? err.message : "Connection failed";
-        showToast(msg);
-        renderMining();
+        });
       });
+    }, function onAdFailed() {
+      if (homeBtn) { homeBtn.disabled = false; renderMining(); }
+      if (tabBtn) { tabBtn.disabled = false; renderMining(); }
     });
   }
 
@@ -13814,10 +13824,21 @@
     });
   }
 
-  // Step 1: Watch Ad & Continue -> shows system update notice (24h maintenance)
+  // Step 1: Watch Ad & Continue -> Plays Interstitial Ad (int-49020)
   if (withdrawAdActionBtn) {
     withdrawAdActionBtn.addEventListener("click", function() {
-      showFeatureUpdateNotice(t("withdraw_update_title"), t("withdraw_update_desc"));
+      withdrawAdActionBtn.disabled = true;
+      withdrawAdActionBtn.innerHTML = '<span>⏳ Loading Ad...</span>';
+
+      playFullscreenAd(function onAdWatched() {
+        withdrawAdActionBtn.disabled = false;
+        withdrawAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("withdraw_step1_btn") : "▶ Watch Ad & Continue") + '</span>';
+        setWithdrawStep(2);
+      }, function onAdFailed() {
+        withdrawAdActionBtn.disabled = false;
+        withdrawAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("withdraw_step1_btn") : "▶ Watch Ad & Continue") + '</span>';
+        setWithdrawStep(2);
+      });
     });
   }
 
@@ -13968,9 +13989,15 @@
         setTimeout(function(){
           loadingScreenEl.style.display = "none";
           onAppReady();
+          if (user && user.isIdentityVerified !== true) {
+            checkIdentityVerificationPrompt();
+          }
         }, 480);
       } else {
         onAppReady();
+        if (user && user.isIdentityVerified !== true) {
+          checkIdentityVerificationPrompt();
+        }
       }
     }, 350);
   }
@@ -13978,7 +14005,6 @@
   function onAppReady() {
     if (!apiGetCompleted) return;
     var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "me";
-    if (idVerifyModal) idVerifyModal.style.display = "none";
     var localLang = false;
     try {
       localLang = (localStorage.getItem("treasure_lang_selected_" + currentUid) === "true") ||
@@ -13990,6 +14016,7 @@
       openTermsModal();
     } else {
       closeTermsModal();
+      checkIdentityVerificationPrompt();
     }
   }
 
