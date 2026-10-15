@@ -1,7 +1,7 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
-const { mineIsReady, MINE_REWARD, getMultiplierForLevel } = require("../lib/gameLogic");
+const { mineIsReady, MINE_REWARD, getMultiplierForLevel, getMax24hMiningForLevel } = require("../lib/gameLogic");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
@@ -88,6 +88,35 @@ module.exports = async (req, res) => {
     const mineIntervalMs = 2 * 60 * 60 * 1000;
     const cutoffTime = now - mineIntervalMs;
 
+    // 24-Hour Mining Cap Anti-Cheat Enforcement per Miner Level:
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    let dailyCycleStart = user.dailyMineCycleStartedAt ? Number(user.dailyMineCycleStartedAt) : 0;
+    let dailyClaims = Number(user.dailyMinedClaims || 0);
+    let dailyCoins = Number(user.dailyMinedCoins || 0);
+
+    if (!dailyCycleStart || (now - dailyCycleStart >= TWENTY_FOUR_HOURS)) {
+      dailyCycleStart = now;
+      dailyClaims = 0;
+      dailyCoins = 0;
+    }
+
+    const { maxClaims, maxCoins } = getMax24hMiningForLevel(minerLevel);
+
+    if (dailyClaims >= maxClaims || (dailyCoins + reward) > (maxCoins + 5)) {
+      const updateFlag = {
+        isSuspicious: true,
+        securityFlag: "RED_FLAG_EXCESSIVE_24H_MINING",
+        suspiciousReason: `Exceeded 24h mining cap for Level ${minerLevel}: Attempted ${dailyClaims + 1} claims / ${dailyCoins + reward} coins in 24h (Max allowed: ${maxClaims} claims, ${maxCoins} coins). Timer bypass exploit.`,
+        lastSuspiciousAt: now
+      };
+      await users.updateOne({ _id: user._id }, { $set: updateFlag });
+      res.status(403).json({
+        error: `🚨 Security Warning: 24-hour mining cap reached for Level ${minerLevel}! Maximum ${maxClaims} claims (${maxCoins} coins) allowed per 24 hours. Your account has been flagged as suspicious.`,
+        isSuspicious: true
+      });
+      return;
+    }
+
     // ATOMIC CONDITIONAL CLAIM:
     // Mathematically impossible for concurrent requests or double clicks to claim twice
     const collectRes = await users.updateOne(
@@ -103,9 +132,16 @@ module.exports = async (req, res) => {
         $inc: {
           balance: reward,
           totalMinedCoins: reward,
-          totalMinedClaims: 1
+          totalMinedClaims: 1,
+          dailyMinedClaims: 1,
+          dailyMinedCoins: reward
         },
-        $set: { lastMineCollectedAt: now, mineReminderSent: false, lastActiveAt: new Date() }
+        $set: {
+          dailyMineCycleStartedAt: dailyCycleStart,
+          lastMineCollectedAt: now,
+          mineReminderSent: false,
+          lastActiveAt: new Date()
+        }
       }
     );
 

@@ -291,11 +291,11 @@ module.exports = async (req, res) => {
         return;
       }
 
-      const lastTaskS2s = Number(user.lastAdsgramS2sTaskRewardAt || user.lastAdsgramS2sRewardAt || 0);
-      const lastTaskConsumed = Number(user.lastAdsgramS2sTaskConsumedAt || 0);
+      let lastTaskS2s = Number(user.lastAdsgramS2sTaskRewardAt || user.lastAdsgramS2sRewardAt || 0);
+      let lastTaskConsumed = Number(user.lastAdsgramS2sTaskConsumedAt || 0);
       let isTaskS2sConfirmed = (lastTaskS2s > 0) && (lastTaskS2s > lastTaskConsumed) && ((now - lastTaskS2s) < 300000);
 
-      // Fast check if S2S callback arrived
+      // Fast check if S2S callback arrived in DB
       if (!isTaskS2sConfirmed) {
         const freshUser = await usersCol.findOne({ _id: user._id });
         if (freshUser) {
@@ -304,8 +304,27 @@ module.exports = async (req, res) => {
           if ((freshS2s > 0) && (freshS2s > freshConsumed) && ((Date.now() - freshS2s) < 300000)) {
             isTaskS2sConfirmed = true;
             user = freshUser;
+            lastTaskConsumed = freshConsumed;
           }
         }
+      }
+
+      // Strict S2S Anti-Cheat Verification:
+      // If S2S callback is NOT confirmed, this is an S2S VIOLATION (bypassed Adsgram)!
+      if (!isTaskS2sConfirmed) {
+        const updateFlag = {
+          isSuspicious: true,
+          securityFlag: "RED_FLAG_AD_MISSION_S2S_BYPASS",
+          suspiciousReason: "Ad Mission S2S violation: Attempted to claim ad mission reward without verified Adsgram server-to-server callback.",
+          lastSuspiciousAt: now
+        };
+        await usersCol.updateOne({ _id: user._id }, { $set: updateFlag });
+        res.status(403).json({
+          error: "🚨 Security Warning: Ad Mission S2S verification failed! No valid server-to-server callback received from Adsgram. Your account has been flagged as suspicious.",
+          isSuspicious: true,
+          flagged: true
+        });
+        return;
       }
 
       // ATOMIC compare-and-set: prevents any double reward
@@ -349,7 +368,7 @@ module.exports = async (req, res) => {
         ok: true,
         reward: currentAdMissionReward,
         newBalance: finalBalance,
-        s2sVerified: isTaskS2sConfirmed
+        s2sVerified: true
       });
       return;
     }
@@ -643,10 +662,19 @@ module.exports = async (req, res) => {
       cycleStart = now;
     }
 
-    if (watchedToday >= MAX_ADS_PER_DAY) {
+    const maxDailyEarnCoins = MAX_ADS_PER_DAY * currentAdReward;
+    if (watchedToday >= MAX_ADS_PER_DAY || (earnedToday + currentAdReward) > (maxDailyEarnCoins + 5)) {
       const remainingMs = Math.max(0, CYCLE_MS - (now - cycleStart));
-      res.status(400).json({
-        error: "Daily limit of 10 ads reached! Next ads available in 24 hours.",
+      const updateFlag = {
+        isSuspicious: true,
+        securityFlag: "RED_FLAG_WATCH_AD_OVERCLAIM",
+        suspiciousReason: `Watch & Earn exploit: Attempted to claim beyond 24h limit (${watchedToday} ads watched, ${earnedToday} coins earned; 24h limit is ${MAX_ADS_PER_DAY} ads / ${maxDailyEarnCoins} coins). Over-claim exploit detected.`,
+        lastSuspiciousAt: now
+      };
+      await usersCol.updateOne({ _id: user._id }, { $set: updateFlag });
+      res.status(403).json({
+        error: `🚨 Security Warning: Daily 10-ad limit exceeded! You have already claimed all ${MAX_ADS_PER_DAY} ads (${earnedToday} coins) for this 24-hour cycle. Your account has been flagged as suspicious.`,
+        isSuspicious: true,
         remainingMs,
         adsWatchedToday: watchedToday,
         adsEarnedToday: earnedToday,
@@ -778,6 +806,14 @@ module.exports = async (req, res) => {
           { lastWatchAdAt: { $exists: false } },
           { lastWatchAdAt: null },
           { lastWatchAdAt: { $lte: now - 4000 } }
+        ],
+        $and: [
+          {
+            $or: [
+              { adsCycleStartedAt: { $lt: now - CYCLE_MS } },
+              { adsWatchedToday: { $lt: MAX_ADS_PER_DAY } }
+            ]
+          }
         ]
       },
       {

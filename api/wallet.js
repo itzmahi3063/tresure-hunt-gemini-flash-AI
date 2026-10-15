@@ -1,6 +1,7 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
+const { getMax24hMiningForLevel } = require("../lib/gameLogic");
 const crypto = require("crypto");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
@@ -295,8 +296,43 @@ module.exports = async (req, res) => {
         const usdtVal = Number(calculateCoinsUsdt(numAmount, activeCoinRate).toFixed(4));
         const tonVal = Number((usdtVal * TON_PER_USD).toFixed(6));
 
+        // Dynamic checks for 24h limits & S2S violations:
+        const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
+        const { maxClaims, maxCoins } = getMax24hMiningForLevel(minerLevel);
+        const dailyMineCycle = Number(user.dailyMineCycleStartedAt || 0);
+        const isMineCycleActive = (now - dailyMineCycle < 24 * 60 * 60 * 1000);
+        const dailyMinedCoins = isMineCycleActive ? Number(user.dailyMinedCoins || 0) : 0;
+        const dailyMinedClaims = isMineCycleActive ? Number(user.dailyMinedClaims || 0) : 0;
+
+        let dynamicSuspicious = false;
+        let dynamicReason = "";
+
+        if (dailyMinedClaims > maxClaims || dailyMinedCoins > (maxCoins + 5)) {
+          dynamicSuspicious = true;
+          dynamicReason = `Exceeded 24h mining cap for Level ${minerLevel} (${dailyMinedClaims} claims / ${dailyMinedCoins} coins in 24h, max allowed ${maxClaims} claims / ${maxCoins} coins). Timer bypass exploit.`;
+        }
+
+        const appSettings = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const currentAdReward = (appSettings && typeof appSettings.watchAdReward === "number" && appSettings.watchAdReward > 0) ? appSettings.watchAdReward : 10;
+        const maxDailyEarnCoins = 10 * currentAdReward;
+        const adsCycleStart = Number(user.adsCycleStartedAt || 0);
+        const isAdsCycleActive = (now - adsCycleStart < 24 * 60 * 60 * 1000);
+        const adsWatchedToday = isAdsCycleActive ? Number(user.adsWatchedToday || 0) : 0;
+        const adsEarnedToday = isAdsCycleActive ? Number(user.adsEarnedToday || 0) : 0;
+
+        if (adsWatchedToday > 10 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
+          dynamicSuspicious = true;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 10 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
+        }
+
+        if (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS") {
+          dynamicSuspicious = true;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + "Ad Mission S2S violation: Attempted to claim ad mission reward without verified Adsgram server-to-server callback.";
+        }
+
         const isUserSuspicious = Boolean(
           user.isSuspicious ||
+          dynamicSuspicious ||
           user.isHighRiskHacker ||
           user.isFakeAdBypasser ||
           user.permanentWarning ||
@@ -311,6 +347,15 @@ module.exports = async (req, res) => {
           user.penaltyNotice
         );
 
+        const finalReason = dynamicReason || user.suspiciousReason || (isUserSuspicious ? "Security flagged account" : "");
+
+        if (dynamicSuspicious && !user.isSuspicious) {
+          await usersCol.updateOne(
+            { _id: user._id },
+            { $set: { isSuspicious: true, suspiciousReason: finalReason, lastSuspiciousAt: now } }
+          );
+        }
+
         // Record withdrawal transaction in MongoDB with PENDING status
         const txDoc = {
           telegramId,
@@ -322,7 +367,7 @@ module.exports = async (req, res) => {
           status: "PENDING",
           txHash: "",
           isSuspicious: isUserSuspicious,
-          suspiciousReason: isUserSuspicious ? (user.suspiciousReason || "Flagged account") : "",
+          suspiciousReason: isUserSuspicious ? finalReason : "",
           createdAt: now
         };
 

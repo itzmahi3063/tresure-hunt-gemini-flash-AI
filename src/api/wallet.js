@@ -1,11 +1,77 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
+const { getMax24hMiningForLevel } = require("../lib/gameLogic");
 const crypto = require("crypto");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 // Base rate fallback: 1 TREASURE Coin = $0.00003 USD
 const COIN_RATE = 0.00003;
+
+async function detectRhythmicWithdrawalCluster(withdrawalsCol, usersCol, newTxId, newCreatedAt, currentTelegramId) {
+  try {
+    const recent = await withdrawalsCol.find({}).sort({ createdAt: -1 }).limit(25).toArray();
+    if (recent.length < 10) return false;
+
+    let streakCount = 0;
+    const clusterIds = [];
+    const clusterUids = [];
+
+    for (let i = 0; i < recent.length - 1; i++) {
+      const diffMs = Number(recent[i].createdAt) - Number(recent[i + 1].createdAt);
+      // Rhythmic bot distance check: 8s to 25s distance (e.g. 10s, 13s, 20s)
+      if (diffMs >= 8000 && diffMs <= 25000) {
+        streakCount++;
+        clusterIds.push(recent[i]._id, recent[i + 1]._id);
+        clusterUids.push(String(recent[i].telegramId), String(recent[i + 1].telegramId));
+      } else {
+        if (streakCount >= 9) break; // 9 consecutive intervals = 10 consecutive withdrawals
+        streakCount = 0;
+        clusterIds.length = 0;
+        clusterUids.length = 0;
+      }
+    }
+
+    if (streakCount >= 9) {
+      const uniqueIds = [...new Set(clusterIds)];
+      const uniqueUids = [...new Set(clusterUids)];
+
+      await withdrawalsCol.updateMany(
+        { _id: { $in: uniqueIds } },
+        {
+          $set: {
+            isSuspicious: true,
+            isSuspiciousWithdrawalDistance: true,
+            suspiciousReason: "Automated rhythmic cluster withdrawal detected (consecutive 10s-20s interval across 10+ requests)"
+          }
+        }
+      );
+
+      await usersCol.updateMany(
+        {
+          $or: [
+            { telegramId: { $in: uniqueUids } },
+            { telegramId: { $in: uniqueUids.map(Number).filter(Boolean) } }
+          ]
+        },
+        {
+          $set: {
+            isSuspicious: true,
+            securityFlag: "FLAG_RHYTHMIC_WITHDRAW_CLUSTER",
+            suspiciousReason: "Automated rhythmic cluster withdrawal detected (spaced by 10s-20s distance across 10+ requests)",
+            lastSuspiciousAt: Date.now()
+          }
+        }
+      );
+
+      return true;
+    }
+  } catch (err) {
+    console.error("detectRhythmicWithdrawalCluster error:", err);
+  }
+  return false;
+}
 
 async function getCoinRate(db) {
   try {
@@ -50,6 +116,10 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const usersCol = db.collection("users");
     const withdrawalsCol = db.collection("withdrawals");
+
+    if (!(await checkDailyRequestQuota(usersCol, telegramId, res))) {
+      return;
+    }
 
     let user = await findOrCreateUser(usersCol, tgUser);
     if (!user) {
@@ -226,6 +296,66 @@ module.exports = async (req, res) => {
         const usdtVal = Number(calculateCoinsUsdt(numAmount, activeCoinRate).toFixed(4));
         const tonVal = Number((usdtVal * TON_PER_USD).toFixed(6));
 
+        // Dynamic checks for 24h limits & S2S violations:
+        const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
+        const { maxClaims, maxCoins } = getMax24hMiningForLevel(minerLevel);
+        const dailyMineCycle = Number(user.dailyMineCycleStartedAt || 0);
+        const isMineCycleActive = (now - dailyMineCycle < 24 * 60 * 60 * 1000);
+        const dailyMinedCoins = isMineCycleActive ? Number(user.dailyMinedCoins || 0) : 0;
+        const dailyMinedClaims = isMineCycleActive ? Number(user.dailyMinedClaims || 0) : 0;
+
+        let dynamicSuspicious = false;
+        let dynamicReason = "";
+
+        if (dailyMinedClaims > maxClaims || dailyMinedCoins > (maxCoins + 5)) {
+          dynamicSuspicious = true;
+          dynamicReason = `Exceeded 24h mining cap for Level ${minerLevel} (${dailyMinedClaims} claims / ${dailyMinedCoins} coins in 24h, max allowed ${maxClaims} claims / ${maxCoins} coins). Timer bypass exploit.`;
+        }
+
+        const appSettings = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const currentAdReward = (appSettings && typeof appSettings.watchAdReward === "number" && appSettings.watchAdReward > 0) ? appSettings.watchAdReward : 10;
+        const maxDailyEarnCoins = 10 * currentAdReward;
+        const adsCycleStart = Number(user.adsCycleStartedAt || 0);
+        const isAdsCycleActive = (now - adsCycleStart < 24 * 60 * 60 * 1000);
+        const adsWatchedToday = isAdsCycleActive ? Number(user.adsWatchedToday || 0) : 0;
+        const adsEarnedToday = isAdsCycleActive ? Number(user.adsEarnedToday || 0) : 0;
+
+        if (adsWatchedToday > 10 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
+          dynamicSuspicious = true;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 10 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
+        }
+
+        if (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS") {
+          dynamicSuspicious = true;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + "Ad Mission S2S violation: Attempted to claim ad mission reward without verified Adsgram server-to-server callback.";
+        }
+
+        const isUserSuspicious = Boolean(
+          user.isSuspicious ||
+          dynamicSuspicious ||
+          user.isHighRiskHacker ||
+          user.isFakeAdBypasser ||
+          user.permanentWarning ||
+          user.isBanned ||
+          (user.balance < 0) ||
+          user.isSuspendedMultipleAccount ||
+          (user.deviceViolationsCount > 0) ||
+          (user.adSkipUnder9sStrikes > 0) ||
+          (user.spinUnder5sStrikes >= 3) ||
+          user.securityFlag ||
+          user.suspiciousReason ||
+          user.penaltyNotice
+        );
+
+        const finalReason = dynamicReason || user.suspiciousReason || (isUserSuspicious ? "Security flagged account" : "");
+
+        if (dynamicSuspicious && !user.isSuspicious) {
+          await usersCol.updateOne(
+            { _id: user._id },
+            { $set: { isSuspicious: true, suspiciousReason: finalReason, lastSuspiciousAt: now } }
+          );
+        }
+
         // Record withdrawal transaction in MongoDB with PENDING status
         const txDoc = {
           telegramId,
@@ -236,10 +366,15 @@ module.exports = async (req, res) => {
           network: "TON",
           status: "PENDING",
           txHash: "",
+          isSuspicious: isUserSuspicious,
+          suspiciousReason: isUserSuspicious ? finalReason : "",
           createdAt: now
         };
 
         const insertRes = await withdrawalsCol.insertOne(txDoc);
+
+        // Check if this withdrawal is part of a rhythmic cluster attack (10+ requests spaced 10s-20s apart)
+        await detectRhythmicWithdrawalCluster(withdrawalsCol, usersCol, insertRes.insertedId, now, telegramId);
 
         res.status(200).json({
           ok: true,

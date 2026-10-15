@@ -137,6 +137,16 @@ function calculateFraudRiskScore(u) {
     score += 85;
   }
 
+  // 1c. Ad Mission S2S violation, Watch Ad over-claim, or Mining 24h cap exceeded
+  const secFlagStr = String(u.securityFlag || "");
+  if (
+    secFlagStr === "RED_FLAG_AD_MISSION_S2S_BYPASS" ||
+    secFlagStr === "RED_FLAG_WATCH_AD_OVERCLAIM" ||
+    secFlagStr === "RED_FLAG_EXCESSIVE_24H_MINING"
+  ) {
+    score += 85;
+  }
+
   // 2. Severe security flag (e.g. ad skip exploit or headless tamper)
   const secFlag = String(u.securityFlag || "");
   if (secFlag.includes("RED_FLAG") || secFlag.includes("HIGH RISK") || secFlag.includes("EXPLOIT")) {
