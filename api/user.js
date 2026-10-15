@@ -29,19 +29,20 @@ let cachedAppSettings = null;
 let cachedAppSettingsTime = 0;
 async function getCachedAppSettings(db) {
   const now = Date.now();
-  if (cachedAppSettings && (now - cachedAppSettingsTime < 60000)) {
+  if (cachedAppSettings && (now - cachedAppSettingsTime < 20000)) {
     return cachedAppSettings;
   }
   try {
     const s = await db.collection("settings").findOne({ key: "app_settings" });
     cachedAppSettings = {
       watchAdReward: (s && typeof s.watchAdReward === "number" && s.watchAdReward > 0) ? s.watchAdReward : 10,
-      coinRate: (s && typeof s.coinPriceUsd === "number" && s.coinPriceUsd > 0) ? s.coinPriceUsd : 0.00003
+      coinRate: (s && typeof s.coinPriceUsd === "number" && s.coinPriceUsd > 0) ? s.coinPriceUsd : 0.00003,
+      adMissionReward: (s && typeof s.adMissionReward === "number" && s.adMissionReward > 0) ? s.adMissionReward : 20
     };
     cachedAppSettingsTime = now;
     return cachedAppSettings;
   } catch(e) {
-    return { watchAdReward: 10, coinRate: 0.00003 };
+    return { watchAdReward: 10, coinRate: 0.00003, adMissionReward: 20 };
   }
 }
 
@@ -538,7 +539,11 @@ module.exports = async (req, res) => {
       botUsername: botUsername,
       ...(await (async () => {
         const s = await getCachedAppSettings(db);
-        return { watchAdReward: s.watchAdReward, coinRate: s.coinRate };
+        return {
+          watchAdReward: s.watchAdReward,
+          coinRate: s.coinRate,
+          adMissionReward: s.adMissionReward
+        };
       })())
     });
   } catch (err) {
