@@ -1207,7 +1207,7 @@
     color: #0f8573;
   }
 
-  /* Ad Missions Card (Dynamic Auto-Sizing Box) */
+  /* Ad Missions Card (Dynamic Auto-Sizing Box matching Nautilus Mine reference) */
   .ad-missions-container {
     background: #ffffff;
     border: 1px solid rgba(14, 32, 41, 0.08);
@@ -1227,7 +1227,7 @@
     margin-bottom: 12px;
   }
   .ad-missions-title {
-    font-size: 15px;
+    font-size: 15.5px;
     font-weight: 800;
     color: var(--text, #0e2029);
     letter-spacing: -0.2px;
@@ -1243,48 +1243,105 @@
     height: auto;
   }
   .ad-mission-card {
-    background: rgba(0, 0, 0, 0.02);
-    border: 1px solid rgba(14, 32, 41, 0.07);
-    border-radius: 16px;
-    padding: 12px 14px;
+    background: #ffffff;
+    border: 1.5px solid rgba(14, 32, 41, 0.08);
+    border-radius: 20px;
+    padding: 12px 16px;
     box-sizing: border-box;
     width: 100%;
     display: flex;
     align-items: center;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    justify-content: space-between;
+    gap: 12px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   }
-  .ad-mission-task {
-    display: block;
+  .ad-mission-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+  }
+  .ad-mission-icon-wrap {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(112, 203, 24, 0.25);
+  }
+  .ad-mission-icon-wrap img,
+  .ad-mission-icon-wrap svg {
     width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .ad-mission-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .ad-mission-title {
+    font-size: 14.5px;
+    font-weight: 800;
+    color: var(--text, #0e2029);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.2px;
+    line-height: 1.25;
   }
   .ad-mission-reward {
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 800;
     color: #14b8a6;
-    margin-top: 3px;
+    margin-top: 1px;
     font-family: inherit;
     line-height: 1.2;
   }
   .ad-mission-btn {
+    width: 76px;
+    height: 38px;
+    flex-shrink: 0;
     background: #14b8a6;
     color: #ffffff;
-    font-size: 13px;
+    font-size: 13.5px;
     font-weight: 800;
     letter-spacing: 0.3px;
-    padding: 9px 18px;
-    border-radius: 100px;
-    text-align: center;
-    cursor: pointer;
-    display: inline-flex;
+    border-radius: 9999px;
+    display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(20, 184, 166, 0.28);
-    transition: transform 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+    box-sizing: border-box;
+    padding: 0;
+    text-align: center;
+    border: none;
+    outline: none;
+    box-shadow: 0 3px 10px rgba(20, 184, 166, 0.25);
+    transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
     user-select: none;
     white-space: nowrap;
   }
-  .ad-mission-btn:active {
-    transform: scale(0.94);
+  .ad-mission-btn:active:not(:disabled) {
+    transform: scale(0.93);
+  }
+  .ad-mission-btn:disabled,
+  .ad-mission-btn.done,
+  .ad-mission-btn-done {
+    background: #94a3b8;
+    color: #ffffff;
+    cursor: default;
+    opacity: 0.8;
+    box-shadow: none;
+    transform: none;
   }
   .ad-mission-btn-claim {
     background: #0ea5e9;
@@ -1295,12 +1352,6 @@
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.5); }
     70% { transform: scale(1.03); box-shadow: 0 0 0 8px rgba(14, 165, 233, 0); }
     100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
-  }
-  .ad-mission-btn-done {
-    background: #64748b;
-    box-shadow: none;
-    opacity: 0.75;
-    cursor: default;
   }
   .ad-missions-empty {
     padding: 18px 14px;
@@ -1325,6 +1376,22 @@
     100% { background-position: -200% 0; }
   }
 
+  /* Adsgram custom element styling to prevent overflow */
+  adsgram-task {
+    --adsgram-task-font-size: 14.5px;
+    --adsgram-task-icon-size: 46px;
+    --adsgram-task-button-width: 76px;
+    --adsgram-task-icon-title-gap: 12px;
+    --adsgram-task-icon-border-radius: 50%;
+    display: block;
+    width: 100%;
+    background: #ffffff;
+    border: 1.5px solid rgba(14, 32, 41, 0.08);
+    border-radius: 20px;
+    padding: 12px 16px;
+    box-sizing: border-box;
+  }
+
   [data-theme="dark"] .ad-missions-container {
     background: var(--card-bg, #16242c);
     border-color: rgba(255, 255, 255, 0.08);
@@ -1334,11 +1401,18 @@
     color: #ffffff;
   }
   [data-theme="dark"] .ad-mission-card {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme="dark"] .ad-mission-title {
+    color: #ffffff;
   }
   [data-theme="dark"] .ad-mission-reward {
     color: #2dd4bf;
+  }
+  [data-theme="dark"] adsgram-task {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.08);
   }
   [data-theme="dark"] .ad-missions-empty {
     background: rgba(255, 255, 255, 0.03);
@@ -8920,7 +8994,7 @@
       // Ad Missions
       ad_missions_title: "🎬 Ad Missions",
       ad_missions_empty: "No ad mission available right now",
-      sponsor_mission_title: "Adsgram Task",
+      sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "GO",
       claim_reward: "Claim Reward",
 
@@ -9133,7 +9207,7 @@
       // Ad Missions
       ad_missions_title: "🎬 Рекламные миссии",
       ad_missions_empty: "Сейчас нет доступных рекламных миссий",
-      sponsor_mission_title: "Задание Adsgram",
+      sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "ВПЕРЕД",
       claim_reward: "Забрать награду",
 
@@ -9346,7 +9420,7 @@
       // Ad Missions
       ad_missions_title: "🎬 مهام الإعلانات",
       ad_missions_empty: "لا توجد مهام إعلانية متاحة الآن",
-      sponsor_mission_title: "مهمة Adsgram",
+      sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "انطلق",
       claim_reward: "المطالبة بالمكافأة",
 
@@ -11284,83 +11358,123 @@
     renderAdMissions();
   }
 
+  var defaultAdMissions = [
+    { id: 1, title: "1ST.GAME", reward: 20 },
+    { id: 2, title: "1ST.GAME", reward: 20 },
+    { id: 3, title: "1ST.GAME", reward: 20 },
+    { id: 4, title: "1ST.GAME", reward: 20 }
+  ];
+
+  function getCompletedAdMissionsKey() {
+    var d = new Date();
+    var dateKey = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+    var uId = (user && user.telegramId) || "guest";
+    return "ad_missions_completed_" + uId + "_" + dateKey;
+  }
+
+  function getCompletedAdMissions() {
+    try {
+      var raw = localStorage.getItem(getCompletedAdMissionsKey());
+      return raw ? JSON.parse(raw) : [];
+    } catch(e) {
+      return [];
+    }
+  }
+
+  function markAdMissionCompleted(id) {
+    try {
+      var completed = getCompletedAdMissions();
+      if (completed.indexOf(id) === -1) {
+        completed.push(id);
+        localStorage.setItem(getCompletedAdMissionsKey(), JSON.stringify(completed));
+      }
+    } catch(e) {}
+  }
+
   function renderAdMissions() {
     var container = document.getElementById("adMissionsBody");
     if (!container) return;
 
-    var rewardText = "+" + adMissionRewardAmount + " TREASURE";
-    var taskTitle = (typeof t === "function" ? t("sponsor_mission_title") : "Adsgram Task");
+    var completedList = getCompletedAdMissions();
     var goText = (typeof t === "function" ? t("mission_go_btn") : "GO");
+    var doneText = "DONE";
 
-    container.innerHTML =
-      '<adsgram-task data-block-id="' + ADSGRAM_TASK_BLOCK_ID + '" class="ad-mission-task" style="display:block;width:100%;margin-bottom:8px;">' +
-        '<p slot="reward" class="ad-mission-reward">' + rewardText + '</p>' +
-        '<div slot="button" class="ad-mission-btn">' + goText + '</div>' +
-        '<div slot="claim" class="ad-mission-btn ad-mission-btn-claim">CLAIM</div>' +
-        '<div slot="done" class="ad-mission-btn ad-mission-btn-done">DONE</div>' +
-      '</adsgram-task>' +
-      '<div class="ad-mission-card" id="adsgramMissionDirectCard" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;width:100%;">' +
-        '<div style="display:flex;align-items:center;gap:12px;">' +
-          '<div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg, #0088cc 0%, #005f8f 100%);border-radius:12px;box-shadow:0 3px 8px rgba(0,136,204,0.3);overflow:hidden;flex-shrink:0;">' +
-            '<img src="https://i.postimg.cc/qqGHSY1c/Hn-G0DZAC-400x400.jpg" style="width:100%;height:100%;border-radius:12px;object-fit:cover;" onerror="this.outerHTML=\'<span style=\\\'font-size:22px;\\\'>✈️</span>\'">' +
+    var html = "";
+    defaultAdMissions.forEach(function(mission) {
+      var isDone = completedList.indexOf(mission.id) !== -1;
+      html +=
+        '<div class="ad-mission-card" data-mission-id="' + mission.id + '">' +
+          '<div class="ad-mission-left">' +
+            '<div class="ad-mission-icon-wrap">' +
+              '<img src="assets/first_game_logo.svg" alt="1ST.GAME" onerror="this.outerHTML=\'<div style=\\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#70cb18;color:#fff;font-size:22px;border-radius:50%;\\\'>☝️</div>\'" />' +
+            '</div>' +
+            '<div class="ad-mission-info">' +
+              '<div class="ad-mission-title">' + mission.title + '</div>' +
+              '<div class="ad-mission-reward">+' + mission.reward + ' Coins</div>' +
+            '</div>' +
           '</div>' +
-          '<div>' +
-            '<div style="font-size:13.5px;font-weight:800;color:var(--text);">' + taskTitle + '</div>' +
-            '<div class="ad-mission-reward">' + rewardText + ' Coins</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="ad-mission-btn">' + goText + '</div>' +
-      '</div>';
+          '<button type="button" class="ad-mission-btn' + (isDone ? ' done' : '') + '" ' + (isDone ? 'disabled' : '') + ' data-action="run-ad-mission" data-mission-id="' + mission.id + '">' +
+            (isDone ? doneText : goText) +
+          '</button>' +
+        '</div>';
+    });
 
-    function executeClaimMission() {
-      adsApiPost({ action: "claim_ad_mission" }).then(function(res) {
-        if (res && res.ok && res.data) {
-          user.balance = res.data.newBalance !== undefined ? res.data.newBalance : ((Number(user.balance) || 0) + adMissionRewardAmount);
-          renderBalance();
-          showToast("🎉 Mission complete! +" + adMissionRewardAmount + " TREASURE Coins added!");
-          if (tg && tg.HapticFeedback) {
-            try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
-          }
-        } else {
-          showToast("⚠️ " + ((res && res.data && res.data.error) || (res && res.error) || "Could not claim mission reward."));
-        }
-      }).catch(function() {
-        showToast("⚠️ Network issue claiming mission reward.");
-      });
-    }
+    container.innerHTML = html;
 
-    var taskEl = container.querySelector("adsgram-task");
-    if (taskEl) {
-      taskEl.addEventListener("reward", function(event) {
-        executeClaimMission();
-      });
-      taskEl.addEventListener("onError", function(event) {
-        console.warn("Adsgram task error:", event);
-      });
-      taskEl.addEventListener("onBannerNotFound", function(event) {
-        console.warn("Adsgram task banner not found:", event);
-      });
-    }
+    var btns = container.querySelectorAll('.ad-mission-btn[data-action="run-ad-mission"]');
+    btns.forEach(function(btn) {
+      btn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        var missionId = Number(btn.getAttribute("data-mission-id")) || 1;
+        if (btn.disabled || btn.classList.contains("done")) return;
 
-    var directCard = document.getElementById("adsgramMissionDirectCard");
-    if (directCard) {
-      directCard.addEventListener("click", function() {
-        if (!window.AdBarrier.acquire("adsgram_task")) {
+        if (!window.AdBarrier.acquire("ad_mission_" + missionId)) {
           showToast("⚠️ Another ad is currently active. Please wait.");
           return;
         }
-        showToast("🎬 Opening Adsgram Mission...");
-        playFullscreenAd(function() {
-          window.AdBarrier.release("adsgram_task");
-          executeClaimMission();
+
+        showToast("🎬 Opening Ad Mission...");
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;border-width:2px;"></span>';
+
+        playFullscreenAd(function(watchRes) {
+          window.AdBarrier.release("ad_mission_" + missionId);
+          adsApiPost({ action: "claim_ad_mission", missionId: missionId }).then(function(claimRes) {
+            if (claimRes && claimRes.ok) {
+              markAdMissionCompleted(missionId);
+              if (claimRes.newBalance !== undefined) {
+                user.balance = claimRes.newBalance;
+              } else if (claimRes.data && claimRes.data.newBalance !== undefined) {
+                user.balance = claimRes.data.newBalance;
+              } else {
+                user.balance = (Number(user.balance) || 0) + 20;
+              }
+              renderBalance();
+              showToast("🎉 Mission complete! +20 Coins added!");
+              if (tg && tg.HapticFeedback) {
+                try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
+              }
+              renderAdMissions();
+            } else {
+              btn.disabled = false;
+              btn.textContent = goText;
+              showToast("⚠️ " + ((claimRes && claimRes.error) || (claimRes && claimRes.data && claimRes.data.error) || "Could not claim reward."));
+            }
+          }).catch(function(err) {
+            btn.disabled = false;
+            btn.textContent = goText;
+            showToast("⚠️ Network issue claiming mission reward.");
+          });
         }, function(err) {
-          window.AdBarrier.release("adsgram_task");
+          window.AdBarrier.release("ad_mission_" + missionId);
+          btn.disabled = false;
+          btn.textContent = goText;
           if (err !== "busy" && err !== "too_short") {
             showToast("⚠️ Ad closed before completion.");
           }
         });
       });
-    }
+    });
   }
 
   // ========================================================
