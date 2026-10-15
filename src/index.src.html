@@ -2424,7 +2424,7 @@
     width: 270px;
     height: 270px;
     border-radius: 50%;
-    transition: transform 4.5s cubic-bezier(0.15, 0.9, 0.2, 1);
+    transition: transform 2.8s cubic-bezier(0.15, 0.9, 0.2, 1);
   }
   .wheel-spin-center-btn {
     position: absolute;
@@ -11288,7 +11288,7 @@
     if (s2sWaitingModal) s2sWaitingModal.classList.add("open");
 
     clearInterval(s2sTimerInterval);
-    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 10;
+    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 3;
     if (s2sCountdownTimer) {
       s2sCountdownTimer.style.display = "block";
       s2sCountdownTimer.style.color = "#f59e0b";
@@ -11309,11 +11309,9 @@
       }
     }
 
-    // Poll every 1.5s to see if server already received the S2S confirmation
-    var pollCount = 0;
+    // Poll immediately at 0s, and then every 1s
     function pollCheck() {
       if (isResolved) return;
-      pollCount++;
       fetch("/api/ads?action=check_s2s", {
         headers: getClientHeaders({ "Content-Type": "application/json" })
       }).then(handleResponse).then(function(s2sRes) {
@@ -11324,12 +11322,15 @@
       }).catch(function(){});
     }
 
+    // Instant check right as modal opens
+    pollCheck();
+
     s2sTimerInterval = setInterval(function() {
       remaining--;
       if (s2sCountdownTimer) {
         s2sCountdownTimer.textContent = "⏳ Verifying: " + Math.max(0, remaining) + "s";
       }
-      if (remaining > 0 && remaining % 2 === 0) {
+      if (remaining > 0) {
         pollCheck();
       }
       if (remaining <= 0) {
@@ -11524,35 +11525,38 @@
         if (emptyEl) emptyEl.style.display = "none";
       }
 
+      var isClaimingMission = false;
       if (taskEl) {
-        // User completed Adsgram task -> claim reward with S2S confirmation
+        // User completed Adsgram task -> claim reward immediately
         taskEl.addEventListener("reward", function(event) {
-          showToast("⏳ Confirming mission with Adsgram...");
-          setTimeout(function() {
-            adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
-              .then(function(claimRes) {
-                var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
-                if (resData && (resData.ok || claimRes.ok)) {
-                  var earnedReward = Number(resData.reward || window.AD_MISSION_REWARD || (user && user.adMissionReward) || 20);
-                  if (resData.newBalance !== undefined) {
-                    user.balance = resData.newBalance;
-                  } else {
-                    user.balance = (Number(user.balance) || 0) + earnedReward;
-                  }
-                  renderBalance();
-                  showToast("🎉 Mission complete! +" + earnedReward + " Coins added!");
-                  if (tg && tg.HapticFeedback) {
-                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
-                  }
+          if (isClaimingMission) return;
+          isClaimingMission = true;
+          showToast("⏳ Claiming mission reward...");
+          adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
+            .then(function(claimRes) {
+              isClaimingMission = false;
+              var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
+              if (resData && (resData.ok || claimRes.ok)) {
+                var earnedReward = Number(resData.reward || window.AD_MISSION_REWARD || (user && user.adMissionReward) || 20);
+                if (resData.newBalance !== undefined) {
+                  user.balance = resData.newBalance;
                 } else {
-                  showToast("⚠️ Could not claim mission. Please try again.");
+                  user.balance = (Number(user.balance) || 0) + earnedReward;
                 }
-              })
-              .catch(function(err) {
-                console.warn("Claim ad mission error:", err);
-                showToast("⚠️ Network issue claiming mission.");
-              });
-          }, 1200);
+                renderBalance();
+                showToast("🎉 Mission complete! +" + earnedReward + " Coins added!");
+                if (tg && tg.HapticFeedback) {
+                  try { tg.HapticFeedback.notificationOccurred("success"); } catch(ex) {}
+                }
+              } else {
+                showToast("⚠️ Could not claim mission. Please try again.");
+              }
+            })
+            .catch(function(err) {
+              isClaimingMission = false;
+              console.warn("Claim ad mission error:", err);
+              showToast("⚠️ Network issue claiming mission.");
+            });
         });
 
         // Triggered when Adsgram has no tasks/banners for this user/block
@@ -11828,7 +11832,7 @@
               openS2sWaitingModal(
                 "Verifying ad view with Adsgram server...",
                 "Waiting for server confirmation...",
-                10,
+                3,
                 function(isEarlyVerified) {
                   doClaim();
                 }
@@ -12293,8 +12297,8 @@
         var sectorCenter = segIdx * 45 + 22.5;
         var targetDeg = (270 - sectorCenter + 360) % 360;
 
-        // Add 5-7 full spins
-        var extraSpins = 360 * (5 + Math.floor(Math.random() * 3));
+        // Add 3-4 full spins
+        var extraSpins = 360 * (3 + Math.floor(Math.random() * 2));
         var currentNorm = currentWheelAngle % 360;
         var diffDeg = (targetDeg - currentNorm + 360) % 360;
         var finalAngle = currentWheelAngle + extraSpins + diffDeg;
@@ -12304,7 +12308,7 @@
           spinWheelCanvas.style.transform = "rotate(" + finalAngle + "deg)";
         }
 
-        // Wait 4.5s for spin animation to finish
+        // Wait 2.8s for spin animation to finish
         setTimeout(function() {
           isWheelSpinning = false;
           startWheelSpinBtn.disabled = false;
@@ -12322,7 +12326,7 @@
           }
 
           showToast("🎉 Congratulations! You won +" + reward + " TREASURE Coins!");
-        }, 4600);
+        }, 2900);
       }).catch(function(err) {
         isWheelSpinning = false;
         startWheelSpinBtn.disabled = false;
@@ -12397,7 +12401,7 @@
           openS2sWaitingModal(
             "Verifying spin ad view with Adsgram server...",
             "Waiting for server confirmation...",
-            10,
+            3,
             function(isEarlyVerified) {
               doSpinClaim();
             }

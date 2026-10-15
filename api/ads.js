@@ -274,13 +274,24 @@ module.exports = async (req, res) => {
 
     // 1.5 ACTION: CLAIM AD MISSION (Adsgram Task Ad Reward with S2S Verification)
     if (action === "claim_ad_mission") {
+      const lastAdMissionAt = Number(user.lastAdMissionAt || 0);
+      if (now - lastAdMissionAt < 5000) {
+        res.status(200).json({
+          ok: true,
+          duplicate: true,
+          reward: currentAdMissionReward,
+          newBalance: Number(user.balance || 0),
+          message: "Mission reward was already claimed."
+        });
+        return;
+      }
+
       const lastTaskS2s = Number(user.lastAdsgramS2sTaskRewardAt || user.lastAdsgramS2sRewardAt || 0);
       const lastTaskConsumed = Number(user.lastAdsgramS2sTaskConsumedAt || 0);
       let isTaskS2sConfirmed = (lastTaskS2s > 0) && (lastTaskS2s > lastTaskConsumed) && ((now - lastTaskS2s) < 300000);
 
-      // Fast check if S2S callback is arriving right now
+      // Fast check if S2S callback arrived
       if (!isTaskS2sConfirmed) {
-        await new Promise(r => setTimeout(r, 1200));
         const freshUser = await usersCol.findOne({ _id: user._id });
         if (freshUser) {
           const freshS2s = Number(freshUser.lastAdsgramS2sTaskRewardAt || freshUser.lastAdsgramS2sRewardAt || 0);
@@ -292,8 +303,16 @@ module.exports = async (req, res) => {
         }
       }
 
+      // ATOMIC compare-and-set: prevents any double reward
       const claimMissionRes = await usersCol.findOneAndUpdate(
-        { _id: user._id },
+        {
+          _id: user._id,
+          $or: [
+            { lastAdMissionAt: { $exists: false } },
+            { lastAdMissionAt: null },
+            { lastAdMissionAt: { $lte: now - 4000 } }
+          ]
+        },
         {
           $inc: {
             balance: currentAdMissionReward,
@@ -309,8 +328,18 @@ module.exports = async (req, res) => {
       );
 
       const updatedUser = claimMissionRes && (claimMissionRes.value || (claimMissionRes._id ? claimMissionRes : null));
-      const finalBalance = Number(updatedUser ? updatedUser.balance : (user.balance || 0) + currentAdMissionReward);
+      if (!updatedUser) {
+        res.status(200).json({
+          ok: true,
+          duplicate: true,
+          reward: currentAdMissionReward,
+          newBalance: Number(user.balance || 0),
+          message: "Mission reward was already claimed."
+        });
+        return;
+      }
 
+      const finalBalance = Number(updatedUser.balance || 0);
       res.status(200).json({
         ok: true,
         reward: currentAdMissionReward,
@@ -515,23 +544,19 @@ module.exports = async (req, res) => {
       );
       let isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((now - s2sRecordTime) < 300000);
 
-      // Multi-check retry for webhook latency (up to 3 seconds)
+      // Fast check if S2S callback arrived
       if (!isS2sValid) {
-        for (let retry = 0; retry < 2; retry++) {
-          await new Promise(r => setTimeout(r, 1500));
-          const freshUser = await usersCol.findOne({ _id: user._id });
-          if (freshUser) {
-            s2sRecordTime = Number(freshUser.lastAdsgramS2sRewardAt || 0);
-            lastConsumed = Math.max(
-              Number(freshUser.lastAdsgramS2sConsumedAt || 0),
-              Number(freshUser.lastWatchEarnS2sConsumedAt || 0),
-              Number(freshUser.lastSpinS2sConsumedAt || 0)
-            );
-            isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((Date.now() - s2sRecordTime) < 300000);
-            if (isS2sValid) {
-              user = freshUser;
-              break;
-            }
+        const freshUser = await usersCol.findOne({ _id: user._id });
+        if (freshUser) {
+          s2sRecordTime = Number(freshUser.lastAdsgramS2sRewardAt || 0);
+          lastConsumed = Math.max(
+            Number(freshUser.lastAdsgramS2sConsumedAt || 0),
+            Number(freshUser.lastWatchEarnS2sConsumedAt || 0),
+            Number(freshUser.lastSpinS2sConsumedAt || 0)
+          );
+          isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((Date.now() - s2sRecordTime) < 300000);
+          if (isS2sValid) {
+            user = freshUser;
           }
         }
       }
@@ -678,23 +703,19 @@ module.exports = async (req, res) => {
       );
       let isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((now - s2sRecordTime) < 300000);
 
-      // Multi-check retry for webhook latency (up to 3 seconds)
+      // Fast check if S2S callback arrived
       if (!isS2sValid) {
-        for (let retry = 0; retry < 2; retry++) {
-          await new Promise(r => setTimeout(r, 1500));
-          const freshUser = await usersCol.findOne({ _id: user._id });
-          if (freshUser) {
-            s2sRecordTime = Number(freshUser.lastAdsgramS2sRewardAt || 0);
-            lastConsumed = Math.max(
-              Number(freshUser.lastAdsgramS2sConsumedAt || 0),
-              Number(freshUser.lastWatchEarnS2sConsumedAt || 0),
-              Number(freshUser.lastSpinS2sConsumedAt || 0)
-            );
-            isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((Date.now() - s2sRecordTime) < 300000);
-            if (isS2sValid) {
-              user = freshUser;
-              break;
-            }
+        const freshUser = await usersCol.findOne({ _id: user._id });
+        if (freshUser) {
+          s2sRecordTime = Number(freshUser.lastAdsgramS2sRewardAt || 0);
+          lastConsumed = Math.max(
+            Number(freshUser.lastAdsgramS2sConsumedAt || 0),
+            Number(freshUser.lastWatchEarnS2sConsumedAt || 0),
+            Number(freshUser.lastSpinS2sConsumedAt || 0)
+          );
+          isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((Date.now() - s2sRecordTime) < 300000);
+          if (isS2sValid) {
+            user = freshUser;
           }
         }
       }
@@ -774,14 +795,22 @@ module.exports = async (req, res) => {
       { returnDocument: "after" }
     );
 
-    let updatedUser = claimAdRes && (claimAdRes.value || (claimAdRes._id ? claimAdRes : null));
+    const updatedUser = claimAdRes && (claimAdRes.value || (claimAdRes._id ? claimAdRes : null));
     if (!updatedUser) {
-      updatedUser = await usersCol.findOne({ _id: user._id });
+      res.status(200).json({
+        ok: true,
+        duplicate: true,
+        message: "Ad reward was already credited",
+        newBalance: Number(user.balance || 0),
+        adsWatchedToday: Number(user.adsWatchedToday || 0),
+        adsEarnedToday: Number(user.adsEarnedToday || 0)
+      });
+      return;
     }
 
-    const finalWatchedToday = Number((updatedUser && updatedUser.adsWatchedToday) || newWatched);
-    const finalEarnedToday = Number((updatedUser && updatedUser.adsEarnedToday) || newEarned);
-    const finalBalance = Number((updatedUser && updatedUser.balance) || (user.balance || 0) + currentAdReward);
+    const finalWatchedToday = Number(updatedUser.adsWatchedToday || newWatched);
+    const finalEarnedToday = Number(updatedUser.adsEarnedToday || newEarned);
+    const finalBalance = Number(updatedUser.balance || (user.balance || 0) + currentAdReward);
 
     res.status(200).json({
       ok: true,
