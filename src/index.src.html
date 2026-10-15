@@ -6691,6 +6691,7 @@
   .id-resend-btn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+    pointer-events: none;
   }
 </style>
 </head>
@@ -6787,7 +6788,7 @@
     <div class="id-verify-badge">SECURITY CHECK</div>
     <h2 class="id-verify-title">Verify It's you</h2>
     <p class="id-verify-sub" id="idVerifySub">
-      Tap <strong>Send Code to Bot</strong> below to receive your secure 4-digit verification code photo inside 
+      Your secure 4-digit verification code photo is sent to 
       <a href="https://t.me/treasure_hunt12_bot" target="_blank" class="id-bot-link" id="idVerifyBotLink">@treasure_hunt12_bot</a>.
     </p>
 
@@ -6823,8 +6824,8 @@
         <span>Confirm & Enter</span>
       </button>
 
-      <button type="button" class="id-resend-btn" id="idResendCodeBtn">
-        <span>📩 Send Code to Bot</span>
+      <button type="button" class="id-resend-btn" id="idResendCodeBtn" disabled>
+        <span>⏳ Sending Code to Bot...</span>
       </button>
     </div>
   </div>
@@ -8704,27 +8705,33 @@
 
   function openIdentityVerifyModal() {
     if (!idVerifyModal) return;
+    if (user && user.isIdentityVerified === true) return;
     idVerifyModal.style.display = "flex";
     idVerifyModal.style.opacity = "";
     clearDigitInputs();
 
     var resendBtn = document.getElementById("idResendCodeBtn");
     var timerRow = document.getElementById("idTimerRow");
-    if (!idTimerInterval) {
+
+    var now = Date.now();
+    // If a valid unexpired code timer is currently running, resume timer display
+    if (idCodeExpiresAt && idCodeExpiresAt > now) {
+      startIdCodeTimer(idCodeExpiresAt);
+    } else {
+      // Automatic first-time code generation upon opening verification modal
       if (resendBtn) {
-        resendBtn.innerHTML = "<span>📩 Send Code to Bot</span>";
-        resendBtn.disabled = false;
+        resendBtn.disabled = true;
+        resendBtn.innerHTML = "<span>⏳ Sending code to bot...</span>";
       }
       if (timerRow) {
         timerRow.style.display = "none";
       }
+      requestNewVerificationCode(false);
     }
   }
 
   function closeIdentityVerifyModal() {
     if (!idVerifyModal) return;
-    clearInterval(idTimerInterval);
-    idTimerInterval = null;
     idVerifyModal.style.opacity = "0";
     idVerifyModal.style.transition = "opacity 0.24s ease";
     setTimeout(function(){
@@ -8773,10 +8780,21 @@
         if (timerRow) timerRow.classList.remove("warning");
       }
 
+      // During the 2-minute cooldown, keep Resend button disabled with live countdown
+      if (resendBtn) {
+        if (remaining > 0) {
+          resendBtn.disabled = true;
+          resendBtn.innerHTML = "<span>⏳ Resend in " + mins + ":" + secs + "</span>";
+        } else {
+          resendBtn.disabled = false;
+          resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
+        }
+      }
+
       if (remaining <= 0) {
         clearInterval(idTimerInterval);
         idTimerInterval = null;
-        if (timerTxt) timerTxt.textContent = "Code expired. Please click Resend Code.";
+        if (timerTxt) timerTxt.textContent = "Code expired. Please tap Resend Code.";
         if (resendBtn) {
           resendBtn.disabled = false;
           resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
@@ -8839,19 +8857,22 @@
       return r;
     }).then(handleResponse).then(function(res){
       isCodeRequestPending = false;
-      if (resendBtn) {
-        resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
-        setTimeout(function(){ resendBtn.disabled = false; }, 8000);
-      }
 
       if (!res.ok) {
+        if (resendBtn) {
+          resendBtn.disabled = false;
+          resendBtn.innerHTML = "<span>🔄 Try Again</span>";
+        }
         showIdFeedback((res.data && res.data.error) ? res.data.error : "Failed to send code", true);
         return;
       }
 
       if (res.data && res.data.needsBotStart) {
         botWritePermissionGranted = false;
-        if (resendBtn) resendBtn.disabled = false;
+        if (resendBtn) {
+          resendBtn.disabled = false;
+          resendBtn.innerHTML = "<span>📩 Send Code to Bot</span>";
+        }
         if (tg && typeof tg.requestWriteAccess === "function") {
           showIdFeedback("🔔 Please allow @treasure_hunt12_bot to send you messages in the popup...", false);
           try {
@@ -8861,27 +8882,28 @@
                 lastCodeRequestTime = 0;
                 requestNewVerificationCode(true);
               } else {
-                showIdFeedback("⚠️ Please allow message permission to receive your 4-digit code, then tap 'Resend Code to Bot'.", true);
+                showIdFeedback("⚠️ Please allow message permission to receive your 4-digit code, then tap 'Send Code to Bot'.", true);
               }
             });
             return;
           } catch (permErr) {}
         }
-        showIdFeedback("⚠️ Please allow message permission or start @treasure_hunt12_bot, then tap 'Resend Code to Bot'.", true);
+        showIdFeedback("⚠️ Please allow message permission or start @treasure_hunt12_bot, then tap 'Send Code to Bot'.", true);
         return;
       }
 
       botWritePermissionGranted = true;
       var timerRow = document.getElementById("idTimerRow");
       if (timerRow) timerRow.style.display = "flex";
-      startIdCodeTimer(res.data.expiresAt || (Date.now() + 120000));
+      var codeExpires = res.data.expiresAt || (Date.now() + 120000);
+      startIdCodeTimer(codeExpires);
       showIdFeedback("✅ 4-digit code image sent to @treasure_hunt12_bot! Check your Telegram chat.", false);
       clearDigitInputs();
     }).catch(function(err){
       isCodeRequestPending = false;
       if (resendBtn) {
         resendBtn.disabled = false;
-        resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
+        resendBtn.innerHTML = "<span>🔄 Try Again</span>";
       }
       showIdFeedback("Network error. Please try again.", true);
     });
@@ -8894,9 +8916,15 @@
 
     var now = Date.now();
     if (isCodeRequestPending) return;
-    if (!forceResend && (now - lastCodeRequestTime < 8000)) return; // 8 seconds cooldown for auto-calls
+    if (!forceResend && (now - lastCodeRequestTime < 4000)) return; // 4 seconds debounce
     isCodeRequestPending = true;
     lastCodeRequestTime = now;
+
+    var resendBtn = document.getElementById("idResendCodeBtn");
+    if (resendBtn) {
+      resendBtn.disabled = true;
+      resendBtn.innerHTML = "<span>⏳ Sending code to bot...</span>";
+    }
 
     // If user entered via referral link or Mini App without starting the bot (allows_write_to_pm is not true),
     // ask Telegram's native message permission first; once allowed, auto-send the verification image!
@@ -8910,12 +8938,11 @@
           } else {
             isCodeRequestPending = false;
             lastCodeRequestTime = 0;
-            var resendBtn = document.getElementById("idResendCodeBtn");
             if (resendBtn) {
               resendBtn.disabled = false;
-              resendBtn.innerHTML = "<span>🔄 Resend Code to Bot</span>";
+              resendBtn.innerHTML = "<span>📩 Send Code to Bot</span>";
             }
-            showIdFeedback("⚠️ Message permission is required to receive your 4-digit code. Tap 'Resend Code to Bot' and allow permission.", true);
+            showIdFeedback("⚠️ Message permission is required to receive your 4-digit code. Tap 'Send Code to Bot' and allow permission.", true);
           }
         });
         return;
@@ -9027,6 +9054,7 @@
     var resendBtn = document.getElementById("idResendCodeBtn");
     if (resendBtn) {
       resendBtn.addEventListener("click", function(){
+        if (resendBtn.disabled) return;
         requestNewVerificationCode(true);
       });
     }
@@ -9094,7 +9122,9 @@
           } else {
             showToast("🎉 Verified It's you!");
           }
-          if (typeof renderAll === "function") renderAll();
+          clearInterval(idTimerInterval);
+          idTimerInterval = null;
+          idCodeExpiresAt = 0;
 
           setTimeout(function(){
             closeIdentityVerifyModal();

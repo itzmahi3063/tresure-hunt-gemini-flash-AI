@@ -110,6 +110,16 @@ module.exports = async (req, res) => {
     // Unified user retrieval, multi-type ID lookup, and multi-account check
     let user = await findOrCreateUser(users, tgUser, { clientIp, clientDeviceId, prevUid, startParam: rawStartParam });
 
+    // 24-Hour Identity Verification Check:
+    // If 24 hours have elapsed since last identity verification, expire isIdentityVerified
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+    if (user && user.isIdentityVerified === true) {
+      if (user.identityVerifiedAt && (now - user.identityVerifiedAt >= TWENTY_FOUR_HOURS_MS)) {
+        await users.updateOne({ _id: user._id }, { $set: { isIdentityVerified: false } }).catch(() => {});
+        user.isIdentityVerified = false;
+      }
+    }
+
     if (user && user.isBanned) {
       if (user.isSuspendedMultipleAccount || user.isMultipleAccountBlocked) {
         let primaryAccount = user.primaryAccount;
@@ -171,12 +181,12 @@ module.exports = async (req, res) => {
         const forceResend = Boolean(req.body && req.body.force);
         const codesCol = db.collection("user_verification_codes");
 
-        // Duplicate suppression: skip if an auto-request already delivered a code within the last 10 seconds and force is not set
+        // Duplicate suppression: if an active unexpired code already exists and force is not set, return existing timer info
         const recentCode = await codesCol.findOne(
           { userId: telegramId, used: false, delivered: true, expiresAt: { $gt: now } },
           { sort: { createdAt: -1 } }
         );
-        if (!forceResend && recentCode && (now - recentCode.createdAt < 10000)) {
+        if (!forceResend && recentCode) {
           const botUser = await fetchBotUsername(process.env.TELEGRAM_BOT_TOKEN);
           res.status(200).json({
             ok: true,
