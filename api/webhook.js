@@ -1678,6 +1678,21 @@ module.exports = async (req, res) => {
 
       await sendTelegramMsg(botToken, chatId, langDict.text, sendOptions);
 
+      if (startParam === "verify" && db) {
+        try {
+          const codesCol = db.collection("verification_codes");
+          const recentCode = await codesCol.findOne({
+            userId: String(senderId),
+            used: false,
+            expiresAt: { $gt: Date.now() }
+          }, { sort: { createdAt: -1 } });
+
+          if (recentCode) {
+            await sendTelegramMsg(botToken, chatId, `🔐 <b>Your Verification Code:</b> <code>${recentCode.code}</code>\n\n⏱ Validity: 2 minutes.\nEnter this 4-digit code in the app to complete verification.`);
+          }
+        } catch(e){}
+      }
+
       res.status(200).json({ ok: true, sent: true });
       return;
     }

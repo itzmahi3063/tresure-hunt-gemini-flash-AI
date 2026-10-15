@@ -330,7 +330,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   let autoPayRes;
   try {
-    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`);
+    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
   } catch (payErr) {
     try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
     return { ok: false, message: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` };
@@ -380,7 +380,13 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 `🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
 `BOT ---> @treasure_hunt12_bot`;
 
-      await sendTelegramMsg(botToken, channelId, channelMsg);
+      await sendTelegramMsg(botToken, channelId, channelMsg, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
+          ]
+        }
+      });
 
       if (w.telegramId) {
         const userMsg = 
@@ -490,23 +496,83 @@ async function handleAdminBanWithdrawalUser(db, botToken, wid) {
   return { ok: true, message: `User ${tid} has been permanently banned.` };
 }
 
-async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, baseUrl, bannerText = "") {
+async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, baseUrl, bannerText = "", suspiciousOnly = false) {
   const withdrawalsCol = db.collection("withdrawals");
   const usersCol = db.collection("users");
 
-  const pendingList = await withdrawalsCol.find({ status: "PENDING" }).sort({ createdAt: -1 }).toArray();
-  const totalCount = pendingList.length;
+  const allPending = await withdrawalsCol.find({ status: "PENDING" }).sort({ createdAt: -1 }).toArray();
 
+  // Fetch users info to evaluate suspicious flags
+  const userIds = [...new Set(allPending.map(w => String(w.telegramId)))];
+  const usersMap = {};
+  if (userIds.length > 0) {
+    const foundUsers = await usersCol.find({
+      $or: [
+        { telegramId: { $in: userIds } },
+        { telegramId: { $in: userIds.map(Number).filter(Boolean) } }
+      ]
+    }).toArray();
+    foundUsers.forEach(u => {
+      usersMap[String(u.telegramId)] = u;
+    });
+  }
+
+  // Filter items into clean vs suspicious
+  const enrichedList = allPending.map(w => {
+    const u = usersMap[String(w.telegramId)] || {};
+    const susReason = String(u.suspiciousReason || w.suspiciousReason || "").toLowerCase();
+    const secFlag = String(u.securityFlag || w.securityFlag || "").toLowerCase();
+    const hasKeyword = susReason.includes("tamper") || susReason.includes("bot") || susReason.includes("hack") || 
+                       susReason.includes("exploit") || susReason.includes("script") || susReason.includes("cluster") ||
+                       secFlag.includes("red_flag") || secFlag.includes("hacker") || secFlag.includes("cluster");
+
+    const isSusp = Boolean(
+      w.isSuspicious ||
+      w.isSuspiciousWithdrawalDistance ||
+      w.securityFlag ||
+      w.suspiciousReason ||
+      u.isSuspicious ||
+      u.isHighRiskHacker ||
+      u.isFakeAdBypasser ||
+      u.permanentWarning ||
+      u.isBanned ||
+      (u.balance < 0) ||
+      u.isSuspendedMultipleAccount ||
+      (u.deviceViolationsCount > 0) ||
+      (u.adSkipUnder9sStrikes > 0) ||
+      (u.spinUnder5sStrikes >= 3) ||
+      u.securityFlag ||
+      u.suspiciousReason ||
+      u.penaltyNotice ||
+      hasKeyword
+    );
+    return Object.assign({}, w, { isSusp, user: u });
+  });
+
+  const pendingList = suspiciousOnly
+    ? enrichedList.filter(w => w.isSusp)
+    : enrichedList.filter(w => !w.isSusp);
+
+  const totalCount = pendingList.length;
   const adminUrl = `${baseUrl}/admin.html`;
+  const pagePrefix = suspiciousOnly ? "adm_susp_wd_page_" : "adm_wd_page_";
 
   if (totalCount === 0) {
     let msgText = "";
     if (bannerText) msgText += `${bannerText}\n\n`;
-    msgText += `💸 <b>Pending Withdrawals</b>\n\n✅ <i>No pending withdrawal requests found! All requests have been processed.</i>`;
+    if (suspiciousOnly) {
+      msgText += `⚠️ <b>Suspicious & High-Risk Withdrawals</b>\n\n✅ <i>No suspicious withdrawal requests found! All pending requests are clean.</i>`;
+    } else {
+      msgText += `💸 <b>Pending Clean Withdrawals</b>\n\n✅ <i>No clean pending withdrawal requests found!</i>`;
+    }
 
     const inlineKeyboard = [
       [
-        { text: "🔄 Refresh", callback_data: "adm_wd_page_0" },
+        { text: "🔄 Refresh", callback_data: `${pagePrefix}0` },
+        { text: suspiciousOnly ? "💸 Clean Withdrawals" : "⚠️ Suspicious Withdrawals", callback_data: suspiciousOnly ? "adm_wd_page_0" : "adm_susp_wd_page_0" }
+      ],
+      [
+        { text: "🔙 Back to Admin", callback_data: "adm_back_menu" },
         { text: "🛡️ Open Admin Panel", web_app: { url: adminUrl } }
       ]
     ];
@@ -527,30 +593,20 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
   const currPage = Math.max(0, Math.min(page, totalPages - 1));
   const items = pendingList.slice(currPage * PAGE_SIZE, (currPage + 1) * PAGE_SIZE);
 
-  // Fetch users info
-  const userIds = [...new Set(items.map(w => String(w.telegramId)))];
-  const usersMap = {};
-  if (userIds.length > 0) {
-    const foundUsers = await usersCol.find({
-      $or: [
-        { telegramId: { $in: userIds } },
-        { telegramId: { $in: userIds.map(Number).filter(Boolean) } }
-      ]
-    }).toArray();
-    foundUsers.forEach(u => {
-      usersMap[String(u.telegramId)] = u;
-    });
-  }
-
   let msgText = "";
   if (bannerText) msgText += `${bannerText}\n\n`;
-  msgText += `💸 <b>Pending Withdrawals</b> (Page ${currPage + 1}/${totalPages} • Total: ${totalCount})\n\n`;
+  if (suspiciousOnly) {
+    msgText += `⚠️ <b>Suspicious & High-Risk Withdrawals</b> (Page ${currPage + 1}/${totalPages} • Total: ${totalCount})\n`;
+    msgText += `<i>Review carefully before approving or declining.</i>\n\n`;
+  } else {
+    msgText += `💸 <b>Pending Clean Withdrawals</b> (Page ${currPage + 1}/${totalPages} • Total: ${totalCount})\n\n`;
+  }
 
   const inlineKeyboard = [];
 
   items.forEach((w, idx) => {
     const itemNum = currPage * PAGE_SIZE + idx + 1;
-    const u = usersMap[String(w.telegramId)] || {};
+    const u = w.user || {};
     const rawName = u.username ? `@${u.username}` : (u.firstName ? u.firstName : "Miner");
     const uname = escapeHtml(rawName);
     const uid = String(w.telegramId || "N/A");
@@ -561,8 +617,10 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     let riskBadge = "🟢 Clean";
     if (u.isHighRiskHacker) {
       riskBadge = "🔴 HIGH RISK HACKER";
-    } else if (u.isSuspicious) {
-      riskBadge = `🟡 Suspicious (${escapeHtml(u.suspiciousReason || "Flagged")})`;
+    } else if (w.isSuspiciousWithdrawalDistance) {
+      riskBadge = "⚡ Rhythmic Timing Cluster";
+    } else if (u.isSuspicious || w.isSuspicious) {
+      riskBadge = `🟡 Suspicious (${escapeHtml(w.suspiciousReason || u.suspiciousReason || "Flagged")})`;
     } else if (u.isBanned) {
       riskBadge = "⛔ Banned";
     }
@@ -575,27 +633,38 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     msgText += `⚠️ Risk: <b>${riskBadge}</b> | 🕒 ${dateStr}\n\n`;
 
     const wid = String(w._id);
-    inlineKeyboard.push([
-      { text: `✅ Approve #${itemNum}`, callback_data: `adm_appr_${wid}` },
-      { text: `❌ Reject #${itemNum}`, callback_data: `adm_rej_${wid}` },
-      { text: `🚫 Ban #${itemNum}`, callback_data: `adm_ban_${wid}` }
-    ]);
+    if (suspiciousOnly) {
+      inlineKeyboard.push([
+        { text: `✅ Approve #${itemNum}`, callback_data: `adm_apprsus_${wid}` },
+        { text: `❌ Decline #${itemNum}`, callback_data: `adm_rejsus_${wid}` }
+      ]);
+    } else {
+      inlineKeyboard.push([
+        { text: `✅ Approve #${itemNum}`, callback_data: `adm_appr_${wid}` },
+        { text: `❌ Reject #${itemNum}`, callback_data: `adm_rej_${wid}` },
+        { text: `🚫 Ban #${itemNum}`, callback_data: `adm_ban_${wid}` }
+      ]);
+    }
   });
 
   // Pagination navigation row
   const navRow = [];
   if (currPage > 0) {
-    navRow.push({ text: "⬅️ Prev", callback_data: `adm_wd_page_${currPage - 1}` });
+    navRow.push({ text: "⬅️ Prev", callback_data: `${pagePrefix}${currPage - 1}` });
   }
-  navRow.push({ text: `📄 ${currPage + 1}/${totalPages}`, callback_data: `adm_wd_page_${currPage}` });
+  navRow.push({ text: `📄 ${currPage + 1}/${totalPages}`, callback_data: `${pagePrefix}${currPage}` });
   if (currPage < totalPages - 1) {
-    navRow.push({ text: "Next ➡️", callback_data: `adm_wd_page_${currPage + 1}` });
+    navRow.push({ text: "Next ➡️", callback_data: `${pagePrefix}${currPage + 1}` });
   }
   inlineKeyboard.push(navRow);
 
   // Bottom action row
   inlineKeyboard.push([
-    { text: "🔄 Refresh", callback_data: `adm_wd_page_${currPage}` },
+    { text: "🔄 Refresh", callback_data: `${pagePrefix}${currPage}` },
+    { text: suspiciousOnly ? "💸 Clean Withdrawals" : "⚠️ Suspicious Withdrawals", callback_data: suspiciousOnly ? "adm_wd_page_0" : "adm_susp_wd_page_0" }
+  ]);
+  inlineKeyboard.push([
+    { text: "🔙 Back to Admin", callback_data: "adm_back_menu" },
     { text: "🛡️ Open Admin Panel", web_app: { url: adminUrl } }
   ]);
 
@@ -734,6 +803,14 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   const rawParentName = parentUser.username ? `@${parentUser.username}` : (parentUser.firstName ? parentUser.firstName : "Miner");
   const parentName = escapeHtml(rawParentName);
 
+  const parentJoinedDate = parentUser.createdAt ? new Date(parentUser.createdAt).toLocaleString("en-US", { timeZone: "Asia/Dhaka" }) : "N/A";
+  const parentMines = Number(parentUser.totalMinedClaims || 0) || Math.floor(Number(parentUser.totalMinedCoins || 0) / 10);
+  const parentTasks = Array.isArray(parentUser.completedTasks) ? parentUser.completedTasks.length : 0;
+  const parentAdMissions = Number(parentUser.adMissionsCompleted || 0);
+  const parentWatchAds = Number(parentUser.totalAdsWatched || 0);
+  const parentWatchCoins = parentWatchAds * 10;
+  const parentBal = Number(parentUser.balance || 0).toLocaleString();
+
   const referrals = await usersCol.find({
     $or: [
       { referredBy: cleanUid },
@@ -748,7 +825,11 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   const items = referrals.slice(currPage * PAGE_SIZE, (currPage + 1) * PAGE_SIZE);
 
   let msgText = `👥 <b>Referral Crew of ${parentName}</b>\n`;
-  msgText += `UID: <code>${cleanUid}</code> • Total Referred: <b>${totalCount} miners</b>\n`;
+  msgText += `🆔 UID: <code>${cleanUid}</code> • Recruits: <b>${totalCount}</b>\n`;
+  msgText += `📅 <b>Joined:</b> <code>${escapeHtml(parentJoinedDate)}</code>\n`;
+  msgText += `⛏️ <b>Mines Done:</b> ${parentMines.toLocaleString()} | 📋 <b>Tasks:</b> ${parentTasks}\n`;
+  msgText += `🎬 <b>Ad Missions:</b> ${parentAdMissions} | 📺 <b>Watch & Earn:</b> ${parentWatchAds} ads (${parentWatchCoins.toLocaleString()} coins)\n`;
+  msgText += `💰 <b>Balance:</b> ${parentBal} coins\n`;
   msgText += `<i>Page ${currPage + 1} of ${totalPages} (Showing 5 per page)</i>\n`;
   msgText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
@@ -762,7 +843,12 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
       const refName = escapeHtml(rawRefName);
       const isVerified = !!ref.isIdentityVerified;
       const verifiedBadge = isVerified ? "✅ Verified" : "⏳ Unverified";
-      const adsCount = Number(ref.totalAdsWatched || 0);
+      const refJoinedDate = ref.createdAt ? new Date(ref.createdAt).toLocaleDateString("en-US", { timeZone: "Asia/Dhaka" }) : "N/A";
+      const refMines = Number(ref.totalMinedClaims || 0) || Math.floor(Number(ref.totalMinedCoins || 0) / 10);
+      const refTasks = Array.isArray(ref.completedTasks) ? ref.completedTasks.length : 0;
+      const refAdMissions = Number(ref.adMissionsCompleted || 0);
+      const refWatchAds = Number(ref.totalAdsWatched || 0);
+      const refWatchCoins = refWatchAds * 10;
       const bal = Number(ref.balance || 0).toLocaleString();
 
       // Telegram profile link (Direct username or tg://user?id=)
@@ -770,10 +856,11 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
         ? `https://t.me/${ref.username.replace(/^@/, '')}` 
         : `tg://user?id=${refUid}`;
 
-      msgText += `<b>#${itemNum} | <a href="${profileLink}">${refName}</a></b>\n`;
+      msgText += `<b>#${itemNum} | <a href="${profileLink}">${refName}</a></b> (${verifiedBadge})\n`;
       msgText += `🆔 ID: <a href="${profileLink}"><code>${refUid}</code></a> ${ref.username ? `(@${escapeHtml(ref.username)})` : ''}\n`;
-      msgText += `💰 Balance: <b>${bal}</b> | 🎬 Ads: <b>${adsCount}</b>\n`;
-      msgText += `🛡️ Status: <b>${verifiedBadge}</b>\n\n`;
+      msgText += `📅 Joined: <code>${escapeHtml(refJoinedDate)}</code> | 💰 Bal: <b>${bal}</b>\n`;
+      msgText += `⛏️ Mines: <b>${refMines.toLocaleString()}</b> | 📋 Tasks: <b>${refTasks}</b>\n`;
+      msgText += `🎬 Missions: <b>${refAdMissions}</b> | 📺 Watch: <b>${refWatchAds}</b> (${refWatchCoins.toLocaleString()} coins)\n\n`;
     });
   }
 
@@ -1141,6 +1228,56 @@ module.exports = async (req, res) => {
       }
 
       // ----------------------------------------------------
+      // Admin: Suspicious Withdrawals Management via Telegram
+      // ----------------------------------------------------
+      if (cbData.startsWith("adm_susp_wd_page_")) {
+        const adminIds = await getAdminTelegramIds(db);
+        if (!adminIds.has(cbSenderId)) {
+          await answerCallbackQuery(botToken, cb.id, "Unauthorized: Admin only", true);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const pageNum = parseInt(cbData.replace("adm_susp_wd_page_", ""), 10) || 0;
+        await answerCallbackQuery(botToken, cb.id);
+        await renderWithdrawalsPage(db, botToken, cbChatId, cb.message?.message_id, pageNum, baseUrl, "", true);
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      if (cbData.startsWith("adm_apprsus_")) {
+        const adminIds = await getAdminTelegramIds(db);
+        if (!adminIds.has(cbSenderId)) {
+          await answerCallbackQuery(botToken, cb.id, "Unauthorized: Admin only", true);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const wid = cbData.replace("adm_apprsus_", "");
+        const result = await handleAdminApproveWithdrawal(db, botToken, wid, baseUrl);
+        await answerCallbackQuery(botToken, cb.id, result.message, !result.ok);
+        await renderWithdrawalsPage(db, botToken, cbChatId, cb.message?.message_id, 0, baseUrl, result.ok ? `✅ <b>Suspicious Withdrawal Approved!</b>` : `⚠️ ${result.message}`, true);
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      if (cbData.startsWith("adm_rejsus_")) {
+        const adminIds = await getAdminTelegramIds(db);
+        if (!adminIds.has(cbSenderId)) {
+          await answerCallbackQuery(botToken, cb.id, "Unauthorized: Admin only", true);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const wid = cbData.replace("adm_rejsus_", "");
+        const result = await handleAdminRejectWithdrawal(db, botToken, wid);
+        await answerCallbackQuery(botToken, cb.id, result.message, !result.ok);
+        await renderWithdrawalsPage(db, botToken, cbChatId, cb.message?.message_id, 0, baseUrl, result.ok ? `❌ <b>Suspicious Withdrawal Declined & Refunded!</b>` : `⚠️ ${result.message}`, true);
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // ----------------------------------------------------
       // Admin: Tasks Management via Telegram
       // ----------------------------------------------------
       if (cbData.startsWith("adm_tasks_page_")) {
@@ -1321,6 +1458,9 @@ module.exports = async (req, res) => {
           [
             { text: "🛡️ Open Admin Panel", web_app: { url: adminUrl } },
             { text: "💸 Withdraw", callback_data: "adm_wd_page_0" }
+          ],
+          [
+            { text: "⚠️ Suspicious User Withdraw", callback_data: "adm_susp_wd_page_0" }
           ],
           [
             { text: "👥 Check User Refer Users", callback_data: "adm_ref_prompt" }
@@ -1538,6 +1678,21 @@ module.exports = async (req, res) => {
 
       await sendTelegramMsg(botToken, chatId, langDict.text, sendOptions);
 
+      if (startParam === "verify" && db) {
+        try {
+          const codesCol = db.collection("verification_codes");
+          const recentCode = await codesCol.findOne({
+            userId: String(senderId),
+            used: false,
+            expiresAt: { $gt: Date.now() }
+          }, { sort: { createdAt: -1 } });
+
+          if (recentCode) {
+            await sendTelegramMsg(botToken, chatId, `🔐 <b>Your Verification Code:</b> <code>${recentCode.code}</code>\n\n⏱ Validity: 2 minutes.\nEnter this 4-digit code in the app to complete verification.`);
+          }
+        } catch(e){}
+      }
+
       res.status(200).json({ ok: true, sent: true });
       return;
     }
@@ -1574,6 +1729,12 @@ module.exports = async (req, res) => {
               {
                 text: "💸 Withdraw",
                 callback_data: "adm_wd_page_0"
+              }
+            ],
+            [
+              {
+                text: "⚠️ Suspicious User Withdraw",
+                callback_data: "adm_susp_wd_page_0"
               }
             ],
             [
