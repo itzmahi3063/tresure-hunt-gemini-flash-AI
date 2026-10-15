@@ -526,7 +526,12 @@ module.exports = async (req, res) => {
           bannedAt: u.bannedAt || null,
           dataPurged: !!u.dataPurged,
           purgedAt: u.purgedAt || null,
-          createdAt: u.createdAt || null
+          createdAt: u.createdAt || null,
+          totalMinedClaims: Number(u.totalMinedClaims || 0) || Math.floor(Number(u.totalMinedCoins || 0) / 10),
+          tasksCompletedCount: Array.isArray(u.completedTasks) ? u.completedTasks.length : 0,
+          adMissionsCompleted: Number(u.adMissionsCompleted || 0),
+          watchAdsCount: Number(u.totalAdsWatched || 0),
+          watchAdsEarnedCoins: Number(u.totalAdsWatched || 0) * 10
         }));
 
         res.status(200).json({ ok: true, users: mapped });
@@ -553,6 +558,24 @@ module.exports = async (req, res) => {
           ]
         }).sort({ createdAt: -1 }).toArray();
 
+        const parentInfo = parentUser ? {
+          telegramId: String(parentUser.telegramId),
+          name: (parentUser.firstName || "") + (parentUser.lastName ? " " + parentUser.lastName : "") || "Miner",
+          username: parentUser.username ? ("@" + parentUser.username) : "N/A",
+          photoUrl: parentUser.photoUrl || "",
+          balance: Number(parentUser.balance || 0),
+          minerLevel: parentUser.minerLevel || 1,
+          recruitsCount: Number(parentUser.recruitsCount || 0),
+          refEarnings: Number(parentUser.refEarnings || 0),
+          isBanned: !!parentUser.isBanned,
+          createdAt: parentUser.createdAt || null,
+          totalMinedClaims: Number(parentUser.totalMinedClaims || 0) || Math.floor(Number(parentUser.totalMinedCoins || 0) / 10),
+          tasksCompletedCount: Array.isArray(parentUser.completedTasks) ? parentUser.completedTasks.length : 0,
+          adMissionsCompleted: Number(parentUser.adMissionsCompleted || 0),
+          watchAdsCount: Number(parentUser.totalAdsWatched || 0),
+          watchAdsEarnedCoins: Number(parentUser.totalAdsWatched || 0) * 10
+        } : null;
+
         const mappedRefs = referrals.map(u => ({
           id: String(u._id),
           telegramId: String(u.telegramId),
@@ -565,18 +588,18 @@ module.exports = async (req, res) => {
           isBanned: !!u.isBanned,
           isIdentityVerified: !!u.isIdentityVerified,
           referralRewarded: !!u.referralRewarded,
-          createdAt: u.createdAt || null
+          createdAt: u.createdAt || null,
+          totalMinedClaims: Number(u.totalMinedClaims || 0) || Math.floor(Number(u.totalMinedCoins || 0) / 10),
+          tasksCompletedCount: Array.isArray(u.completedTasks) ? u.completedTasks.length : 0,
+          adMissionsCompleted: Number(u.adMissionsCompleted || 0),
+          watchAdsCount: Number(u.totalAdsWatched || 0),
+          watchAdsEarnedCoins: Number(u.totalAdsWatched || 0) * 10
         }));
 
         res.status(200).json({
           ok: true,
-          user: parentUser ? {
-            telegramId: String(parentUser.telegramId),
-            name: (parentUser.firstName || "") + (parentUser.lastName ? " " + parentUser.lastName : "") || "Miner",
-            username: parentUser.username ? ("@" + parentUser.username) : "N/A",
-            recruitsCount: Number(parentUser.recruitsCount || 0),
-            refEarnings: Number(parentUser.refEarnings || 0)
-          } : null,
+          user: parentInfo,
+          parentUser: parentInfo,
           totalReferrals: mappedRefs.length,
           referrals: mappedRefs
         });

@@ -803,6 +803,14 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   const rawParentName = parentUser.username ? `@${parentUser.username}` : (parentUser.firstName ? parentUser.firstName : "Miner");
   const parentName = escapeHtml(rawParentName);
 
+  const parentJoinedDate = parentUser.createdAt ? new Date(parentUser.createdAt).toLocaleString("en-US", { timeZone: "Asia/Dhaka" }) : "N/A";
+  const parentMines = Number(parentUser.totalMinedClaims || 0) || Math.floor(Number(parentUser.totalMinedCoins || 0) / 10);
+  const parentTasks = Array.isArray(parentUser.completedTasks) ? parentUser.completedTasks.length : 0;
+  const parentAdMissions = Number(parentUser.adMissionsCompleted || 0);
+  const parentWatchAds = Number(parentUser.totalAdsWatched || 0);
+  const parentWatchCoins = parentWatchAds * 10;
+  const parentBal = Number(parentUser.balance || 0).toLocaleString();
+
   const referrals = await usersCol.find({
     $or: [
       { referredBy: cleanUid },
@@ -817,7 +825,11 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   const items = referrals.slice(currPage * PAGE_SIZE, (currPage + 1) * PAGE_SIZE);
 
   let msgText = `👥 <b>Referral Crew of ${parentName}</b>\n`;
-  msgText += `UID: <code>${cleanUid}</code> • Total Referred: <b>${totalCount} miners</b>\n`;
+  msgText += `🆔 UID: <code>${cleanUid}</code> • Recruits: <b>${totalCount}</b>\n`;
+  msgText += `📅 <b>Joined:</b> <code>${escapeHtml(parentJoinedDate)}</code>\n`;
+  msgText += `⛏️ <b>Mines Done:</b> ${parentMines.toLocaleString()} | 📋 <b>Tasks:</b> ${parentTasks}\n`;
+  msgText += `🎬 <b>Ad Missions:</b> ${parentAdMissions} | 📺 <b>Watch & Earn:</b> ${parentWatchAds} ads (${parentWatchCoins.toLocaleString()} coins)\n`;
+  msgText += `💰 <b>Balance:</b> ${parentBal} coins\n`;
   msgText += `<i>Page ${currPage + 1} of ${totalPages} (Showing 5 per page)</i>\n`;
   msgText += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
@@ -831,7 +843,12 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
       const refName = escapeHtml(rawRefName);
       const isVerified = !!ref.isIdentityVerified;
       const verifiedBadge = isVerified ? "✅ Verified" : "⏳ Unverified";
-      const adsCount = Number(ref.totalAdsWatched || 0);
+      const refJoinedDate = ref.createdAt ? new Date(ref.createdAt).toLocaleDateString("en-US", { timeZone: "Asia/Dhaka" }) : "N/A";
+      const refMines = Number(ref.totalMinedClaims || 0) || Math.floor(Number(ref.totalMinedCoins || 0) / 10);
+      const refTasks = Array.isArray(ref.completedTasks) ? ref.completedTasks.length : 0;
+      const refAdMissions = Number(ref.adMissionsCompleted || 0);
+      const refWatchAds = Number(ref.totalAdsWatched || 0);
+      const refWatchCoins = refWatchAds * 10;
       const bal = Number(ref.balance || 0).toLocaleString();
 
       // Telegram profile link (Direct username or tg://user?id=)
@@ -839,10 +856,11 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
         ? `https://t.me/${ref.username.replace(/^@/, '')}` 
         : `tg://user?id=${refUid}`;
 
-      msgText += `<b>#${itemNum} | <a href="${profileLink}">${refName}</a></b>\n`;
+      msgText += `<b>#${itemNum} | <a href="${profileLink}">${refName}</a></b> (${verifiedBadge})\n`;
       msgText += `🆔 ID: <a href="${profileLink}"><code>${refUid}</code></a> ${ref.username ? `(@${escapeHtml(ref.username)})` : ''}\n`;
-      msgText += `💰 Balance: <b>${bal}</b> | 🎬 Ads: <b>${adsCount}</b>\n`;
-      msgText += `🛡️ Status: <b>${verifiedBadge}</b>\n\n`;
+      msgText += `📅 Joined: <code>${escapeHtml(refJoinedDate)}</code> | 💰 Bal: <b>${bal}</b>\n`;
+      msgText += `⛏️ Mines: <b>${refMines.toLocaleString()}</b> | 📋 Tasks: <b>${refTasks}</b>\n`;
+      msgText += `🎬 Missions: <b>${refAdMissions}</b> | 📺 Watch: <b>${refWatchAds}</b> (${refWatchCoins.toLocaleString()} coins)\n\n`;
     });
   }
 
