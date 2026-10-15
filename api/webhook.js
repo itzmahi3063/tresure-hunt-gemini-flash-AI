@@ -21,6 +21,14 @@ function escapeHtml(text) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+let lastWebhookPurgeRun = 0;
+const PURGE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+function triggerBackgroundPurge(db) {
+  if (!db) return;
+  const now = Date.now();
+  if (now - lastWebhookPurgeRun < PURGE_INTERVAL_MS) return;
+  lastWebhookPurgeRun = now;
+  purgeExpiredBannedUsers(db).catch(() => {});
 }
 
 async function getAdminTelegramIds(db) {
@@ -1086,7 +1094,10 @@ module.exports = async (req, res) => {
       const cbSenderId = cb.from?.id ? String(cb.from.id) : "";
 
       let db = null;
-      try { db = await getDb(); } catch(e){}
+      try {
+        db = await getDb();
+        triggerBackgroundPurge(db);
+      } catch(e){}
 
       // Open Language Selection menu
       if (cbData === "choose_lang") {
@@ -1587,6 +1598,7 @@ module.exports = async (req, res) => {
       try {
         db = await getDb();
         if (db) {
+          triggerBackgroundPurge(db);
           if (!cachedWelcomeBannerFileId) {
             try {
               const bDoc = await db.collection("settings").findOne({ key: "welcome_banner_file_id" });
@@ -1702,7 +1714,10 @@ module.exports = async (req, res) => {
     // ----------------------------------------------------
     if (command === "/admin") {
       let db = null;
-      try { db = await getDb(); } catch(e){}
+      try {
+        db = await getDb();
+        triggerBackgroundPurge(db);
+      } catch(e){}
       const adminIds = await getAdminTelegramIds(db);
 
       // Strict Security Check:

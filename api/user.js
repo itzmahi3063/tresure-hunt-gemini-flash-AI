@@ -1,6 +1,17 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser, findUserById } = require("../lib/userHelper");
+const { findOrCreateUser, findUserById, purgeExpiredBannedUsers } = require("../lib/userHelper");
+let lastPurgeRun = 0;
+const PURGE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+function triggerBackgroundPurge(db) {
+  if (!db) return;
+  const now = Date.now();
+  if (now - lastPurgeRun < PURGE_INTERVAL_MS) return;
+  lastPurgeRun = now;
+  purgeExpiredBannedUsers(db).catch(() => {});
+}
+
 const { mineIsReady, dailyStatus, MINE_INTERVAL_MS, LEVEL_NAMES, getMultiplierForLevel } = require("../lib/gameLogic");
 const { generateVerificationImage } = require("../lib/verificationImage");
 const { notifyInviterReferralSuccess } = require("../lib/miningReminder");
@@ -82,6 +93,7 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const db = await getDb();
+    triggerBackgroundPurge(db);
     const users = db.collection("users");
 
     if (!(await checkDailyRequestQuota(users, telegramId, res))) {
