@@ -137,10 +137,10 @@ function calculateFraudRiskScore(u) {
     score += 85;
   }
 
-  // 1c. Ad Mission S2S violation, Watch Ad over-claim, or Mining 24h cap exceeded
+  // 1c. Ad Mission Brute Force, Watch Ad over-claim, or Mining 24h cap exceeded
   const secFlagStr = String(u.securityFlag || "");
   if (
-    secFlagStr === "RED_FLAG_AD_MISSION_S2S_BYPASS" ||
+    secFlagStr === "RED_FLAG_AD_MISSION_BRUTE_FORCE" ||
     secFlagStr === "RED_FLAG_WATCH_AD_OVERCLAIM" ||
     secFlagStr === "RED_FLAG_EXCESSIVE_24H_MINING"
   ) {
@@ -273,6 +273,23 @@ module.exports = async (req, res) => {
     const usersCol = db.collection("users");
     const withdrawalsCol = db.collection("withdrawals");
     const tasksCol = db.collection("tasks");
+
+    // Auto-clean any users falsely flagged with legacy Ad Mission S2S violation:
+    usersCol.updateMany(
+      {
+        $or: [
+          { securityFlag: "RED_FLAG_AD_MISSION_S2S_BYPASS" },
+          { suspiciousReason: /Ad Mission S2S violation/i }
+        ]
+      },
+      {
+        $unset: {
+          securityFlag: "",
+          suspiciousReason: "",
+          isSuspicious: ""
+        }
+      }
+    ).catch(() => {});
 
     // ==========================================
     // GET Requests: Stats, Withdrawals, Users, Tasks
@@ -1433,6 +1450,31 @@ module.exports = async (req, res) => {
         }
         const stepRes = await processBroadcastQueue(db, botToken, 5800);
         res.status(200).json({ ok: true, ...stepRes });
+        return;
+      }
+
+      // Unflag all users falsely flagged by legacy Ad Mission S2S violation
+      if (action === "unflag_ad_mission_users" || action === "clean_ad_mission_flags") {
+        const cleanRes = await usersCol.updateMany(
+          {
+            $or: [
+              { securityFlag: "RED_FLAG_AD_MISSION_S2S_BYPASS" },
+              { suspiciousReason: /Ad Mission S2S violation/i }
+            ]
+          },
+          {
+            $unset: {
+              securityFlag: "",
+              suspiciousReason: "",
+              isSuspicious: ""
+            }
+          }
+        );
+        res.status(200).json({
+          ok: true,
+          cleanedCount: cleanRes.modifiedCount,
+          message: `Successfully unflagged ${cleanRes.modifiedCount} users from false-positive Ad Mission S2S violation.`
+        });
         return;
       }
 

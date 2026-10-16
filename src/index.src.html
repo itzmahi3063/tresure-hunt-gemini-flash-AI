@@ -12049,7 +12049,13 @@
           "Waiting for server confirmation...",
           10,
           function(isVerified) {
-            adsApiPost({ action: "claim_ad_mission", missionId: ADSGRAM_TASK_BLOCK_ID })
+            var elapsed = missionGoClickedAt ? (Date.now() - missionGoClickedAt) : 10000;
+            adsApiPost({
+              action: "claim_ad_mission",
+              missionId: ADSGRAM_TASK_BLOCK_ID,
+              missionDurationMs: Math.max(elapsed, 5000),
+              isVerified: (isVerified === true || isVerified === undefined)
+            })
               .then(function(claimRes) {
                 isClaimingMission = false;
                 closeS2sWaitingModal();

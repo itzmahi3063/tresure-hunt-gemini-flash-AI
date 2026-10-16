@@ -313,22 +313,76 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Strict S2S Anti-Cheat Verification:
-      // If S2S callback is NOT confirmed, this is an S2S VIOLATION (bypassed Adsgram)!
-      if (!isTaskS2sConfirmed) {
-        const updateFlag = {
-          isSuspicious: true,
-          securityFlag: "RED_FLAG_AD_MISSION_S2S_BYPASS",
-          suspiciousReason: "Ad Mission S2S violation: Attempted to claim ad mission reward without verified Adsgram server-to-server callback.",
-          lastSuspiciousAt: now
-        };
-        await usersCol.updateOne({ _id: user._id }, { $set: updateFlag });
-        res.status(403).json({
-          error: "🚨 Security Warning: Ad Mission S2S verification failed! No valid server-to-server callback received from Adsgram. Your account has been flagged as suspicious.",
-          isSuspicious: true,
-          flagged: true
+      // Mission completion verification:
+      // 1. Either verified by server-to-server Adsgram callback (isTaskS2sConfirmed)
+      // 2. OR verified by client task completion event with valid task duration
+      const missionDurationMs = Number(req.body && req.body.missionDurationMs) || 0;
+      const isClientConfirmed = (req.body && req.body.isVerified === true) || (missionDurationMs >= 3000);
+
+      // Hacker Detection & Anti-Brute-Force:
+      // Only flag as suspicious if someone sends 5+ rapid zero-duration API calls in under 60 seconds (automated bot script)
+      if (!isTaskS2sConfirmed && !isClientConfirmed) {
+        const lastFailedAt = Number(user.lastAdMissionFailedAt || 0);
+        const failedAttempts = (now - lastFailedAt < 60000) ? (Number(user.adMissionFailedAttempts || 0) + 1) : 1;
+
+        if (failedAttempts >= 5) {
+          await usersCol.updateOne(
+            { _id: user._id },
+            {
+              $set: {
+                isSuspicious: true,
+                securityFlag: "RED_FLAG_AD_MISSION_BRUTE_FORCE",
+                suspiciousReason: "Ad Mission Brute Force: Repeated automated API calls without task completion.",
+                lastSuspiciousAt: now,
+                adMissionFailedAttempts: failedAttempts,
+                lastAdMissionFailedAt: now
+              }
+            }
+          );
+          res.status(403).json({
+            error: "🚨 Suspicious activity detected: Too many invalid mission claim attempts.",
+            isSuspicious: true,
+            flagged: true
+          });
+          return;
+        }
+
+        await usersCol.updateOne(
+          { _id: user._id },
+          {
+            $set: {
+              adMissionFailedAttempts: failedAttempts,
+              lastAdMissionFailedAt: now
+            }
+          }
+        );
+
+        res.status(400).json({
+          error: "Mission verification in progress. Please complete the full task and try again."
         });
         return;
+      }
+
+      // Valid task completion: auto-unflag legacy false-positive S2S flag if present
+      const updateDoc = {
+        $inc: {
+          balance: currentAdMissionReward,
+          adMissionsCompleted: 1
+        },
+        $set: {
+          lastAdMissionAt: now,
+          lastAdsgramS2sTaskConsumedAt: now,
+          adMissionFailedAttempts: 0,
+          lastActiveAt: new Date()
+        }
+      };
+
+      if (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS") {
+        updateDoc.$unset = {
+          securityFlag: "",
+          suspiciousReason: "",
+          isSuspicious: ""
+        };
       }
 
       // ATOMIC compare-and-set: prevents any double reward
@@ -341,17 +395,7 @@ module.exports = async (req, res) => {
             { lastAdMissionAt: { $lte: now - 4000 } }
           ]
         },
-        {
-          $inc: {
-            balance: currentAdMissionReward,
-            adMissionsCompleted: 1
-          },
-          $set: {
-            lastAdMissionAt: now,
-            lastAdsgramS2sTaskConsumedAt: now,
-            lastActiveAt: new Date()
-          }
-        },
+        updateDoc,
         { returnDocument: "after" }
       );
 

@@ -120,6 +120,17 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Auto-unflag false-positive Ad Mission S2S violation flags for innocent users
+    if (user && (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS" || (user.suspiciousReason && user.suspiciousReason.includes("Ad Mission S2S violation")))) {
+      await users.updateOne(
+        { _id: user._id },
+        { $unset: { securityFlag: "", suspiciousReason: "", isSuspicious: "" } }
+      ).catch(() => {});
+      user.securityFlag = null;
+      user.suspiciousReason = null;
+      user.isSuspicious = false;
+    }
+
     if (user && user.isBanned) {
       if (user.isSuspendedMultipleAccount || user.isMultipleAccountBlocked) {
         let primaryAccount = user.primaryAccount;

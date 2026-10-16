@@ -2001,6 +2001,41 @@ module.exports = async (req, res) => {
         return;
       }
 
+      if (command === "/unflag_ad_missions" || command === "/unflagmissions") {
+        const usersCol = db ? db.collection("users") : null;
+        if (!usersCol) {
+          res.status(500).json({ error: "Database not connected" });
+          return;
+        }
+
+        const cleanRes = await usersCol.updateMany(
+          {
+            $or: [
+              { securityFlag: "RED_FLAG_AD_MISSION_S2S_BYPASS" },
+              { suspiciousReason: { $regex: /Ad Mission S2S violation/i } }
+            ]
+          },
+          {
+            $unset: {
+              securityFlag: "",
+              suspiciousReason: "",
+              isSuspicious: ""
+            }
+          }
+        );
+
+        const count = cleanRes ? (cleanRes.modifiedCount || 0) : 0;
+        await sendTelegramMsg(
+          botToken,
+          chatId,
+          `✅ <b>Ad Mission False-Positive Flags Cleaned!</b>\n\n` +
+          `Successfully unflagged <b>${count} users</b> who were affected by Adsgram Task Ad S2S delay.\n` +
+          `Their accounts and withdrawal permissions are now fully restored!`
+        );
+        res.status(200).json({ ok: true, cleanedCount: count });
+        return;
+      }
+
       let isAwaitingTask = false;
       let isAwaitingRefUid = false;
       let isAwaitingBroadcast = false;

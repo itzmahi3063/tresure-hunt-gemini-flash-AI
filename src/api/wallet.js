@@ -325,9 +325,15 @@ module.exports = async (req, res) => {
           dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 10 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
         }
 
-        if (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS") {
-          dynamicSuspicious = true;
-          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + "Ad Mission S2S violation: Attempted to claim ad mission reward without verified Adsgram server-to-server callback.";
+        // Auto-clean legacy false-positive Ad Mission S2S flag for innocent users
+        if (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS" || (user.suspiciousReason && user.suspiciousReason.includes("Ad Mission S2S violation"))) {
+          usersCol.updateOne(
+            { _id: user._id },
+            { $unset: { securityFlag: "", suspiciousReason: "", isSuspicious: "" } }
+          ).catch(() => {});
+          user.securityFlag = null;
+          user.suspiciousReason = null;
+          user.isSuspicious = false;
         }
 
         const isUserSuspicious = Boolean(
