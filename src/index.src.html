@@ -14416,8 +14416,13 @@
           user.balance = res.data.balance;
           renderBalance();
         }
-        if (res.data.boundWalletAddress) {
+        user.walletUnlockedOnce = Boolean(res.data.walletUnlockedOnce);
+        if (user.walletUnlockedOnce) {
+          user.boundWalletAddress = null;
+        } else if (res.data.boundWalletAddress) {
           user.boundWalletAddress = res.data.boundWalletAddress;
+        } else {
+          user.boundWalletAddress = null;
         }
         renderWallet();
       }
@@ -14619,7 +14624,9 @@
     var lockBadge = document.getElementById("withdrawWalletLockBadge");
     var hintEl = document.getElementById("withdrawWalletHint");
 
-    if (user.boundWalletAddress) {
+    var isBoundAndLocked = Boolean(user.boundWalletAddress && !user.walletUnlockedOnce);
+
+    if (isBoundAndLocked) {
       if (withdrawAddressInput) {
         withdrawAddressInput.value = user.boundWalletAddress;
         withdrawAddressInput.readOnly = true;
@@ -14628,7 +14635,13 @@
         withdrawAddressInput.style.background = "rgba(32, 184, 163, 0.08)";
         withdrawAddressInput.style.borderColor = "rgba(32, 184, 163, 0.4)";
       }
-      if (lockBadge) lockBadge.style.display = "inline-block";
+      if (lockBadge) {
+        lockBadge.style.display = "inline-block";
+        lockBadge.style.background = "rgba(32, 184, 163, 0.15)";
+        lockBadge.style.color = "var(--accent)";
+        lockBadge.style.borderColor = "rgba(32, 184, 163, 0.3)";
+        lockBadge.innerHTML = "🔒 LOCKED WALLET";
+      }
       if (hintEl) hintEl.innerHTML = "🔒 <i>Wallet permanently locked to your account. No need to re-enter.</i>";
     } else {
       if (withdrawAddressInput) {
@@ -14639,8 +14652,19 @@
         withdrawAddressInput.style.background = "";
         withdrawAddressInput.style.borderColor = "";
       }
-      if (lockBadge) lockBadge.style.display = "none";
-      if (hintEl) hintEl.innerHTML = "Enter your 48-character TON wallet address. It will be permanently locked on your first withdrawal.";
+      if (user.walletUnlockedOnce) {
+        if (lockBadge) {
+          lockBadge.style.display = "inline-block";
+          lockBadge.style.background = "rgba(34, 197, 94, 0.2)";
+          lockBadge.style.color = "#22c55e";
+          lockBadge.style.borderColor = "rgba(34, 197, 94, 0.4)";
+          lockBadge.innerHTML = "🔓 1-TIME UNLOCKED";
+        }
+        if (hintEl) hintEl.innerHTML = "🔓 <b>Admin unlocked your wallet!</b> Enter your new TON wallet address. It will permanently lock again upon this withdrawal.";
+      } else {
+        if (lockBadge) lockBadge.style.display = "none";
+        if (hintEl) hintEl.innerHTML = "Enter your 48-character TON wallet address. It will be permanently locked on your first withdrawal.";
+      }
     }
 
     if (withdrawFeedbackBox) {
@@ -14744,7 +14768,8 @@
   if (confirmWithdrawBtn) {
     confirmWithdrawBtn.addEventListener("click", function() {
       var amt = parseInt(withdrawAmountInput ? withdrawAmountInput.value : 0, 10);
-      var addr = user.boundWalletAddress ? user.boundWalletAddress : (withdrawAddressInput ? withdrawAddressInput.value.trim() : "");
+      var isBoundAndLocked = Boolean(user.boundWalletAddress && !user.walletUnlockedOnce);
+      var addr = isBoundAndLocked ? user.boundWalletAddress : (withdrawAddressInput ? withdrawAddressInput.value.trim() : "");
 
       if (isNaN(amt) || amt < 1000) {
         if (withdrawFeedbackBox) {
@@ -14765,7 +14790,7 @@
         return;
       }
 
-      if (!user.boundWalletAddress && !isValidTonAddress(addr)) {
+      if (!isBoundAndLocked && !isValidTonAddress(addr)) {
         if (withdrawFeedbackBox) {
           withdrawFeedbackBox.style.display = "block";
           withdrawFeedbackBox.className = "verify-feedback-box error";
@@ -14801,6 +14826,7 @@
           if (res.data.boundWalletAddress) {
             user.boundWalletAddress = res.data.boundWalletAddress;
           }
+          user.walletUnlockedOnce = false;
           renderBalance();
           loadWalletData();
 

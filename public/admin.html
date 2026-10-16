@@ -748,6 +748,33 @@
               <button class="btn-danger" id="fundsDeductBtn">➖ Deduct Coins (-)</button>
             </div>
           </div>
+
+          <!-- TON Wallet Address & 1-Time Unlock Panel -->
+          <div style="background: rgba(14, 165, 233, 0.08); border: 1.5px solid rgba(14, 165, 233, 0.3); padding: 16px; border-radius: 14px; margin-top: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 13.5px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
+                <span>💎 Bound TON Wallet Address</span>
+              </div>
+              <div id="fundsWalletBadge">
+                <span class="status-tag" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8;">None</span>
+              </div>
+            </div>
+
+            <div style="font-family: monospace; font-size: 12px; color: #38bdf8; background: rgba(0,0,0,0.35); padding: 10px 12px; border-radius: 8px; word-break: break-all; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.06);" id="fundsWalletAddressVal">
+              No wallet address bound yet
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.4; flex: 1; min-width: 220px;" id="fundsWalletDesc">
+                If unlocked, this user can enter a new TON wallet address 1 time. Upon their next withdrawal, it will automatically lock permanently to that new address.
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn-primary" id="fundsUnlockWalletBtn" style="background: linear-gradient(135deg, #0284c7, #0369a1); font-size: 12px; padding: 7px 14px; white-space: nowrap; cursor: pointer;">
+                  🔓 Unlock Wallet (1-Time)
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2053,6 +2080,83 @@
     } else {
       badge.innerHTML = '<span class="status-tag approved">ACTIVE</span>';
     }
+
+    // Render Bound Wallet & 1-Time Unlock Status
+    var walletValEl = document.getElementById("fundsWalletAddressVal");
+    var walletBadgeEl = document.getElementById("fundsWalletBadge");
+    var unlockBtn = document.getElementById("fundsUnlockWalletBtn");
+    var walletDesc = document.getElementById("fundsWalletDesc");
+
+    if (u.walletUnlockedOnce) {
+      if (walletValEl) walletValEl.innerHTML = '<span style="color:#22c55e;font-weight:700;">🔓 1-Time Unlock ACTIVE</span> — Waiting for user to submit new address';
+      if (walletBadgeEl) walletBadgeEl.innerHTML = '<span class="status-tag" style="background: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.4);">🔓 1-TIME UNLOCKED</span>';
+      if (unlockBtn) {
+        unlockBtn.style.background = "linear-gradient(135deg, #475569, #334155)";
+        unlockBtn.textContent = "🔒 Cancel & Re-Lock";
+      }
+      if (walletDesc) walletDesc.textContent = "1-Time unlock is currently ACTIVE for this user. When they make their next withdrawal, they can submit a new TON address, which will automatically re-lock.";
+    } else if (u.boundWalletAddress) {
+      if (walletValEl) walletValEl.textContent = u.boundWalletAddress;
+      if (walletBadgeEl) walletBadgeEl.innerHTML = '<span class="status-tag" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);">🔒 LOCKED</span>';
+      if (unlockBtn) {
+        unlockBtn.style.background = "linear-gradient(135deg, #0284c7, #0369a1)";
+        unlockBtn.textContent = "🔓 Unlock Wallet (1-Time)";
+      }
+      if (walletDesc) walletDesc.textContent = "Wallet is currently permanently locked. Click the button to allow this user to update their address 1 time.";
+    } else {
+      if (walletValEl) walletValEl.textContent = "No wallet address bound yet (will lock on first withdrawal)";
+      if (walletBadgeEl) walletBadgeEl.innerHTML = '<span class="status-tag" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4);">⚪ NOT BOUND</span>';
+      if (unlockBtn) {
+        unlockBtn.style.background = "linear-gradient(135deg, #0284c7, #0369a1)";
+        unlockBtn.textContent = "🔓 Enable 1-Time Entry";
+      }
+      if (walletDesc) walletDesc.textContent = "User has not submitted a withdrawal address yet. It will automatically lock upon their first withdrawal.";
+    }
+  }
+
+  var fundsUnlockWalletBtn = document.getElementById("fundsUnlockWalletBtn");
+  if (fundsUnlockWalletBtn) {
+    fundsUnlockWalletBtn.addEventListener("click", async function() {
+      if (!selectedFundsUser) return;
+      var uid = selectedFundsUser.telegramId;
+      var uName = selectedFundsUser.name || uid;
+
+      if (selectedFundsUser.walletUnlockedOnce) {
+        if (!confirm(`Cancel 1-time unlock and re-lock wallet for ${uName} (UID: ${uid})?`)) return;
+        try {
+          var res = await apiAdmin("POST", null, {
+            action: "relock_user_wallet",
+            telegramId: uid
+          });
+          if (res.ok) {
+            showToast(`🔒 Wallet re-locked for user ${uid}`);
+            selectedFundsUser.walletUnlockedOnce = false;
+            selectedFundsUser.boundWalletAddress = res.boundWalletAddress || null;
+            renderFundsUser(selectedFundsUser);
+          } else {
+            alert(res.error || "Failed to re-lock wallet");
+          }
+        } catch(e) { alert(e.message); }
+        return;
+      }
+
+      if (!confirm(`Unlock TON wallet for ${uName} (UID: ${uid}) for 1-TIME change?\n\n• This user can enter a new TON wallet address on their next withdrawal.\n• Upon submitting the withdrawal, it will AUTOMATICALLY lock permanently to the new address.\n• ONLY this specific user is unlocked. All other users remain safely locked.`)) return;
+
+      try {
+        var res = await apiAdmin("POST", null, {
+          action: "unlock_user_wallet",
+          telegramId: uid
+        });
+        if (res.ok) {
+          showToast(`🔓 Wallet unlocked for 1-time change (UID: ${uid})`);
+          selectedFundsUser.walletUnlockedOnce = true;
+          selectedFundsUser.boundWalletAddress = null;
+          renderFundsUser(selectedFundsUser);
+        } else {
+          alert(res.error || "Failed to unlock wallet");
+        }
+      } catch(e) { alert(e.message); }
+    });
   }
 
   document.getElementById("fundsAddBtn").addEventListener("click", function(){ adjustFunds(1); });

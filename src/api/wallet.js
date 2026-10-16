@@ -158,7 +158,7 @@ module.exports = async (req, res) => {
 
       // Check and retrieve locked/bound wallet address
       let boundWallet = user.boundWalletAddress || null;
-      if (!boundWallet) {
+      if (!boundWallet && !user.walletUnlockedOnce) {
         const prevTx = await withdrawalsCol.findOne({ telegramId }, { sort: { createdAt: -1 } });
         if (prevTx && prevTx.walletAddress) {
           boundWallet = prevTx.walletAddress;
@@ -180,6 +180,7 @@ module.exports = async (req, res) => {
         recruitsCount: recruits,
         totalMined: Math.round(balance + (Number(user.totalDailyEarned) || 0) + (Number(user.refEarnings) || 0)),
         boundWalletAddress: boundWallet,
+        walletUnlockedOnce: Boolean(user.walletUnlockedOnce),
         transactions: mappedTxs
       });
       return;
@@ -231,8 +232,9 @@ module.exports = async (req, res) => {
 
         // Wallet Lock Logic:
         // Once a wallet address is used, it is permanently locked to the account.
-        // Subsequent withdrawals automatically use this locked wallet address without requiring re-entry.
-        if (user.boundWalletAddress) {
+        // If an admin unlocked the wallet for 1-time change (walletUnlockedOnce === true),
+        // the user is allowed to submit a new TON address. Once submitted, it automatically locks again!
+        if (user.boundWalletAddress && !user.walletUnlockedOnce) {
           cleanAddress = user.boundWalletAddress;
           const inputAddr = (walletAddress || "").trim();
           if (inputAddr && inputAddr !== user.boundWalletAddress) {
@@ -242,29 +244,30 @@ module.exports = async (req, res) => {
             return;
           }
         } else {
-          // Check if previously had a withdrawal
-          const prevTx = await withdrawalsCol.findOne({ telegramId }, { sort: { createdAt: -1 } });
-          if (prevTx && prevTx.walletAddress) {
-            cleanAddress = prevTx.walletAddress;
-            await usersCol.updateOne(
-              { _id: user._id },
-              { $set: { boundWalletAddress: cleanAddress, walletBoundAt: now } }
-            );
-            user.boundWalletAddress = cleanAddress;
-          } else {
-            // First withdrawal: validate and lock address permanently
-            cleanAddress = (walletAddress || "").trim();
-            const isTon = /^(UQ|EQ|kQ|0Q)[A-Za-z0-9_-]{46}$/.test(cleanAddress) || /^(-1|0):[0-9a-fA-F]{64}$/.test(cleanAddress);
-            if (!isTon) {
-              res.status(400).json({ error: "Invalid TON address! Address must be 48 characters starting with UQ or EQ" });
-              return;
-            }
-            await usersCol.updateOne(
-              { _id: user._id },
-              { $set: { boundWalletAddress: cleanAddress, walletBoundAt: now } }
-            );
-            user.boundWalletAddress = cleanAddress;
+          // First withdrawal OR 1-time unlocked by admin:
+          cleanAddress = (walletAddress || "").trim();
+          const isTon = /^(UQ|EQ|kQ|0Q)[A-Za-z0-9_-]{46}$/.test(cleanAddress) || /^(-1|0):[0-9a-fA-F]{64}$/.test(cleanAddress);
+          if (!isTon) {
+            res.status(400).json({ error: "Invalid TON address! Address must be 48 characters starting with UQ or EQ" });
+            return;
           }
+
+          // Atomically bind new address and re-lock wallet for THIS user ONLY
+          await usersCol.updateOne(
+            { _id: user._id },
+            {
+              $set: {
+                boundWalletAddress: cleanAddress,
+                walletBoundAt: now,
+                walletUnlockedOnce: false
+              },
+              $unset: {
+                walletUnlockedAt: ""
+              }
+            }
+          );
+          user.boundWalletAddress = cleanAddress;
+          user.walletUnlockedOnce = false;
         }
 
         // Atomically verify balance and deduct Coins in a single atomic operation

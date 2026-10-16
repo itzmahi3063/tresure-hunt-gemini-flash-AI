@@ -1934,6 +1934,70 @@ module.exports = async (req, res) => {
         return;
       }
 
+      if (command === "/unlockwallet" || command === "/unlock") {
+        const targetUid = parts[1] ? parts[1].trim() : "";
+        if (!targetUid) {
+          await sendTelegramMsg(botToken, chatId, `ℹ️ <b>Unlock User Wallet Command</b>\n\nUsage:\n<code>/unlockwallet &lt;telegramId&gt;</code>\n\nExample:\n<code>/unlockwallet 123456789</code>\n\n<i>Allows this user to change their TON withdrawal wallet address 1 time. Upon their next withdrawal, it will automatically lock to the new address.</i>`);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const tid = String(targetUid);
+        const numId = Number(targetUid);
+        const usersCol = db ? db.collection("users") : null;
+
+        if (!usersCol) {
+          res.status(500).json({ error: "Database not connected" });
+          return;
+        }
+
+        const targetUser = await usersCol.findOne({
+          $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])]
+        });
+
+        if (!targetUser) {
+          await sendTelegramMsg(botToken, chatId, `❌ User with ID <code>${escapeHtml(tid)}</code> not found in database.`);
+          res.status(200).json({ ok: true });
+          return;
+        }
+
+        const prevAddress = targetUser.boundWalletAddress || "None";
+
+        // Atomically unlock ONLY this user for 1-time address update
+        await usersCol.updateOne(
+          { _id: targetUser._id },
+          {
+            $set: {
+              walletUnlockedOnce: true,
+              walletUnlockedAt: Date.now()
+            },
+            $unset: {
+              boundWalletAddress: "",
+              walletBoundAt: ""
+            }
+          }
+        );
+
+        // Notify user via Telegram Bot
+        try {
+          const userMsg = 
+            `🔓 <b>TON Wallet Address Unlocked</b>\n\n` +
+            `Admin has unlocked your wallet for <b>1-time address update</b>.\n\n` +
+            `👉 You can now enter your new TON wallet address when making your next withdrawal. Once submitted, it will automatically lock permanently to the new address.`;
+          await sendTelegramMsg(botToken, tid, userMsg);
+        } catch (e) {}
+
+        const adminReply = 
+          `🔓 <b>Wallet Unlocked Successfully!</b>\n\n` +
+          `👤 <b>User:</b> ${escapeHtml(targetUser.firstName || "Miner")} (<code>${tid}</code>)\n` +
+          `💳 <b>Previous Address:</b> <code>${escapeHtml(prevAddress)}</code>\n\n` +
+          `✨ <i>1-Time address update is now ACTIVE for this user ONLY. Upon their next withdrawal, their new address will automatically lock permanently.</i>`;
+
+        await sendTelegramMsg(botToken, chatId, adminReply);
+        res.status(200).json({ ok: true, walletUnlocked: true });
+        return;
+      }
+
       if (command === "/setrequestlimit" || command === "/setlimit") {
         const val = parseInt(parts[1], 10);
         if (!val || val < 100 || val > 100000) {

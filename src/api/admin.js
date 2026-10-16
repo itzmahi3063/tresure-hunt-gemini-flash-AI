@@ -308,9 +308,10 @@ module.exports = async (req, res) => {
         const approvedW = await withdrawalsCol.countDocuments({ status: "APPROVED" });
 
         const balAgg = await usersCol.aggregate([
+          { $match: { isBanned: { $ne: true }, dataPurged: { $ne: true }, balance: { $gt: 0 } } },
           { $group: { _id: null, totalCoins: { $sum: "$balance" } } }
         ]).toArray();
-        const totalCoins = balAgg[0] ? balAgg[0].totalCoins : 0;
+        const totalCoins = balAgg[0] ? Math.max(0, balAgg[0].totalCoins) : 0;
 
         const TON_PER_USD = 0.019 / 0.03; // 3 cents = 0.019 TON
 
@@ -496,29 +497,28 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 3. Search User (UID or Username)
-      if (action === "search_user") {
+      // 3. Search User (UID or Username) or List Recent Miners
+      if (action === "search_user" || action === "users" || action === "recent_users") {
         const q = String(req.query.q || "").trim();
-        if (!q) {
-          res.status(400).json({ error: "Search query required" });
-          return;
+        let query = {};
+        if (q) {
+          const cleanUsername = q.replace(/^@/, "");
+          const numId = Number(q);
+          const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const escapedUsername = cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+          query = {
+            $or: [
+              { telegramId: q },
+              ...(numId ? [{ telegramId: numId }] : []),
+              { username: { $regex: escapedUsername, $options: "i" } },
+              { firstName: { $regex: escapedQ, $options: "i" } }
+            ]
+          };
         }
 
-        const cleanUsername = q.replace(/^@/, "");
-        const numId = Number(q);
-        const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const escapedUsername = cleanUsername.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-        const query = {
-          $or: [
-            { telegramId: q },
-            ...(numId ? [{ telegramId: numId }] : []),
-            { username: { $regex: escapedUsername, $options: "i" } },
-            { firstName: { $regex: escapedQ, $options: "i" } }
-          ]
-        };
-
-        const found = await usersCol.find(query).limit(20).toArray();
+        const totalMiners = await usersCol.countDocuments({});
+        const found = await usersCol.find(query).sort({ _id: -1 }).limit(25).toArray();
         const mapped = found.map(u => ({
           id: String(u._id),
           telegramId: String(u.telegramId),
@@ -547,6 +547,8 @@ module.exports = async (req, res) => {
           penaltyNotice: u.penaltyNotice || "",
           registeredIp: u.registeredIp || u.lastIp || "N/A",
           boundWalletAddress: u.boundWalletAddress || null,
+          walletUnlockedOnce: Boolean(u.walletUnlockedOnce),
+          walletBoundAt: u.walletBoundAt || null,
           accountLocked: !!u.accountLocked,
           velocityFlaggedAt: u.velocityFlaggedAt || null,
           velocityFlaggedReason: u.velocityFlaggedReason || "",
@@ -561,7 +563,7 @@ module.exports = async (req, res) => {
           watchAdsEarnedCoins: Number(u.totalAdsWatched || 0) * 10
         }));
 
-        res.status(200).json({ ok: true, users: mapped });
+        res.status(200).json({ ok: true, users: mapped, totalMiners, isSearch: !!q });
         return;
       }
 
@@ -737,8 +739,9 @@ module.exports = async (req, res) => {
         const watchAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
+        const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
 
-        res.status(200).json({ ok: true, tasks: mapped, watchAdReward, coinPriceUsd, adMissionReward });
+        res.status(200).json({ ok: true, tasks: mapped, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit });
         return;
       }
 
@@ -748,7 +751,8 @@ module.exports = async (req, res) => {
         const watchAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
-        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward });
+        const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
+        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit });
         return;
       }
 
@@ -1419,6 +1423,104 @@ module.exports = async (req, res) => {
         return;
       }
 
+      // 5b. 1-Time Wallet Unlock (Allows specific user to change withdrawal address once, then auto-locks)
+      if (action === "unlock_user_wallet" || action === "unlock_wallet") {
+        const { telegramId } = req.body || {};
+        if (!telegramId) {
+          res.status(400).json({ error: "telegramId is required" });
+          return;
+        }
+
+        const tid = String(telegramId).trim();
+        const numId = Number(tid);
+        const query = { $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])] };
+
+        const targetUser = await usersCol.findOne(query);
+        if (!targetUser) {
+          res.status(404).json({ error: `User with ID ${tid} not found.` });
+          return;
+        }
+
+        const previousBoundAddress = targetUser.boundWalletAddress || null;
+
+        // Atomically unlock ONLY this specific user
+        await usersCol.updateOne(
+          { _id: targetUser._id },
+          {
+            $set: {
+              walletUnlockedOnce: true,
+              walletUnlockedAt: Date.now()
+            },
+            $unset: {
+              boundWalletAddress: "",
+              walletBoundAt: ""
+            }
+          }
+        );
+
+        // Notify user via Telegram Bot
+        if (botToken) {
+          const msg = 
+            `🔓 <b>TON Wallet Address Unlocked</b>\n\n` +
+            `Admin has unlocked your wallet for <b>1-time address update</b>.\n\n` +
+            `👉 You can now enter your new TON wallet address when making your next withdrawal. Once submitted, it will automatically lock permanently to the new address.`;
+          sendTelegramMsg(botToken, tid, msg);
+        }
+
+        res.status(200).json({
+          ok: true,
+          telegramId: tid,
+          walletUnlockedOnce: true,
+          previousBoundAddress,
+          message: `Wallet unlocked successfully for ${targetUser.firstName || tid} (1-time change enabled). Upon their next withdrawal, it will automatically lock again.`
+        });
+        return;
+      }
+
+      // 5c. Re-Lock Wallet (Optional Admin Undo)
+      if (action === "relock_user_wallet" || action === "relock_wallet") {
+        const { telegramId, walletAddress } = req.body || {};
+        if (!telegramId) {
+          res.status(400).json({ error: "telegramId is required" });
+          return;
+        }
+
+        const tid = String(telegramId).trim();
+        const numId = Number(tid);
+        const query = { $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])] };
+
+        const targetUser = await usersCol.findOne(query);
+        if (!targetUser) {
+          res.status(404).json({ error: `User with ID ${tid} not found.` });
+          return;
+        }
+
+        const lockAddr = (walletAddress || "").trim();
+        const updateDoc = {
+          $set: {
+            walletUnlockedOnce: false
+          },
+          $unset: {
+            walletUnlockedAt: ""
+          }
+        };
+        if (lockAddr) {
+          updateDoc.$set.boundWalletAddress = lockAddr;
+          updateDoc.$set.walletBoundAt = Date.now();
+        }
+
+        await usersCol.updateOne({ _id: targetUser._id }, updateDoc);
+
+        res.status(200).json({
+          ok: true,
+          telegramId: tid,
+          walletUnlockedOnce: false,
+          boundWalletAddress: lockAddr || null,
+          message: `Wallet re-locked successfully for user ${tid}.`
+        });
+        return;
+      }
+
       // 6. Broadcast to All Users (Instant + Cron-Job.org Background Queue for Large User Bases)
       if (action === "broadcast") {
         const { message, photoUrl, buttonText, buttonUrl } = req.body || {};
@@ -1736,6 +1838,29 @@ module.exports = async (req, res) => {
           ok: true,
           coinPriceUsd: parsedPrice,
           message: `TREASURE Coin price successfully set to $${parsedPrice} USD per coin!`
+        });
+        return;
+      }
+
+      // 13. Update Daily Request Limit
+      if (action === "update_daily_request_limit") {
+        const { limit } = req.body || {};
+        const parsedLimit = parseInt(limit, 10);
+        if (isNaN(parsedLimit) || parsedLimit < 100 || parsedLimit > 100000) {
+          res.status(400).json({ error: "Daily limit must be a positive number between 100 and 100,000" });
+          return;
+        }
+
+        await db.collection("settings").updateOne(
+          { key: "app_settings" },
+          { $set: { dailyRequestLimit: parsedLimit, updatedAt: Date.now() } },
+          { upsert: true }
+        );
+
+        res.status(200).json({
+          ok: true,
+          dailyRequestLimit: parsedLimit,
+          message: `Daily request limit successfully set to ${parsedLimit.toLocaleString()} requests per 24 hours!`
         });
         return;
       }
