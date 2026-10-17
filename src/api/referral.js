@@ -128,6 +128,7 @@ module.exports = async (req, res) => {
         ok: true,
         recruitsCount: userRecruits,
         refEarnings: userRefEarnings,
+        refCommissionEarned: Number(user.refCommissionEarned || 0),
         recruiterRank: recruiterRank,
         minerRank: minerRank,
         topRecruiters: topRecruiters,

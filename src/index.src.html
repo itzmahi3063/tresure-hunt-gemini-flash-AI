@@ -7642,10 +7642,10 @@
               </div>
               <div class="overview-stat-lbl">COMMISSION RATE</div>
               <div class="overview-stat-val val-purple">5%</div>
-              <div class="overview-stat-unit">of yields</div>
+              <div class="overview-stat-unit">of withdrawals</div>
             </div>
 
-            <!-- Card 4: NETWORK EARNINGS -->
+            <!-- Card 4: TOTAL COMMISSION -->
             <div class="overview-stat-box">
               <div class="overview-stat-icon-wrap" style="color: #ef4444;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -7653,7 +7653,7 @@
                   <polyline points="17 6 23 6 23 12"></polyline>
                 </svg>
               </div>
-              <div class="overview-stat-lbl">NETWORK EARNINGS</div>
+              <div class="overview-stat-lbl">TOTAL COMMISSION</div>
               <div class="overview-stat-val val-orange" id="overviewNetworkEarnings">0</div>
               <div class="overview-stat-unit">TREASURE Coins total</div>
             </div>
@@ -14299,6 +14299,7 @@
         referralData = res.data;
         if (typeof res.data.recruitsCount === "number") user.recruitsCount = res.data.recruitsCount;
         if (typeof res.data.refEarnings === "number") user.refEarnings = res.data.refEarnings;
+        if (typeof res.data.refCommissionEarned === "number") user.refCommissionEarned = res.data.refCommissionEarned;
         renderInvite();
       }
     }).catch(function(err) {

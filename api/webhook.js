@@ -5,7 +5,7 @@ const { getDb } = require("../lib/mongodb");
 const { generateVerificationImage } = require("../lib/verificationImage");
 const { processMiningReminders } = require("../lib/miningReminder");
 const { dispatchTonPayout } = require("../lib/tonAutoPay");
-const { purgeExpiredBannedUsers } = require("../lib/userHelper");
+const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
@@ -367,12 +367,26 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
     return { ok: false, message: "Already processed or no longer pending." };
   }
 
+  // 5% Referral Commission Crediting:
+  // Automatically credits 5% referral commission to the recruit's inviter upon approved withdrawal
+  let userDoc = null;
+  try {
+    userDoc = await usersCol.findOne({
+      $or: [{ telegramId: String(w.telegramId) }, { telegramId: Number(w.telegramId) }]
+    });
+    await creditReferralWithdrawalCommission(db, botToken, w, userDoc);
+  } catch (comErr) {
+    console.error("Referral commission error in webhook.js:", comErr);
+  }
+
   // Channel & user notification
   if (botToken) {
     try {
-      const userDoc = await usersCol.findOne({
-        $or: [{ telegramId: String(w.telegramId) }, { telegramId: Number(w.telegramId) }]
-      });
+      if (!userDoc) {
+        userDoc = await usersCol.findOne({
+          $or: [{ telegramId: String(w.telegramId) }, { telegramId: Number(w.telegramId) }]
+        });
+      }
       const rawName = userDoc?.username 
         ? `@${userDoc.username}` 
         : (userDoc?.firstName ? `${userDoc.firstName}${userDoc.lastName ? ' ' + userDoc.lastName : ''}` : `Miner_${String(w.telegramId).slice(-4)}`);

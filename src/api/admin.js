@@ -2,7 +2,7 @@ const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
-const { purgeExpiredBannedUsers } = require("../lib/userHelper");
+const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const crypto = require("crypto");
@@ -954,15 +954,32 @@ module.exports = async (req, res) => {
           return;
         }
 
+        // 5% Referral Commission Crediting:
+        // Automatically credits 5% referral commission to the recruit's inviter upon approved withdrawal
+        let userDoc = null;
+        try {
+          userDoc = await usersCol.findOne({
+            $or: [
+              { telegramId: String(w.telegramId) },
+              { telegramId: Number(w.telegramId) }
+            ]
+          });
+          await creditReferralWithdrawalCommission(db, botToken, w, userDoc);
+        } catch (comErr) {
+          console.error("Referral commission error in admin.js:", comErr);
+        }
+
         // Notify Payout Channel (@hoocoohpaylogs) and User via Telegram Bot
         if (botToken) {
           try {
-            const userDoc = await usersCol.findOne({
-              $or: [
-                { telegramId: String(w.telegramId) },
-                { telegramId: Number(w.telegramId) }
-              ]
-            });
+            if (!userDoc) {
+              userDoc = await usersCol.findOne({
+                $or: [
+                  { telegramId: String(w.telegramId) },
+                  { telegramId: Number(w.telegramId) }
+                ]
+              });
+            }
 
             const rawName = userDoc?.username 
               ? `@${userDoc.username}` 

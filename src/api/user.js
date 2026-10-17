@@ -531,6 +531,7 @@ module.exports = async (req, res) => {
       adsCycleStartedAt: cycleStart,
       recruitsCount: user.recruitsCount || 0,
       refEarnings: user.refEarnings || 0,
+      refCommissionEarned: Number(user.refCommissionEarned || 0),
       claimedMilestones: user.claimedMilestones || [],
       language: user.language || "en",
       languageSelected: user.languageSelected === true,
