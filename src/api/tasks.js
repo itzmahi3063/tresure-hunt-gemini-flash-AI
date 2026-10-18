@@ -1,11 +1,13 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser } = require("../lib/userHelper");
+const { findOrCreateUser, purgeExpiredCompletedTasks } = require("../lib/userHelper");
+const { TASK_COMPLETION_PURGE_MS } = require("../lib/constants");
 const { getAdminDepositAddress, checkTonDeposit, notifyUserTaskActivated } = require("../lib/tonDeposit");
 const { processMiningReminders } = require("../lib/miningReminder");
 const { ObjectId } = require("mongodb");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 module.exports = async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -43,8 +45,11 @@ module.exports = async (req, res) => {
       // 1. Process 2-hour mining reminders for completed miners
       const miningReminders = await processMiningReminders(db, botToken, baseUrl);
 
-      // 2. Check pending task deposits on-chain
+      // 2. Auto-purge tasks that reached 100% completion 24 hours ago
       const tasksCol = db.collection("tasks");
+      await purgeExpiredCompletedTasks(tasksCol);
+
+      // 3. Check pending task deposits on-chain
       const pendingTasks = await tasksCol
         .find({ status: "pending_payment" })
         .toArray();
@@ -112,6 +117,10 @@ module.exports = async (req, res) => {
     const tasksCol = db.collection("tasks");
     const usersCol = db.collection("users");
 
+    if (!(await checkDailyRequestQuota(usersCol, telegramId, res))) {
+      return;
+    }
+
     // Retrieve or merge unified user record
     const user = await findOrCreateUser(usersCol, tgUser);
 
@@ -122,6 +131,9 @@ module.exports = async (req, res) => {
 
     // GET: list tasks or user's task history
     if (req.method === "GET") {
+      // Auto-purge any tasks that reached 100% completion 24 hours ago
+      await purgeExpiredCompletedTasks(tasksCol);
+
       // 1. User's own task history
       if (req.query && (req.query.my === "1" || req.query.action === "history")) {
         const myTasks = await tasksCol.find({ creatorId: telegramId }).sort({ createdAt: -1 }).toArray();
@@ -161,6 +173,12 @@ module.exports = async (req, res) => {
           if (displayStatus === "active" && isCompleted) {
             displayStatus = "completed";
           }
+          let purgeRemainingHours = null;
+          if (isCompleted && t.completedAt) {
+            const passedMs = Date.now() - (typeof t.completedAt === "number" ? t.completedAt : new Date(t.completedAt).getTime());
+            const leftMs = Math.max(0, (24 * 60 * 60 * 1000) - passedMs);
+            purgeRemainingHours = Math.max(1, Math.ceil(leftMs / (60 * 60 * 1000)));
+          }
           return {
             id: String(t._id),
             title: t.title,
@@ -175,6 +193,8 @@ module.exports = async (req, res) => {
             depositAddress: t.depositAddress,
             memo: t.memo,
             createdAt: t.createdAt,
+            completedAt: t.completedAt || null,
+            purgeRemainingHours: purgeRemainingHours,
             expiresAt: t.expiresAt || (t.createdAt + 30 * 60 * 1000),
             txHash: t.txHash || null
           };
@@ -408,6 +428,30 @@ module.exports = async (req, res) => {
 
         if (taskQuery) {
           await tasksCol.updateOne(taskQuery, { $addToSet: { completedBy: telegramId } });
+
+          // If task reached 100% completion, stamp completedAt & purgeAt (24h TTL auto-removal)
+          try {
+            const freshTask = await tasksCol.findOne(taskQuery);
+            if (freshTask && !freshTask.isUnlimited && freshTask.targetCount && freshTask.targetCount < 99999999) {
+              const freshDone = (freshTask.completedBy || []).length;
+              if (freshDone >= freshTask.targetCount) {
+                const nowTime = Date.now();
+                const purgeDate = new Date(nowTime + (TASK_COMPLETION_PURGE_MS || 24 * 60 * 60 * 1000));
+                await tasksCol.updateOne(
+                  taskQuery,
+                  {
+                    $set: {
+                      status: "completed",
+                      completedAt: freshTask.completedAt || nowTime,
+                      purgeAt: freshTask.purgeAt || purgeDate
+                    }
+                  }
+                );
+              }
+            }
+          } catch (taskCheckErr) {
+            console.warn("Task completion stamp check warning:", taskCheckErr);
+          }
         }
 
         // Atomically claim task (impossible for concurrent requests to both claim)

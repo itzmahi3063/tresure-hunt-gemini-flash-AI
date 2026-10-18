@@ -2846,7 +2846,10 @@
                     <td data-label="Type"><span class="status-tag ${t.type === 'verified' ? 'approved' : 'pending'}">${t.type}</span></td>
                     <td data-label="Link"><a href="${t.link}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 12px;">${t.link.slice(0, 24)}...</a></td>
                     <td data-label="Limit"><strong>${t.targetCount}</strong></td>
-                    <td data-label="Completed">${t.completedCount} users</td>
+                    <td data-label="Completed">
+                      ${t.completedCount} users
+                      ${t.isCompleted ? `<br><span style="font-size:10px; color:#10b981; font-weight:700;">✅ 100% Done (${t.purgeRemainingHours ? t.purgeRemainingHours + 'h left' : 'Purging soon'})</span>` : ''}
+                    </td>
                     <td data-label="Actions">
                       <button class="btn-danger" style="font-size: 11px; padding: 4px 10px;" onclick="deleteTaskAction('${t.id}')">Delete</button>
                     </td>

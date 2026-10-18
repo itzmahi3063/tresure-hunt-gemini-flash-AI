@@ -2,7 +2,7 @@ const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
-const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission } = require("../lib/userHelper");
+const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const crypto = require("crypto");
@@ -705,6 +705,9 @@ module.exports = async (req, res) => {
 
       // 4. Tasks List (Strictly show active/paid tasks - exclude unpaid, cancelled, or pending payment tasks)
       if (action === "tasks") {
+        // Auto-purge tasks that reached 100% completion 24 hours ago
+        await purgeExpiredCompletedTasks(tasksCol);
+
         // Auto-cleanup any abandoned unpaid/cancelled task drafts created by non-admins
         tasksCol.deleteMany({
           paid: { $ne: true },
@@ -722,18 +725,34 @@ module.exports = async (req, res) => {
           })
           .sort({ createdAt: -1 })
           .toArray();
-        const mapped = customTasks.map(t => ({
-          id: String(t._id),
-          title: t.title,
-          link: t.link,
-          type: t.type || "normal",
-          reward: 10,
-          targetCount: t.targetCount === 99999999 || !t.targetCount ? "Unlimited" : t.targetCount,
-          completedCount: (t.completedBy || []).length,
-          status: t.status || "active",
-          creatorId: t.creatorId,
-          createdAt: t.createdAt
-        }));
+
+        const mapped = customTasks.map(t => {
+          const completedCount = (t.completedBy || []).length;
+          const target = t.targetCount === 99999999 || !t.targetCount ? "Unlimited" : t.targetCount;
+          const isCompleted = target !== "Unlimited" && completedCount >= target;
+          let purgeRemainingHours = null;
+          if (isCompleted && t.completedAt) {
+            const passedMs = Date.now() - (typeof t.completedAt === "number" ? t.completedAt : new Date(t.completedAt).getTime());
+            const leftMs = Math.max(0, (24 * 60 * 60 * 1000) - passedMs);
+            purgeRemainingHours = Math.max(1, Math.ceil(leftMs / (60 * 60 * 1000)));
+          }
+
+          return {
+            id: String(t._id),
+            title: t.title,
+            link: t.link,
+            type: t.type || "normal",
+            reward: 10,
+            targetCount: target,
+            completedCount: completedCount,
+            status: isCompleted ? "completed" : (t.status || "active"),
+            isCompleted: isCompleted,
+            purgeRemainingHours: purgeRemainingHours,
+            creatorId: t.creatorId,
+            createdAt: t.createdAt,
+            completedAt: t.completedAt || null
+          };
+        });
 
         const appSetting = await db.collection("settings").findOne({ key: "app_settings" });
         const watchAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
@@ -842,7 +861,8 @@ module.exports = async (req, res) => {
           ["user_verification_codes.createdAtDate (TTL 1h)", () => safeIndex("user_verification_codes", { createdAtDate: 1 }, { expireAfterSeconds: VERIFICATION_CODES_TTL_SECONDS, name: "ttl_verification_codes_1h" })],
           ["broadcast_deliveries.createdAt (TTL 30d)", () => safeIndex("broadcast_deliveries", { createdAt: 1 }, { expireAfterSeconds: BROADCAST_DELIVERIES_TTL_SECONDS, name: "ttl_broadcast_30d" })],
           ["adminState.updatedAt (TTL 1h)", () => safeIndex("adminState", { updatedAt: 1 }, { expireAfterSeconds: ADMIN_STATE_TTL_SECONDS, name: "ttl_admin_state_1h" })],
-          ["tasks.status+createdAt", () => safeIndex("tasks", { status: 1, createdAt: -1 })]
+          ["tasks.status+createdAt", () => safeIndex("tasks", { status: 1, createdAt: -1 })],
+          ["tasks.purgeAt (TTL 24h on 100% completion)", () => safeIndex("tasks", { purgeAt: 1 }, { expireAfterSeconds: 0, sparse: true, name: "ttl_tasks_purge_24h" })]
         ];
 
         const results = [];

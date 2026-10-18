@@ -13628,7 +13628,8 @@
         var badgeLabel = "⏳ Pending (30m)";
         if (item.status === "completed" || item.isCompleted) {
           badgeClass = "completed";
-          badgeLabel = "✅ Completed";
+          var remHours = item.purgeRemainingHours ? (" (" + item.purgeRemainingHours + "h left)") : "";
+          badgeLabel = "✅ 100% Done" + remHours;
         } else if (item.status === "active") {
           badgeClass = "active";
           badgeLabel = "🟢 Active";

@@ -5,7 +5,7 @@ const { getDb } = require("../lib/mongodb");
 const { generateVerificationImage } = require("../lib/verificationImage");
 const { processMiningReminders } = require("../lib/miningReminder");
 const { dispatchTonPayout } = require("../lib/tonAutoPay");
-const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission } = require("../lib/userHelper");
+const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
@@ -704,6 +704,7 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
 
 async function renderTasksPage(db, botToken, chatId, messageId, page = 0, baseUrl, bannerText = "") {
   const tasksCol = db.collection("tasks");
+  await purgeExpiredCompletedTasks(tasksCol);
 
   const allTasks = await tasksCol.find({}).sort({ createdAt: -1 }).toArray();
   const totalCount = allTasks.length;
