@@ -1,6 +1,7 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser } = require("../lib/userHelper");
+const { findOrCreateUser, purgeExcessUserWithdrawals } = require("../lib/userHelper");
+const { MAX_USER_WITHDRAWAL_HISTORY } = require("../lib/constants");
 const { getMax24hMiningForLevel } = require("../lib/gameLogic");
 const crypto = require("crypto");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
@@ -139,10 +140,19 @@ module.exports = async (req, res) => {
 
     // 1. GET: Fetch wallet summary and transaction history
     if (req.method === "GET") {
+      // Auto-purge any excess withdrawal history older than the 5 latest
+      await purgeExcessUserWithdrawals(withdrawalsCol, telegramId);
+
+      const numId = Number(telegramId);
       const txs = await withdrawalsCol
-        .find({ telegramId })
+        .find({
+          $or: [
+            { telegramId: telegramId },
+            ...(numId ? [{ telegramId: numId }] : [])
+          ]
+        })
         .sort({ createdAt: -1 })
-        .limit(50)
+        .limit(MAX_USER_WITHDRAWAL_HISTORY || 5)
         .toArray();
 
       const mappedTxs = txs.map(t => ({
@@ -381,6 +391,9 @@ module.exports = async (req, res) => {
         };
 
         const insertRes = await withdrawalsCol.insertOne(txDoc);
+
+        // Auto-purge any excess withdrawal history older than the 5 latest for this user
+        await purgeExcessUserWithdrawals(withdrawalsCol, telegramId);
 
         // Check if this withdrawal is part of a rhythmic cluster attack (10+ requests spaced 10s-20s apart)
         await detectRhythmicWithdrawalCluster(withdrawalsCol, usersCol, insertRes.insertedId, now, telegramId);

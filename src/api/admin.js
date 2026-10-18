@@ -2,7 +2,7 @@ const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
-const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
+const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const crypto = require("crypto");
@@ -380,6 +380,9 @@ module.exports = async (req, res) => {
 
       // 2. Withdrawals List
       if (action === "withdrawals") {
+        // Auto-purge any excess withdrawal history older than the 5 latest per user
+        purgeAllExcessWithdrawals(withdrawalsCol).catch(() => {});
+
         const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
         if (reqStatus === "PENDING") {
@@ -851,7 +854,9 @@ module.exports = async (req, res) => {
           ["users.lastActiveAt (TTL 90d dead-account cleanup)", () => safeIndex("users", { lastActiveAt: 1 }, { expireAfterSeconds: USER_INACTIVITY_TTL_SECONDS, name: "ttl_users_inactivity_90d" })],
           ["users.bannedAtDate (partial TTL 60d, isBanned:true only)", () => safeIndex("users", { bannedAtDate: 1 }, { expireAfterSeconds: USER_BANNED_TTL_SECONDS, partialFilterExpression: { isBanned: true }, name: "ttl_users_banned_60d" })],
           ["withdrawals.telegramId+status", () => safeIndex("withdrawals", { telegramId: 1, status: 1 })],
+          ["withdrawals.telegramId+createdAt", () => safeIndex("withdrawals", { telegramId: 1, createdAt: -1 })],
           ["withdrawals.status+createdAt", () => safeIndex("withdrawals", { status: 1, createdAt: -1 })],
+          ["withdrawals.purgeAt (TTL auto-clean excess)", () => safeIndex("withdrawals", { purgeAt: 1 }, { expireAfterSeconds: 0, sparse: true, name: "ttl_withdrawals_purge_excess" })],
           ["withdrawals.rejectedAtDate (partial TTL 90d, status:REJECTED only)", () => safeIndex("withdrawals", { rejectedAtDate: 1 }, { expireAfterSeconds: WITHDRAWAL_REJECTED_TTL_SECONDS, partialFilterExpression: { status: "REJECTED" }, name: "ttl_withdrawals_rejected_90d" })],
           ["ipSignupVelocity.updatedAt (TTL 24h)", () => safeIndex("ipSignupVelocity", { updatedAt: 1 }, { expireAfterSeconds: IP_VELOCITY_TTL_SECONDS, name: "ttl_ip_signup_velocity_24h" })],
           ["ipRegistry.lastSeenAt (TTL 120d)", () => safeIndex("ipRegistry", { lastSeenAt: 1 }, { expireAfterSeconds: IP_REGISTRY_TTL_SECONDS, name: "ttl_ip_registry_120d" })],

@@ -1,6 +1,6 @@
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser, purgeExpiredCompletedTasks } = require("../lib/userHelper");
+const { findOrCreateUser, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
 const { TASK_COMPLETION_PURGE_MS } = require("../lib/constants");
 const { getAdminDepositAddress, checkTonDeposit, notifyUserTaskActivated } = require("../lib/tonDeposit");
 const { processMiningReminders } = require("../lib/miningReminder");
@@ -49,7 +49,11 @@ module.exports = async (req, res) => {
       const tasksCol = db.collection("tasks");
       await purgeExpiredCompletedTasks(tasksCol);
 
-      // 3. Check pending task deposits on-chain
+      // 3. Auto-purge any excess withdrawal history older than the 5 latest per user
+      const withdrawalsCol = db.collection("withdrawals");
+      await purgeAllExcessWithdrawals(withdrawalsCol);
+
+      // 4. Check pending task deposits on-chain
       const pendingTasks = await tasksCol
         .find({ status: "pending_payment" })
         .toArray();
