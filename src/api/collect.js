@@ -132,11 +132,12 @@ module.exports = async (req, res) => {
         $inc: {
           balance: reward,
           totalMinedCoins: reward,
-          totalMinedClaims: 1,
-          dailyMinedClaims: 1,
-          dailyMinedCoins: reward
+          totalMinedClaims: 1
         },
         $set: {
+          // $set (not $inc) so that when a new 24h cycle starts the counters truly restart from this claim
+          dailyMinedClaims: dailyClaims + 1,
+          dailyMinedCoins: dailyCoins + reward,
           dailyMineCycleStartedAt: dailyCycleStart,
           lastMineCollectedAt: now,
           mineReminderSent: false,

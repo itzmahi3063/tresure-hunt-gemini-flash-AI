@@ -11,6 +11,38 @@ const MAX_SPIN_ADS_PER_DAY = 6;
 const CYCLE_MS = 24 * 60 * 60 * 1000; // 24 hours for daily ads
 const SPIN_CYCLE_MS = 10 * 60 * 60 * 1000; // 10 hours for 6 spin tickets reload
 
+// AD MISSIONS (Adsgram task block): hard server-side cap.
+// After MAX_AD_MISSIONS_PER_CYCLE missions the user is locked out for AD_MISSION_LOCK_MS (24h, counted
+// from the moment the last allowed mission was completed). Client can never bypass this: it is enforced
+// inside the atomic claim below.
+const MAX_AD_MISSIONS_PER_CYCLE = 25;
+const AD_MISSION_LOCK_MS = 24 * 60 * 60 * 1000;
+
+// Returns the user's current ad-mission quota state (pure function, no DB writes).
+function getAdMissionState(user, now) {
+  const lockedUntil = Number((user && user.adMissionLockedUntil) || 0);
+  const lastAt = Number((user && user.lastAdMissionAt) || 0);
+  let count = Number((user && user.adMissionsInCycle) || 0);
+
+  if (lockedUntil > now) {
+    return { count: MAX_AD_MISSIONS_PER_CYCLE, locked: true, lockedUntil, remainingMs: lockedUntil - now };
+  }
+  // Lock finished, or the user was inactive for 24h -> fresh cycle
+  if (lockedUntil > 0 || (lastAt > 0 && (now - lastAt) >= AD_MISSION_LOCK_MS)) count = 0;
+  return { count, locked: false, lockedUntil: 0, remainingMs: 0 };
+}
+
+function adMissionPublicState(state) {
+  return {
+    completed: state.count,
+    max: MAX_AD_MISSIONS_PER_CYCLE,
+    remaining: Math.max(0, MAX_AD_MISSIONS_PER_CYCLE - state.count),
+    locked: state.locked,
+    lockedUntil: state.lockedUntil,
+    remainingMs: state.remainingMs
+  };
+}
+
 module.exports = async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -259,6 +291,7 @@ module.exports = async (req, res) => {
           requiresCaptcha: ((watchedToday > 0) && ((watchedToday + 1) % 3 === 0)),
           nextResetMs: Math.max(0, CYCLE_MS - (now - cycleStart))
         },
+        adMission: adMissionPublicState(getAdMissionState(user, now)),
         spin: {
           tickets: Number(user.spinTickets || 0),
           watchedToday: spinWatchedToday,
@@ -295,6 +328,22 @@ module.exports = async (req, res) => {
         return;
       }
 
+      // 25-MISSION / 24-HOUR HARD CAP (server-side, cannot be bypassed from the client)
+      const missionState = getAdMissionState(user, now);
+      if (missionState.locked) {
+        res.setHeader("Retry-After", String(Math.ceil(missionState.remainingMs / 1000)));
+        res.status(429).json({
+          ok: false,
+          adMissionLocked: true,
+          error: "Daily ad mission limit reached (" + MAX_AD_MISSIONS_PER_CYCLE + "/" + MAX_AD_MISSIONS_PER_CYCLE + "). New ad missions will be available after the timer ends.",
+          adMission: adMissionPublicState(missionState)
+        });
+        return;
+      }
+      // Values we read: the atomic claim below only succeeds if they are still exactly these.
+      const prevMissionCount = user.adMissionsInCycle;
+      const prevMissionLock = user.adMissionLockedUntil;
+
       let lastTaskS2s = Number(user.lastAdsgramS2sTaskRewardAt || user.lastAdsgramS2sRewardAt || 0);
       let lastTaskConsumed = Number(user.lastAdsgramS2sTaskConsumedAt || 0);
       let isTaskS2sConfirmed = (lastTaskS2s > 0) && (lastTaskS2s > lastTaskConsumed) && ((now - lastTaskS2s) < 300000);
@@ -317,7 +366,10 @@ module.exports = async (req, res) => {
       // 1. Either verified by server-to-server Adsgram callback (isTaskS2sConfirmed)
       // 2. OR verified by client task completion event with valid task duration
       const missionDurationMs = Number(req.body && req.body.missionDurationMs) || 0;
-      const isClientConfirmed = (req.body && req.body.isVerified === true) || (missionDurationMs >= 3000);
+      // Optional strict mode: set AD_MISSION_REQUIRE_S2S=true in Vercel once the Adsgram S2S postback is
+      // confirmed working for block task-53937. Then client-reported flags are no longer trusted at all.
+      const requireS2s = String(process.env.AD_MISSION_REQUIRE_S2S || "").toLowerCase() === "true";
+      const isClientConfirmed = !requireS2s && ((req.body && req.body.isVerified === true) || (missionDurationMs >= 3000));
 
       // Hacker Detection & Anti-Brute-Force:
       // Only flag as suspicious if someone sends 5+ rapid zero-duration API calls in under 60 seconds (automated bot script)
@@ -364,6 +416,10 @@ module.exports = async (req, res) => {
       }
 
       // Valid task completion: auto-unflag legacy false-positive S2S flag if present
+      const newMissionCount = missionState.count + 1;
+      const reachedMissionLimit = newMissionCount >= MAX_AD_MISSIONS_PER_CYCLE;
+      const newMissionLockedUntil = reachedMissionLimit ? (now + AD_MISSION_LOCK_MS) : 0;
+
       const updateDoc = {
         $inc: {
           balance: currentAdMissionReward,
@@ -373,6 +429,8 @@ module.exports = async (req, res) => {
           lastAdMissionAt: now,
           lastAdsgramS2sTaskConsumedAt: now,
           adMissionFailedAttempts: 0,
+          adMissionsInCycle: newMissionCount,
+          adMissionLockedUntil: newMissionLockedUntil,
           lastActiveAt: new Date()
         }
       };
@@ -386,13 +444,24 @@ module.exports = async (req, res) => {
       }
 
       // ATOMIC compare-and-set: prevents any double reward
+      const unsetOrEquals = (field, prev) => (prev === undefined || prev === null)
+        ? { $or: [{ [field]: { $exists: false } }, { [field]: null }] }
+        : { [field]: prev };
+
       const claimMissionRes = await usersCol.findOneAndUpdate(
         {
           _id: user._id,
-          $or: [
-            { lastAdMissionAt: { $exists: false } },
-            { lastAdMissionAt: null },
-            { lastAdMissionAt: { $lte: now - 4000 } }
+          $and: [
+            {
+              $or: [
+                { lastAdMissionAt: { $exists: false } },
+                { lastAdMissionAt: null },
+                { lastAdMissionAt: { $lte: now - 4000 } }
+              ]
+            },
+            // Compare-and-set on the quota fields: parallel requests can never push the counter past the cap
+            unsetOrEquals("adMissionsInCycle", prevMissionCount),
+            unsetOrEquals("adMissionLockedUntil", prevMissionLock)
           ]
         },
         updateDoc,
@@ -416,7 +485,13 @@ module.exports = async (req, res) => {
         ok: true,
         reward: currentAdMissionReward,
         newBalance: finalBalance,
-        s2sVerified: true
+        s2sVerified: true,
+        adMission: adMissionPublicState({
+          count: newMissionCount,
+          locked: reachedMissionLimit,
+          lockedUntil: newMissionLockedUntil,
+          remainingMs: reachedMissionLimit ? AD_MISSION_LOCK_MS : 0
+        })
       });
       return;
     }
@@ -859,6 +934,7 @@ module.exports = async (req, res) => {
           {
             $or: [
               { adsCycleStartedAt: { $lt: now - CYCLE_MS } },
+              { adsWatchedToday: { $exists: false } }, // brand-new user: field not created yet (count is 0)
               { adsWatchedToday: { $lt: MAX_ADS_PER_DAY } }
             ]
           }
