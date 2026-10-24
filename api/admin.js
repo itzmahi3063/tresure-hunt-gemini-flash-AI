@@ -4,6 +4,7 @@ const { validateInitData } = require("../lib/telegramAuth");
 const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
+const { startAutopayJob, stopAutopayJob, getAutopayJobStatus, processAutopayStep, triggerNextAutopayStep } = require("../lib/autopayWorker");
 
 const crypto = require("crypto");
 
@@ -298,8 +299,8 @@ module.exports = async (req, res) => {
       const action = req.query.action || "stats";
 
       if (action === "get_autopay_job") {
-        const job = await db.collection("settings").findOne({ key: "ton_autopay_job" });
-        res.status(200).json({ ok: true, job: job || null });
+        const statusRes = await getAutopayJobStatus(db);
+        res.status(200).json(statusRes);
         return;
       }
 
@@ -1628,78 +1629,38 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // Auto-Pay Background Job Management Endpoints
+      // Auto-Pay Background Job Management Endpoints (Server Autonomous Worker)
       if (action === "get_autopay_job") {
-        const job = await db.collection("settings").findOne({ key: "ton_autopay_job" });
-        res.status(200).json({ ok: true, job: job || null });
+        const statusRes = await getAutopayJobStatus(db);
+        res.status(200).json(statusRes);
         return;
       }
 
       if (action === "start_autopay_job") {
-        const { filter, totalCount, withdrawalIds } = req.body || {};
-        const jobData = {
-          key: "ton_autopay_job",
-          status: "RUNNING",
-          filter: filter || "PENDING",
-          stopRequested: false,
-          totalCount: Number(totalCount || 0),
-          completedCount: 0,
-          successCount: 0,
-          failCount: 0,
-          startedAt: Date.now(),
-          updatedAt: Date.now(),
-          currentDetail: `Started auto-pay for ${totalCount} requests...`,
-          withdrawalIds: Array.isArray(withdrawalIds) ? withdrawalIds : []
-        };
-        await db.collection("settings").updateOne(
-          { key: "ton_autopay_job" },
-          { $set: jobData },
-          { upsert: true }
-        );
-        res.status(200).json({ ok: true, job: jobData });
-        return;
-      }
-
-      if (action === "update_autopay_job") {
-        const { completedCount, successCount, failCount, currentDetail, status } = req.body || {};
-        const setFields = { updatedAt: Date.now() };
-        if (completedCount !== undefined) setFields.completedCount = Number(completedCount);
-        if (successCount !== undefined) setFields.successCount = Number(successCount);
-        if (failCount !== undefined) setFields.failCount = Number(failCount);
-        if (currentDetail !== undefined) setFields.currentDetail = String(currentDetail);
-        if (status !== undefined) setFields.status = String(status);
-
-        const currentJob = await db.collection("settings").findOne({ key: "ton_autopay_job" });
-        if (currentJob && currentJob.stopRequested) {
-          res.status(200).json({ ok: true, stopRequested: true, job: currentJob });
-          return;
-        }
-
-        await db.collection("settings").updateOne(
-          { key: "ton_autopay_job" },
-          { $set: setFields }
-        );
-        res.status(200).json({ ok: true, stopRequested: false });
+        const protocol = req.headers["x-forwarded-proto"] || "https";
+        const host = req.headers["x-forwarded-host"] || req.headers.host || process.env.VERCEL_URL || "";
+        const baseUrl = `${protocol}://${host}`;
+        const { filter } = req.body || {};
+        const startRes = await startAutopayJob(db, filter || "PENDING", baseUrl);
+        res.status(200).json(startRes);
         return;
       }
 
       if (action === "stop_autopay_job") {
-        await db.collection("settings").updateOne(
-          { key: "ton_autopay_job" },
-          {
-            $set: {
-              status: "STOPPED",
-              stopRequested: true,
-              updatedAt: Date.now(),
-              currentDetail: "Stopped by admin"
-            }
-          }
-        );
-        res.status(200).json({ ok: true, message: "Auto-pay stopped in database." });
+        const stopRes = await stopAutopayJob(db);
+        res.status(200).json(stopRes);
         return;
       }
 
-      // Reset Admin's Own Verification Status (Admin Only - for re-testing 4-digit code verify anytime)
+      if (action === "autopay_worker_step") {
+        const protocol = req.headers["x-forwarded-proto"] || "https";
+        const host = req.headers["x-forwarded-host"] || req.headers.host || process.env.VERCEL_URL || "";
+        const baseUrl = `${protocol}://${host}`;
+        const stepRes = await processAutopayStep(db, botToken, baseUrl);
+        res.status(200).json(stepRes);
+        return;
+      }
+
       if (action === "reset_my_verification" || action === "reset_admin_verification") {
         const adminIdsSet = await getAdminTelegramIds(db);
         const reqAdminUid = String((req.body && req.body.adminUid) || "").trim();

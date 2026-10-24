@@ -1753,9 +1753,9 @@
     });
   }
 
-  // Bulk Auto-Pay Queue State
+  // Bulk Auto-Pay Queue State (100% Server Autonomous Execution)
   var isAutoPayRunning = false;
-  var stopAutoPayRequested = false;
+  var autoPayPollingTimer = null;
 
   var bulkApproveBtn = document.getElementById("bulkApproveBtn");
   var bulkApproveSuspiciousBtn = document.getElementById("bulkApproveSuspiciousBtn");
@@ -1767,244 +1767,100 @@
   var autoPayCurrentDetail = document.getElementById("autoPayCurrentDetail");
   var autoPayProgressBar = document.getElementById("autoPayProgressBar");
 
-  // ========================================================
-  // Screen Wake Lock & Background Audio Keep-Alive Handlers
-  // Prevents mobile screen from dimming/sleeping and keeps JS running even if screen turns off
-  // ========================================================
-  var autoPayWakeLock = null;
-  var bgKeepAliveAudio = null;
-
-  async function acquireAutoPayLocks() {
-    // 1. Screen Wake Lock (keeps mobile screen awake while auto-pay is active)
-    try {
-      if ('wakeLock' in navigator && !autoPayWakeLock) {
-        autoPayWakeLock = await navigator.wakeLock.request('screen');
-        autoPayWakeLock.addEventListener('release', function() {
-          autoPayWakeLock = null;
-        });
-      }
-    } catch(err) {
-      console.warn("[Auto-Pay] Screen WakeLock unavailable or denied:", err);
-    }
-
-    // 2. Background Keep-Alive Audio (keeps mobile browser process active even if physical power button turns screen off)
-    try {
-      if (!bgKeepAliveAudio) {
-        bgKeepAliveAudio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA");
-        bgKeepAliveAudio.loop = true;
-      }
-      bgKeepAliveAudio.play().catch(function(){});
-    } catch(err) {}
-  }
-
-  function releaseAutoPayLocks() {
-    if (autoPayWakeLock) {
-      try { autoPayWakeLock.release(); } catch(e) {}
-      autoPayWakeLock = null;
-    }
-    if (bgKeepAliveAudio) {
-      try { bgKeepAliveAudio.pause(); } catch(e) {}
-      bgKeepAliveAudio = null;
-    }
-  }
-
   // Handler for Stop / Turn OFF Auto-Pay
   if (stopAutoPayBtn) {
     stopAutoPayBtn.addEventListener("click", async function(){
-      if (!isAutoPayRunning) return;
-      stopAutoPayRequested = true;
       stopAutoPayBtn.disabled = true;
-      stopAutoPayBtn.innerHTML = "<span>⏳ Stopping after current...</span>";
+      stopAutoPayBtn.innerHTML = "<span>⏳ Stopping server queue...</span>";
       if (autoPayStatusText) {
-        autoPayStatusText.innerHTML = "⚠️ Stop requested! Finishing current transaction...";
+        autoPayStatusText.innerHTML = "⚠️ Stop requested! Server will halt after current transaction...";
         autoPayStatusText.style.color = "#f59e0b";
       }
-      showToast("⚠️ Stopping Auto-Pay... finishing current transaction first.");
+      showToast("⚠️ Stopping Auto-Pay on server...");
       try {
         await apiAdmin("POST", null, { action: "stop_autopay_job" });
       } catch(e) {}
     });
   }
 
-  // Core Resilient Auto-Pay Execution Loop (Shared by new runs and background resumes)
-  async function executeAutoPayLoop(list, queueTitle, initialJob) {
-    isAutoPayRunning = true;
-    stopAutoPayRequested = false;
-
-    await acquireAutoPayLocks();
-
-    if (bulkApproveBtn) bulkApproveBtn.style.display = "none";
-    if (bulkApproveSuspiciousBtn) bulkApproveSuspiciousBtn.style.display = "none";
-    if (banAllSuspiciousBtn) banAllSuspiciousBtn.style.display = "none";
-    if (stopAutoPayBtn) {
-      stopAutoPayBtn.style.display = "inline-block";
-      stopAutoPayBtn.disabled = false;
-      stopAutoPayBtn.innerHTML = "<span>⏹️ Turn OFF Auto-Pay</span>";
-    }
-
-    var totalCount = initialJob ? (Number(initialJob.totalCount) || list.length) : list.length;
-    var completedCount = initialJob ? (Number(initialJob.completedCount) || 0) : 0;
-    var successCount = initialJob ? (Number(initialJob.successCount) || 0) : 0;
-    var failCount = initialJob ? (Number(initialJob.failCount) || 0) : 0;
-
-    autoPayProgressBox.style.display = "block";
-    autoPayStatusText.innerHTML = initialJob ? "🟢 Resuming Auto-Pay in progress..." : "🟢 Auto-Paying in progress...";
-    autoPayStatusText.style.color = "#10b981";
-    autoPayCounterBadge.textContent = completedCount + " / " + totalCount + " Completed";
-    var startPct = Math.round((completedCount / totalCount) * 100);
-    autoPayProgressBar.style.width = startPct + "%";
-
-    // Register job in database if starting fresh
-    if (!initialJob) {
-      try {
-        var wIds = list.map(function(w){ return w.id; });
-        await apiAdmin("POST", null, {
-          action: "start_autopay_job",
-          filter: queueTitle.includes("SUSPICIOUS") ? "SUSPICIOUS" : "PENDING",
-          totalCount: totalCount,
-          withdrawalIds: wIds
-        });
-      } catch(e) {}
-    }
-
-    for (var i = 0; i < list.length; i++) {
-      if (stopAutoPayRequested) break;
-
-      var w = list[i];
-      var userLabel = w.username ? ('@' + w.username) : (w.name || w.userFirstName || ('UID: ' + (w.telegramId || w.userId)));
-      var tonAmtStr = w.tonAmount ? (w.tonAmount + ' TON') : '';
-
-      autoPayCurrentDetail.innerHTML = `Paying <strong>${completedCount + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &rarr; <span style="font-family: monospace; font-size: 11px;">${w.walletAddress ? (w.walletAddress.slice(0, 8) + '...' + w.walletAddress.slice(-6)) : ''}</span>`;
-      autoPayStatusText.innerHTML = `🟢 Processing ${completedCount + 1} of ${totalCount}...`;
-      autoPayStatusText.style.color = "#10b981";
-
-      var itemSuccess = false;
-      var maxItemRetries = 2; // Up to 3 total attempts per item
-
-      for (var attempt = 0; attempt <= maxItemRetries; attempt++) {
-        if (stopAutoPayRequested) break;
-
-        if (attempt > 0) {
-          autoPayStatusText.innerHTML = `⚠️ Retrying ${completedCount + 1} of ${totalCount} (Attempt ${attempt + 1}/${maxItemRetries + 1})...`;
-          autoPayStatusText.style.color = "#f59e0b";
-          for (var cd = 6; cd > 0; cd--) {
-            if (stopAutoPayRequested) break;
-            autoPayCurrentDetail.innerHTML = `Paying <strong>${completedCount + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &mdash; <span style="color: #f59e0b;">Waiting ${cd}s for block confirmation before retry...</span>`;
-            await new Promise(function(resolve){ setTimeout(resolve, 1000); });
-          }
-          if (stopAutoPayRequested) break;
-          autoPayStatusText.innerHTML = `🟢 Broadcasting attempt ${attempt + 1}...`;
-          autoPayStatusText.style.color = "#10b981";
-        }
-
-        try {
-          var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: w.id });
-          if (res && res.ok) {
-            itemSuccess = true;
-            successCount++;
-            break;
-          } else {
-            var errDetail = (res && res.error) ? res.error : "Unknown error";
-            // If already processed in background by cron or previous tick:
-            if (errDetail.includes("already been processed") || errDetail.includes("no longer pending")) {
-              itemSuccess = true;
-              successCount++;
-              break;
-            }
-            if (errDetail.includes("INSUFFICIENT_HOT_WALLET_BALANCE") || errDetail.includes("not configured") || errDetail.includes("missing") || errDetail.includes("INVALID_MNEMONIC")) {
-              alert("⚠️ Auto-pay halted:\n" + errDetail);
-              stopAutoPayRequested = true;
-              break;
-            }
-            console.warn(`[Auto-Pay] Item ${w.id} attempt ${attempt + 1} failed:`, errDetail);
-          }
-        } catch(e) {
-          console.error(`[Auto-Pay] Network error on item ${w.id} attempt ${attempt + 1}:`, e);
-        }
-      }
-
-      if (!itemSuccess) {
-        failCount++;
-        if (stopAutoPayRequested) break;
-      }
-
-      completedCount++;
-      autoPayCounterBadge.textContent = completedCount + " / " + totalCount + " Completed";
-      var pct = Math.round((completedCount / totalCount) * 100);
-      autoPayProgressBar.style.width = pct + "%";
-
-      // Sync progress to database
-      try {
-        var upRes = await apiAdmin("POST", null, {
-          action: "update_autopay_job",
-          completedCount: completedCount,
-          successCount: successCount,
-          failCount: failCount,
-          currentDetail: `Completed ${completedCount} of ${totalCount}`,
-          status: "RUNNING"
-        });
-        if (upRes && upRes.stopRequested) {
-          stopAutoPayRequested = true;
-          break;
-        }
-      } catch(e) {}
-
-      loadWithdrawals();
-      loadStats();
-
-      if (stopAutoPayRequested) break;
-
-      // Polite pause between on-chain transactions (8 seconds) with live countdown
-      if (i < list.length - 1) {
-        for (var waitSec = 8; waitSec > 0; waitSec--) {
-          if (stopAutoPayRequested) break;
-          autoPayStatusText.innerHTML = `⏳ Confirmed! Syncing blockchain (${waitSec}s)...`;
-          autoPayStatusText.style.color = "#3b82f6";
-          await new Promise(function(resolve){ setTimeout(resolve, 1000); });
-        }
-      }
-    }
-
-    releaseAutoPayLocks();
-
-    var wasStoppedEarly = stopAutoPayRequested && (completedCount < totalCount);
-
-    isAutoPayRunning = false;
-    stopAutoPayRequested = false;
-
+  // Polls server-side auto-pay job status and renders live progress
+  async function pollAutoPayStatus() {
     try {
-      await apiAdmin("POST", null, {
-        action: wasStoppedEarly ? "stop_autopay_job" : "update_autopay_job",
-        completedCount: completedCount,
-        successCount: successCount,
-        failCount: failCount,
-        status: wasStoppedEarly ? "STOPPED" : "COMPLETED",
-        currentDetail: wasStoppedEarly ? "Stopped by admin" : "All completed"
-      });
-    } catch(e) {}
+      var res = await apiAdmin("GET", { action: "get_autopay_job" });
+      if (res && res.ok && res.job) {
+        var job = res.job;
+        var total = Number(job.totalCount) || 1;
+        var completed = Number(job.completedCount) || 0;
+        var success = Number(job.successCount) || 0;
+        var fail = Number(job.failCount) || 0;
+        var pct = Math.min(100, Math.round((completed / total) * 100));
 
-    if (stopAutoPayBtn) stopAutoPayBtn.style.display = "none";
+        autoPayCounterBadge.textContent = completed + " / " + total + " Completed";
+        autoPayProgressBar.style.width = pct + "%";
+        if (job.currentDetail) {
+          autoPayCurrentDetail.innerHTML = job.currentDetail;
+        }
 
-    if (wasStoppedEarly) {
-      autoPayStatusText.innerHTML = "⏹️ Auto-Pay Stopped!";
-      autoPayStatusText.style.color = "#f59e0b";
-      autoPayCurrentDetail.innerHTML = `Stopped by admin. Completed: <strong>${completedCount}</strong> of <strong>${totalCount}</strong>.`;
-      showToast(`⏹️ Auto-Pay stopped! Processed ${completedCount} of ${totalCount}.`);
-    } else {
-      autoPayStatusText.innerHTML = "✅ Auto-Pay Finished!";
-      autoPayStatusText.style.color = "#10b981";
-      autoPayCurrentDetail.innerHTML = `Queue complete. Successfully approved: <strong>${successCount}</strong>, Failed: <strong>${failCount}</strong>.`;
-      showToast(`⚡ Finished! ${successCount} approved.`);
-    }
+        if (job.status === "RUNNING") {
+          isAutoPayRunning = true;
+          autoPayProgressBox.style.display = "block";
+          autoPayStatusText.innerHTML = "🟢 Server Auto-Pay running autonomously in background...";
+          autoPayStatusText.style.color = "#10b981";
+          stopAutoPayBtn.style.display = "inline-block";
+          stopAutoPayBtn.disabled = false;
+          stopAutoPayBtn.innerHTML = "<span>⏹️ Turn OFF Auto-Pay</span>";
+          if (bulkApproveBtn) bulkApproveBtn.style.display = "none";
+          if (bulkApproveSuspiciousBtn) bulkApproveSuspiciousBtn.style.display = "none";
+          if (banAllSuspiciousBtn) banAllSuspiciousBtn.style.display = "none";
 
-    setTimeout(function(){
-      if (!isAutoPayRunning && autoPayProgressBox) {
-        autoPayProgressBox.style.display = "none";
+          // If job has been quiet for over 16 seconds (e.g. serverless pause), give it an active worker nudge
+          if (Date.now() - Number(job.updatedAt || 0) > 16000) {
+            apiAdmin("POST", null, { action: "autopay_worker_step" }).catch(function(){});
+          }
+        } else if (job.status === "COMPLETED") {
+          var wasRunning = isAutoPayRunning;
+          isAutoPayRunning = false;
+          if (autoPayPollingTimer) {
+            clearInterval(autoPayPollingTimer);
+            autoPayPollingTimer = null;
+          }
+          stopAutoPayBtn.style.display = "none";
+          autoPayStatusText.innerHTML = "✅ Auto-Pay Finished!";
+          autoPayStatusText.style.color = "#10b981";
+          autoPayCurrentDetail.innerHTML = `All done! Approved: <strong>${success}</strong>, Failed: <strong>${fail}</strong>.`;
+          if (wasRunning) {
+            showToast(`⚡ Finished! ${success} approved.`);
+          }
+          loadWithdrawals();
+          loadStats();
+          setTimeout(function(){
+            if (!isAutoPayRunning && autoPayProgressBox) {
+              autoPayProgressBox.style.display = "none";
+            }
+          }, 8000);
+        } else if (job.status === "STOPPED") {
+          isAutoPayRunning = false;
+          if (autoPayPollingTimer) {
+            clearInterval(autoPayPollingTimer);
+            autoPayPollingTimer = null;
+          }
+          stopAutoPayBtn.style.display = "none";
+          autoPayStatusText.innerHTML = "⏹️ Auto-Pay Stopped!";
+          autoPayStatusText.style.color = "#f59e0b";
+          autoPayCurrentDetail.innerHTML = `Stopped by admin. Completed: <strong>${completed}</strong> of <strong>${total}</strong>.`;
+          loadWithdrawals();
+          loadStats();
+        }
       }
-    }, 8000);
+    } catch(err) {
+      console.warn("[Auto-Pay] Poll status error:", err);
+    }
+  }
 
-    loadWithdrawals();
-    loadStats();
+  function startAutoPayPolling() {
+    if (autoPayPollingTimer) clearInterval(autoPayPollingTimer);
+    pollAutoPayStatus();
+    autoPayPollingTimer = setInterval(pollAutoPayStatus, 1800);
   }
 
   // Generic Reusable Auto-Pay Queue Starter
@@ -2017,62 +1873,66 @@
 
     if (!confirm(confirmMsg)) return;
 
-    await executeAutoPayLoop(list, queueTitle, null);
-  }
+    var filterType = queueTitle.includes("Suspicious") ? "SUSPICIOUS" : "PENDING";
 
-  // Automatic Background Resume Checker (Executes when phone screen turns on, unlocks, or tab becomes visible)
-  async function checkAndResumeAutoPayJob() {
-    if (isAutoPayRunning) return;
+    // Immediately reflect UI state
+    isAutoPayRunning = true;
+    if (bulkApproveBtn) bulkApproveBtn.style.display = "none";
+    if (bulkApproveSuspiciousBtn) bulkApproveSuspiciousBtn.style.display = "none";
+    if (banAllSuspiciousBtn) banAllSuspiciousBtn.style.display = "none";
+    if (stopAutoPayBtn) {
+      stopAutoPayBtn.style.display = "inline-block";
+      stopAutoPayBtn.disabled = false;
+      stopAutoPayBtn.innerHTML = "<span>⏹️ Turn OFF Auto-Pay</span>";
+    }
+
+    autoPayProgressBox.style.display = "block";
+    autoPayStatusText.innerHTML = "🟢 Starting autonomous server queue...";
+    autoPayStatusText.style.color = "#10b981";
+    autoPayCounterBadge.textContent = "0 / " + list.length + " Completed";
+    autoPayProgressBar.style.width = "0%";
+    autoPayCurrentDetail.innerHTML = "Registering job on server...";
+
     try {
-      var res = await apiAdmin("GET", { action: "get_autopay_job" });
-      if (res && res.ok && res.job && res.job.status === "RUNNING" && !res.job.stopRequested) {
-        var job = res.job;
-        var ageMs = Date.now() - Number(job.updatedAt || job.startedAt || 0);
-        if (ageMs > 7200000) {
-          // Stale job older than 2 hours, close it
-          await apiAdmin("POST", null, { action: "stop_autopay_job" });
-          return;
-        }
+      var res = await apiAdmin("POST", null, {
+        action: "start_autopay_job",
+        filter: filterType
+      });
 
-        var wRes = await apiAdmin("GET", { action: "withdrawals", status: job.filter || "PENDING" });
-        if (wRes && wRes.ok && wRes.withdrawals) {
-          var remaining = (wRes.withdrawals || []).filter(function(w){
-            if (job.filter === "SUSPICIOUS") {
-              return w.status === "PENDING" && !w.isBanned;
-            } else {
-              return w.status === "PENDING" && !w.isSuspicious && !w.isHighRiskHacker && !w.isBanned;
-            }
-          });
-
-          if (remaining.length > 0) {
-            console.log("[Auto-Pay] Resuming active auto-pay job from background...");
-            executeAutoPayLoop(remaining, job.filter || "PENDING", job);
-          } else {
-            await apiAdmin("POST", null, {
-              action: "update_autopay_job",
-              status: "COMPLETED",
-              completedCount: job.totalCount,
-              currentDetail: "Queue completed"
-            });
-          }
-        }
+      if (!res || !res.ok) {
+        alert("Failed to start auto-pay: " + ((res && res.error) || "Unknown error"));
+        isAutoPayRunning = false;
+        loadWithdrawals();
+        return;
       }
-    } catch(e) {}
+
+      showToast("🚀 Server Auto-Pay started! It will run autonomously in the background until finished.");
+      startAutoPayPolling();
+    } catch(err) {
+      alert("Error starting auto-pay: " + (err.message || err));
+      isAutoPayRunning = false;
+      loadWithdrawals();
+    }
   }
 
-  // Re-acquire locks on visibility change and check for background updates
+  // Automatically check server job state on page load and visibilitychange (e.g. when mobile screen unlocks)
   document.addEventListener("visibilitychange", function() {
     if (document.visibilityState === "visible") {
-      if (isAutoPayRunning) {
-        acquireAutoPayLocks();
-      } else {
-        checkAndResumeAutoPayJob();
-      }
+      pollAutoPayStatus().then(function() {
+        if (isAutoPayRunning && !autoPayPollingTimer) {
+          startAutoPayPolling();
+        }
+      });
     }
   });
 
-  // Check for any ongoing job on initial load
-  setTimeout(checkAndResumeAutoPayJob, 1800);
+  setTimeout(function() {
+    pollAutoPayStatus().then(function() {
+      if (isAutoPayRunning && !autoPayPollingTimer) {
+        startAutoPayPolling();
+      }
+    });
+  }, 1200);
 
   // Handler for Start Clean Auto-Pay
   if (bulkApproveBtn) {
@@ -2109,7 +1969,7 @@
         "📋 Clean Queue: " + totalCount + " request(s)\n" +
         "💎 Total TON: ~" + totalTonEst.toFixed(4) + " TON\n\n" +
         "🛡️ Notice: Suspicious, high-risk, and banned accounts are 100% EXCLUDED from this payout.\n" +
-        "Screen WakeLock & background keep-alive will stay active even if your phone screen dims.\n" +
+        "☁️ 100% Autonomous Server Execution: Even if you turn off your phone screen or close the mini app, the server will continue paying every transaction on-chain until the entire queue finishes.\n" +
         "You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n" +
         "Start Auto-Pay for clean requests now?";
 
@@ -2152,7 +2012,7 @@
         "📋 Suspicious Queue: " + totalCount + " request(s)\n" +
         "💎 Total TON: ~" + totalTonEst.toFixed(4) + " TON\n\n" +
         "⚠️ Notice: These users were flagged by security/risk policies. Approving will send real TON on-chain to their addresses.\n" +
-        "Screen WakeLock & background keep-alive will stay active even if your phone screen dims.\n" +
+        "☁️ 100% Autonomous Server Execution: Even if you turn off your phone screen or close the mini app, the server will continue paying every transaction on-chain until the entire queue finishes.\n" +
         "You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n" +
         "Are you sure you want to Auto-Withdraw all suspicious requests?";
 
