@@ -1640,8 +1640,8 @@ module.exports = async (req, res) => {
         const protocol = req.headers["x-forwarded-proto"] || "https";
         const host = req.headers["x-forwarded-host"] || req.headers.host || process.env.VERCEL_URL || "";
         const baseUrl = `${protocol}://${host}`;
-        const { filter } = req.body || {};
-        const startRes = await startAutopayJob(db, filter || "PENDING", baseUrl);
+        const { filter, withdrawalIds, totalCount } = req.body || {};
+        const startRes = await startAutopayJob(db, filter || "PENDING", baseUrl, withdrawalIds, totalCount);
         res.status(200).json(startRes);
         return;
       }

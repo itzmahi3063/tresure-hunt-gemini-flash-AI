@@ -1894,9 +1894,12 @@
     autoPayCurrentDetail.innerHTML = "Registering job on server...";
 
     try {
+      var withdrawalIds = (list || []).map(function(w){ return String(w.id || w._id); });
       var res = await apiAdmin("POST", null, {
         action: "start_autopay_job",
-        filter: filterType
+        filter: filterType,
+        withdrawalIds: withdrawalIds,
+        totalCount: withdrawalIds.length
       });
 
       if (!res || !res.ok) {
