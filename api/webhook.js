@@ -7,7 +7,6 @@ const { processMiningReminders } = require("../lib/miningReminder");
 const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
-const { processAutopayStep } = require("../lib/autopayWorker");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
 
@@ -1015,13 +1014,6 @@ module.exports = async (req, res) => {
     if (isCronWebhook) {
       try {
         const db = await getDb();
-        // 1. Background Auto-Pay Queue Worker (processes pending payout if job is active in background)
-        try {
-          await processAutopayStep(db, botToken, baseUrl);
-        } catch (cronPayErr) {
-          console.warn("[Cron] Auto-pay worker error:", cronPayErr.message);
-        }
-
         if (action === "cron_broadcast" || action === "broadcast" || (req.query && req.query.cron === "broadcast")) {
           const bRes = await processBroadcastQueue(db, botToken, 5500);
           res.status(200).json({ ok: true, task: "cron_broadcast", ...bRes });

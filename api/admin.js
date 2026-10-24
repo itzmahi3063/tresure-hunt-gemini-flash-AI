@@ -4,7 +4,6 @@ const { validateInitData } = require("../lib/telegramAuth");
 const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
-const { startAutopayJob, stopAutopayJob, getAutopayJobStatus, processAutopayStep, triggerNextAutopayStep } = require("../lib/autopayWorker");
 
 const crypto = require("crypto");
 
@@ -297,12 +296,6 @@ module.exports = async (req, res) => {
     // ==========================================
     if (req.method === "GET") {
       const action = req.query.action || "stats";
-
-      if (action === "get_autopay_job") {
-        const statusRes = await getAutopayJobStatus(db);
-        res.status(200).json(statusRes);
-        return;
-      }
 
       // 1. Stats
       if (action === "stats") {
@@ -1629,38 +1622,7 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // Auto-Pay Background Job Management Endpoints (Server Autonomous Worker)
-      if (action === "get_autopay_job") {
-        const statusRes = await getAutopayJobStatus(db);
-        res.status(200).json(statusRes);
-        return;
-      }
-
-      if (action === "start_autopay_job") {
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const host = req.headers["x-forwarded-host"] || req.headers.host || process.env.VERCEL_URL || "";
-        const baseUrl = `${protocol}://${host}`;
-        const { filter, withdrawalIds, totalCount } = req.body || {};
-        const startRes = await startAutopayJob(db, filter || "PENDING", baseUrl, withdrawalIds, totalCount);
-        res.status(200).json(startRes);
-        return;
-      }
-
-      if (action === "stop_autopay_job") {
-        const stopRes = await stopAutopayJob(db);
-        res.status(200).json(stopRes);
-        return;
-      }
-
-      if (action === "autopay_worker_step") {
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const host = req.headers["x-forwarded-host"] || req.headers.host || process.env.VERCEL_URL || "";
-        const baseUrl = `${protocol}://${host}`;
-        const stepRes = await processAutopayStep(db, botToken, baseUrl);
-        res.status(200).json(stepRes);
-        return;
-      }
-
+      // Reset Admin's Own Verification Status (Admin Only - for re-testing 4-digit code verify anytime)
       if (action === "reset_my_verification" || action === "reset_admin_verification") {
         const adminIdsSet = await getAdminTelegramIds(db);
         const reqAdminUid = String((req.body && req.body.adminUid) || "").trim();
