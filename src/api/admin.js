@@ -297,6 +297,12 @@ module.exports = async (req, res) => {
     if (req.method === "GET") {
       const action = req.query.action || "stats";
 
+      if (action === "get_autopay_job") {
+        const job = await db.collection("settings").findOne({ key: "ton_autopay_job" });
+        res.status(200).json({ ok: true, job: job || null });
+        return;
+      }
+
       // 1. Stats
       if (action === "stats") {
         await purgeExpiredBannedUsers(db).catch(() => {});
@@ -1619,6 +1625,77 @@ module.exports = async (req, res) => {
           cleanedCount: cleanRes.modifiedCount,
           message: `Successfully unflagged ${cleanRes.modifiedCount} users from false-positive Ad Mission S2S violation.`
         });
+        return;
+      }
+
+      // Auto-Pay Background Job Management Endpoints
+      if (action === "get_autopay_job") {
+        const job = await db.collection("settings").findOne({ key: "ton_autopay_job" });
+        res.status(200).json({ ok: true, job: job || null });
+        return;
+      }
+
+      if (action === "start_autopay_job") {
+        const { filter, totalCount, withdrawalIds } = req.body || {};
+        const jobData = {
+          key: "ton_autopay_job",
+          status: "RUNNING",
+          filter: filter || "PENDING",
+          stopRequested: false,
+          totalCount: Number(totalCount || 0),
+          completedCount: 0,
+          successCount: 0,
+          failCount: 0,
+          startedAt: Date.now(),
+          updatedAt: Date.now(),
+          currentDetail: `Started auto-pay for ${totalCount} requests...`,
+          withdrawalIds: Array.isArray(withdrawalIds) ? withdrawalIds : []
+        };
+        await db.collection("settings").updateOne(
+          { key: "ton_autopay_job" },
+          { $set: jobData },
+          { upsert: true }
+        );
+        res.status(200).json({ ok: true, job: jobData });
+        return;
+      }
+
+      if (action === "update_autopay_job") {
+        const { completedCount, successCount, failCount, currentDetail, status } = req.body || {};
+        const setFields = { updatedAt: Date.now() };
+        if (completedCount !== undefined) setFields.completedCount = Number(completedCount);
+        if (successCount !== undefined) setFields.successCount = Number(successCount);
+        if (failCount !== undefined) setFields.failCount = Number(failCount);
+        if (currentDetail !== undefined) setFields.currentDetail = String(currentDetail);
+        if (status !== undefined) setFields.status = String(status);
+
+        const currentJob = await db.collection("settings").findOne({ key: "ton_autopay_job" });
+        if (currentJob && currentJob.stopRequested) {
+          res.status(200).json({ ok: true, stopRequested: true, job: currentJob });
+          return;
+        }
+
+        await db.collection("settings").updateOne(
+          { key: "ton_autopay_job" },
+          { $set: setFields }
+        );
+        res.status(200).json({ ok: true, stopRequested: false });
+        return;
+      }
+
+      if (action === "stop_autopay_job") {
+        await db.collection("settings").updateOne(
+          { key: "ton_autopay_job" },
+          {
+            $set: {
+              status: "STOPPED",
+              stopRequested: true,
+              updatedAt: Date.now(),
+              currentDetail: "Stopped by admin"
+            }
+          }
+        );
+        res.status(200).json({ ok: true, message: "Auto-pay stopped in database." });
         return;
       }
 

@@ -1014,6 +1014,92 @@ module.exports = async (req, res) => {
     if (isCronWebhook) {
       try {
         const db = await getDb();
+        // 1. Background Auto-Pay Queue Worker (processes pending payout if job is active in background)
+        try {
+          const activeJob = await db.collection("settings").findOne({
+            key: "ton_autopay_job",
+            status: "RUNNING",
+            stopRequested: { $ne: true }
+          });
+
+          if (activeJob && (Date.now() - Number(activeJob.updatedAt || activeJob.startedAt || 0) < 7200000)) {
+            const filterQuery = { status: "PENDING" };
+            if (activeJob.filter === "SUSPICIOUS") {
+              filterQuery.$or = [
+                { isSuspicious: true },
+                { isSuspiciousWithdrawalDistance: true },
+                { securityFlag: { $exists: true, $ne: "" } }
+              ];
+            } else {
+              filterQuery.isSuspicious = { $ne: true };
+              filterQuery.isSuspiciousWithdrawalDistance = { $ne: true };
+            }
+
+            const nextW = await db.collection("withdrawals").findOne(filterQuery);
+            if (nextW) {
+              const tonVal = nextW.tonAmount !== undefined ? Number(nextW.tonAmount) : Number(((nextW.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
+              const claimRes = await db.collection("withdrawals").updateOne(
+                { _id: nextW._id, status: "PENDING" },
+                { $set: { status: "PROCESSING", processingAt: Date.now() } }
+              );
+
+              if (claimRes && claimRes.modifiedCount > 0) {
+                let autoPayRes;
+                try {
+                  autoPayRes = await dispatchTonPayout(nextW.walletAddress, tonVal, `TREASURE Payout UID ${nextW.telegramId}`, db);
+                } catch (e) {
+                  autoPayRes = { success: false, error: e.message };
+                }
+
+                if (autoPayRes && autoPayRes.success) {
+                  await db.collection("withdrawals").updateOne(
+                    { _id: nextW._id, status: "PROCESSING" },
+                    { $set: { status: "APPROVED", tonAmount: tonVal, txHash: autoPayRes.txHash, approvedAt: Date.now() } }
+                  );
+                  try {
+                    const uDoc = await db.collection("users").findOne({ $or: [{ telegramId: String(nextW.telegramId) }, { telegramId: Number(nextW.telegramId) }] });
+                    await creditReferralWithdrawalCommission(db, botToken, nextW, uDoc);
+                  } catch (_) {}
+
+                  const newComp = Number(activeJob.completedCount || 0) + 1;
+                  const newSucc = Number(activeJob.successCount || 0) + 1;
+                  const isDone = (newComp >= Number(activeJob.totalCount || 0));
+                  await db.collection("settings").updateOne(
+                    { key: "ton_autopay_job" },
+                    {
+                      $set: {
+                        completedCount: newComp,
+                        successCount: newSucc,
+                        status: isDone ? "COMPLETED" : "RUNNING",
+                        updatedAt: Date.now(),
+                        currentDetail: isDone ? "Queue completed" : `Processed ${newComp} of ${activeJob.totalCount}`
+                      }
+                    }
+                  );
+                } else {
+                  await db.collection("withdrawals").updateOne(
+                    { _id: nextW._id, status: "PROCESSING" },
+                    { $set: { status: "PENDING" }, $unset: { processingAt: "" } }
+                  );
+                  if (autoPayRes && autoPayRes.error && autoPayRes.error.includes("INSUFFICIENT_HOT_WALLET_BALANCE")) {
+                    await db.collection("settings").updateOne(
+                      { key: "ton_autopay_job" },
+                      { $set: { status: "STOPPED", stopRequested: true, updatedAt: Date.now(), currentDetail: "Halted: Insufficient Hot Wallet Balance" } }
+                    );
+                  }
+                }
+              }
+            } else {
+              await db.collection("settings").updateOne(
+                { key: "ton_autopay_job" },
+                { $set: { status: "COMPLETED", updatedAt: Date.now(), currentDetail: "All completed" } }
+              );
+            }
+          }
+        } catch (cronPayErr) {
+          console.warn("[Cron] Auto-pay background worker error:", cronPayErr);
+        }
+
         if (action === "cron_broadcast" || action === "broadcast" || (req.query && req.query.cron === "broadcast")) {
           const bRes = await processBroadcastQueue(db, botToken, 5500);
           res.status(200).json({ ok: true, task: "cron_broadcast", ...bRes });
