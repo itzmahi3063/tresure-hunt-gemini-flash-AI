@@ -9207,6 +9207,13 @@
       var activeView = document.getElementById(targetTab);
       if (activeView) activeView.classList.add("active");
 
+      // Check if spontaneous ad can trigger upon natural tab switch
+      if (typeof tryTriggerSpontaneousAd === "function") {
+        setTimeout(function() {
+          tryTriggerSpontaneousAd("tab_switch");
+        }, 600);
+      }
+
       // Universal Scroll-To-Top on ANY tab click
       window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       document.documentElement.scrollTop = 0;
@@ -11910,8 +11917,8 @@
 
     acquire: function(name) {
       var now = Date.now();
-      // Auto-expire any stale lock older than 15 seconds so UI never gets stuck
-      if (this.activeAd && (now - this.lockTime > 15000)) {
+      // Auto-expire any stale lock older than 60 seconds so UI never gets stuck
+      if (this.activeAd && (now - this.lockTime > 60000)) {
         console.warn("[AdBarrier] Auto-releasing stale lock of: " + this.activeAd);
         this.activeAd = null;
         this.lockTime = 0;
@@ -11931,11 +11938,12 @@
         console.log("[AdBarrier] Lock RELEASED by " + (name || this.activeAd));
         this.activeAd = null;
         this.lockTime = 0;
+        window.lastAnyAdCompletedAt = Date.now();
       }
     },
 
     isBusy: function() {
-      if (this.activeAd && (Date.now() - this.lockTime > 15000)) {
+      if (this.activeAd && (Date.now() - this.lockTime > 60000)) {
         this.activeAd = null;
         this.lockTime = 0;
       }
@@ -12214,57 +12222,105 @@
   }
 
   // ========================================================
-  // STARTUP INTERSTITIAL AD (int-49020) - 1 TIME ON APP OPEN
+  // SPONTANEOUS INTERSTITIAL AD SYSTEM (Block: int-49020)
+  // Replaces immediate app-startup ad.
+  // Plays periodically/opportunistically ONLY when user is
+  // NOT watching another ad (no mining ad, no spin ad, no watch & earn ad, no task ad).
+  // Strictly guarantees 0 background ad collisions!
   // ========================================================
-  var startupAdAttempted = false;
-  function triggerStartupInterstitialAd(callback) {
-    var onComplete = function() {
-      if (typeof callback === "function") {
-        try { callback(); } catch(e){ console.error(e); }
-      }
-    };
+  var appStartupTime = Date.now();
+  var lastSpontaneousAdShownAt = Date.now();
+  var INITIAL_APP_GRACE_PERIOD_MS = 60000; // Strictly DO NOT show during first 60s of opening app
+  var SPONTANEOUS_AD_INTERVAL_MS = 90000;   // At least 90s between spontaneous ads
+  var POST_AD_COOLDOWN_MS = 45000;          // At least 45s quiet cooldown after ANY ad finishes
 
-    var alreadyShown = false;
-    try {
-      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
-    } catch(e){}
+  function canPlaySpontaneousAd() {
+    var now = Date.now();
 
-    if (startupAdAttempted || alreadyShown) {
-      onComplete();
-      return;
-    }
-    startupAdAttempted = true;
-    try {
-      sessionStorage.setItem("treasure_startup_ad_shown", "true");
-    } catch(e){}
-
-    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
-      onComplete();
-      return;
+    // 1. Initial app open grace period: strictly no ad during the first 60 seconds of app load
+    if (now - appStartupTime < INITIAL_APP_GRACE_PERIOD_MS) {
+      return false;
     }
 
-    var finished = false;
-    var timer = null;
-    function finalize() {
-      if (finished) return;
-      finished = true;
-      if (timer) clearTimeout(timer);
-      if (window.AdBarrier) window.AdBarrier.release("startup_int_ad");
-      onComplete();
+    // 2. Minimum interval between spontaneous ads
+    if (now - lastSpontaneousAdShownAt < SPONTANEOUS_AD_INTERVAL_MS) {
+      return false;
     }
 
-    // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
-    timer = setTimeout(finalize, 7000);
+    // 3. Minimum cooldown after ANY ad has finished (mining, spin, watch & earn, tasks)
+    var lastAnyAd = window.lastAnyAdCompletedAt || 0;
+    if (now - lastAnyAd < POST_AD_COOLDOWN_MS) {
+      return false;
+    }
+
+    // 4. Concurrency lock check: is any ad currently active or loading in SDK?
+    if (window.AdBarrier && window.AdBarrier.isBusy()) {
+      return false;
+    }
+
+    // 5. Visibility check: app must be active in foreground (screen on, tab active)
+    if (document.visibilityState !== "visible") {
+      return false;
+    }
+
+    // 6. Check if user is in any active ad, spin, mining, or captcha modal/flow
+    if (window._isMiningClaimLocked) return false;
+    if (window.isWheelSpinning) return false;
+
+    var watchEarnModal = document.getElementById("watchEarnFlowModal");
+    if (watchEarnModal && watchEarnModal.classList.contains("open")) return false;
+
+    var spinModalEl = document.getElementById("spinModal");
+    if (spinModalEl && spinModalEl.classList.contains("open")) return false;
+
+    var captchaModalEl = document.getElementById("securityCaptchaModal");
+    if (captchaModalEl && captchaModalEl.classList.contains("open")) return false;
+
+    var s2sModalEl = document.getElementById("s2sWaitingModal");
+    if (s2sModalEl && s2sModalEl.classList.contains("open")) return false;
+
+    var adMissionsModalEl = document.getElementById("adMissionsModal");
+    if (adMissionsModalEl && adMissionsModalEl.classList.contains("open")) return false;
+
+    // 7. Check if user is actively typing in an input
+    if (document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function tryTriggerSpontaneousAd(sourceReason) {
+    if (!canPlaySpontaneousAd()) {
+      return false;
+    }
+
+    if (!window.AdBarrier || !window.AdBarrier.acquire("spontaneous_interstitial")) {
+      return false;
+    }
+
+    lastSpontaneousAdShownAt = Date.now();
+    console.log("[Spontaneous Ad] Triggering interstitial ad (" + (sourceReason || "idle") + ")...");
 
     showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
       .then(function() {
-        finalize();
+        console.log("[Spontaneous Ad] Finished successfully.");
+        if (window.AdBarrier) window.AdBarrier.release("spontaneous_interstitial");
+        window.lastAnyAdCompletedAt = Date.now();
       })
       .catch(function(err) {
-        console.warn("Startup interstitial ad completed/skipped:", err);
-        finalize();
+        console.warn("[Spontaneous Ad] Skipped or closed:", err);
+        if (window.AdBarrier) window.AdBarrier.release("spontaneous_interstitial");
+        window.lastAnyAdCompletedAt = Date.now();
       });
+
+    return true;
   }
+
+  // Periodic idle check (every 15s) while user is browsing app without watching ads
+  setInterval(function() {
+    tryTriggerSpontaneousAd("periodic_idle");
+  }, 15000);
 
   function updateWatchSheetView1() {
     var watched = Number(user.adsWatchedToday) || 0;
@@ -14914,14 +14970,10 @@
         loadingScreenEl.classList.add("fade-out");
         setTimeout(function(){
           loadingScreenEl.style.display = "none";
-          triggerStartupInterstitialAd(function() {
-            onAppReady();
-          });
+          onAppReady();
         }, 480);
       } else {
-        triggerStartupInterstitialAd(function() {
-          onAppReady();
-        });
+        onAppReady();
       }
     }, 350);
   }
