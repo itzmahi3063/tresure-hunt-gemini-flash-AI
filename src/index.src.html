@@ -11911,13 +11911,16 @@
   // Ensures only 1 ad plays at a time.
   // No ad runs in the background while another is active!
   // ========================================================
+  window.lastAnyAdCompletedAt = 0;
+  var AD_INTER_COOLDOWN_MS = 7000; // Strict 7s (5-10s) quiet cooldown after any ad completes
+
   window.AdBarrier = {
-    activeAd: null, // "fullscreen"
+    activeAd: null, // Holds identifier of currently running ad
     lockTime: 0,
 
     acquire: function(name) {
       var now = Date.now();
-      // Auto-expire any stale lock older than 60 seconds so UI never gets stuck
+      // Auto-expire any stale lock older than 60 seconds so UI never gets permanently stuck
       if (this.activeAd && (now - this.lockTime > 60000)) {
         console.warn("[AdBarrier] Auto-releasing stale lock of: " + this.activeAd);
         this.activeAd = null;
@@ -11948,6 +11951,15 @@
         this.lockTime = 0;
       }
       return !!this.activeAd;
+    },
+
+    // Strict Anti-Collision Helper: true ONLY if 0 ads are running and 5-10s cooldown passed
+    canStartNewAd: function() {
+      if (this.isBusy()) return false;
+      if (Date.now() - (window.lastAnyAdCompletedAt || 0) < AD_INTER_COOLDOWN_MS) {
+        return false;
+      }
+      return true;
     }
   };
 
@@ -12222,17 +12234,70 @@
   }
 
   // ========================================================
+  // STARTUP INTERSTITIAL AD (int-49020) - ON APP OPEN
+  // ========================================================
+  var startupAdAttempted = false;
+  function triggerStartupInterstitialAd(callback) {
+    var onComplete = function() {
+      if (typeof callback === "function") {
+        try { callback(); } catch(e){ console.error(e); }
+      }
+    };
+
+    var alreadyShown = false;
+    try {
+      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
+    } catch(e){}
+
+    if (startupAdAttempted || alreadyShown) {
+      onComplete();
+      return;
+    }
+    startupAdAttempted = true;
+    try {
+      sessionStorage.setItem("treasure_startup_ad_shown", "true");
+    } catch(e){}
+
+    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
+      onComplete();
+      return;
+    }
+
+    var finished = false;
+    var timer = null;
+    function finalize() {
+      if (finished) return;
+      finished = true;
+      if (timer) clearTimeout(timer);
+      if (window.AdBarrier) window.AdBarrier.release("startup_int_ad");
+      window.lastAnyAdCompletedAt = Date.now();
+      onComplete();
+    }
+
+    // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
+    timer = setTimeout(finalize, 7000);
+
+    showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
+      .then(function() {
+        finalize();
+      })
+      .catch(function(err) {
+        console.warn("Startup interstitial ad completed/skipped:", err);
+        finalize();
+      });
+  }
+
+  // ========================================================
   // SPONTANEOUS INTERSTITIAL AD SYSTEM (Block: int-49020)
-  // Replaces immediate app-startup ad.
   // Plays periodically/opportunistically ONLY when user is
   // NOT watching another ad (no mining ad, no spin ad, no watch & earn ad, no task ad).
   // Strictly guarantees 0 background ad collisions!
   // ========================================================
   var appStartupTime = Date.now();
   var lastSpontaneousAdShownAt = Date.now();
-  var INITIAL_APP_GRACE_PERIOD_MS = 60000; // Strictly DO NOT show during first 60s of opening app
-  var SPONTANEOUS_AD_INTERVAL_MS = 90000;   // At least 90s between spontaneous ads
-  var POST_AD_COOLDOWN_MS = 45000;          // At least 45s quiet cooldown after ANY ad finishes
+  var INITIAL_APP_GRACE_PERIOD_MS = 15000; // 15s after startup ad
+  var SPONTANEOUS_AD_INTERVAL_MS = 60000;   // 60s interval between spontaneous ads
+  var POST_AD_COOLDOWN_MS = 7000;           // 7 seconds (5-10s) quiet cooldown after ANY ad finishes
 
   function canPlaySpontaneousAd() {
     var now = Date.now();
@@ -14970,10 +15035,14 @@
         loadingScreenEl.classList.add("fade-out");
         setTimeout(function(){
           loadingScreenEl.style.display = "none";
-          onAppReady();
+          triggerStartupInterstitialAd(function() {
+            onAppReady();
+          });
         }, 480);
       } else {
-        onAppReady();
+        triggerStartupInterstitialAd(function() {
+          onAppReady();
+        });
       }
     }, 350);
   }
