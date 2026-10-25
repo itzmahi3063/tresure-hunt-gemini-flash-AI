@@ -12,7 +12,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
-<script src="https://ad.gigapub.tech/script?id=8782"></script>
 <style>
   :root {
     --bg: #eff5f5;
@@ -12691,13 +12690,6 @@
   var inviteFriendsTicketsBtn = document.getElementById("inviteFriendsTicketsBtn");
 
   var currentSpinTickets = 0;
-  var currentSpinAdsWatched = 0;
-  try {
-    var cachedSpinCount = localStorage.getItem("treasure_spin_ads_watched");
-    if (cachedSpinCount !== null) {
-      currentSpinAdsWatched = parseInt(cachedSpinCount, 10) || 0;
-    }
-  } catch (e) {}
   var isWheelSpinning = false;
   var currentWheelAngle = 0;
   var spinCountdownTimer = null;
@@ -12783,8 +12775,6 @@
         if (spinTicketsCount) spinTicketsCount.textContent = currentSpinTickets;
 
         var watched = Number(sp.watchedToday || 0);
-        currentSpinAdsWatched = watched;
-        try { localStorage.setItem("treasure_spin_ads_watched", watched); } catch (e) {}
         var maxAds = Number(sp.maxAds || 6);
         if (spinAdsWatchedCount) spinAdsWatchedCount.textContent = watched;
         if (spinAdsProgressFill) {
@@ -12939,36 +12929,7 @@
     });
   }
 
-  // Helper to safely play GigaPub ad (id=8782)
-  function showGigapubAd() {
-    return new Promise(function(resolve, reject) {
-      if (typeof window.showGiga === "function") {
-        try {
-          Promise.resolve(window.showGiga()).then(resolve).catch(reject);
-        } catch (e) {
-          reject(e);
-        }
-        return;
-      }
-      var count = 0;
-      var interval = setInterval(function() {
-        count++;
-        if (typeof window.showGiga === "function") {
-          clearInterval(interval);
-          try {
-            Promise.resolve(window.showGiga()).then(resolve).catch(reject);
-          } catch (e) {
-            reject(e);
-          }
-        } else if (count > 30) {
-          clearInterval(interval);
-          reject(new Error("GigaPub ad network is loading. Please check your connection and try again."));
-        }
-      }, 100);
-    });
-  }
-
-  // WATCH AD FOR SPIN TICKET (Alternating flow: 1st Adsgram, 2nd Gigapub, 3rd Adsgram, 4th Gigapub...)
+  // WATCH AD FOR SPIN TICKET (Plays Adsgram Reward Ad Block 49079 + S2S)
   if (watchSpinAdActionBtn) {
     watchSpinAdActionBtn.addEventListener("click", function() {
       if (watchSpinAdActionBtn.disabled) return;
@@ -12977,53 +12938,37 @@
         return;
       }
 
-      var currentWatched = Number(currentSpinAdsWatched || 0);
-      var useAdsgram = (currentWatched % 2 === 0);
-      var providerName = useAdsgram ? "Adsgram" : "GigaPub";
-
       watchSpinAdActionBtn.disabled = true;
-      watchSpinAdActionBtn.innerHTML = '<span>⏳ Loading ' + providerName + '...</span>';
+      watchSpinAdActionBtn.innerHTML = '<span>⏳ Loading Ad...</span>';
 
       var startedAt = Date.now();
-      var adPromise = useAdsgram ? showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID) : showGigapubAd();
-
-      adPromise
+      showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID)
         .then(function() {
           var elapsed = Date.now() - startedAt;
           window.AdBarrier.release("adsgram_spin");
 
-          if (elapsed < 5000 && useAdsgram) {
+          if (elapsed < 5000) {
             watchSpinAdActionBtn.disabled = false;
             watchSpinAdActionBtn.innerHTML = '<span>🎬 Watch Ad (+1 Ticket)</span>';
             showToast("⚠️ Ad closed too early (under 5s). No ticket granted.");
             return;
           }
 
-          var durationForApi = Math.max(elapsed, 5500);
-
           var postData = {
             action: "spin_watch_ad",
-            adProvider: useAdsgram ? "adsgram" : "gigapub",
-            watchDurationMs: durationForApi,
+            watchDurationMs: elapsed,
             actionToken: currentActionTokens.spin_watch_ad
           };
 
           function doSpinClaim() {
             adsApiPost(postData).then(function(res) {
               if (res && res.ok && res.data) {
-                if (typeof updateS2sWaitingModal === "function") {
-                  updateS2sWaitingModal("✅ Server confirmed! Ticket credited...", true);
-                }
+                updateS2sWaitingModal("✅ Server confirmed! Ticket credited...", true);
                 if (res.data.newActionToken) {
                   currentActionTokens.spin_watch_ad = res.data.newActionToken;
                 }
-                currentSpinAdsWatched = Number(res.data.spinAdsWatchedToday !== undefined ? res.data.spinAdsWatchedToday : (currentSpinAdsWatched + 1));
-                try { localStorage.setItem("treasure_spin_ads_watched", currentSpinAdsWatched); } catch (e) {}
-
                 setTimeout(function() {
-                  if (typeof closeS2sWaitingModal === "function") {
-                    closeS2sWaitingModal();
-                  }
+                  closeS2sWaitingModal();
                   currentSpinTickets = Number(res.data.spinTickets !== undefined ? res.data.spinTickets : (currentSpinTickets + 1));
                   if (spinTicketsCount) spinTicketsCount.textContent = currentSpinTickets;
                   loadSpinStatus();
@@ -13033,37 +12978,28 @@
                   }
                 }, 600);
               } else {
-                if (typeof closeS2sWaitingModal === "function") {
-                  closeS2sWaitingModal();
-                }
+                closeS2sWaitingModal();
                 watchSpinAdActionBtn.disabled = false;
                 watchSpinAdActionBtn.innerHTML = '<span>🎬 Watch Ad (+1 Ticket)</span>';
                 var errTxt = (res && res.data && res.data.error) || (res && res.error) || "Ad verification failed.";
                 showToast("⚠️ " + errTxt);
               }
             }).catch(function() {
-              if (typeof closeS2sWaitingModal === "function") {
-                closeS2sWaitingModal();
-              }
+              closeS2sWaitingModal();
               watchSpinAdActionBtn.disabled = false;
               watchSpinAdActionBtn.innerHTML = '<span>🎬 Watch Ad (+1 Ticket)</span>';
               showToast("⚠️ Network issue while claiming ticket.");
             });
           }
 
-          if (useAdsgram) {
-            openS2sWaitingModal(
-              "Verifying spin ad view with Adsgram server...",
-              "Waiting for server confirmation...",
-              10,
-              function(isEarlyVerified) {
-                doSpinClaim();
-              }
-            );
-          } else {
-            watchSpinAdActionBtn.innerHTML = '<span>⏳ Crediting Ticket...</span>';
-            doSpinClaim();
-          }
+          openS2sWaitingModal(
+            "Verifying spin ad view with Adsgram server...",
+            "Waiting for server confirmation...",
+            10,
+            function(isEarlyVerified) {
+              doSpinClaim();
+            }
+          );
         })
         .catch(function(err) {
           window.AdBarrier.release("adsgram_spin");

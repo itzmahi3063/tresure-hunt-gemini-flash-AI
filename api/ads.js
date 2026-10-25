@@ -614,7 +614,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // 4A. ACTION: WATCH AD FOR SPIN TICKET (Up to 6 per 10 hours via Gigapub Ad)
+    // 4A. ACTION: WATCH AD FOR SPIN TICKET (Up to 6 per 10 hours via Adsgram Reward Ad)
     if (action === "spin_watch_ad") {
       // Cryptographic Action Signing Verification
       const actionToken = (req.body && req.body.actionToken) || req.headers["x-action-token"] || req.headers["x-action-signature"] || req.headers["x-action-secret"];
@@ -681,10 +681,8 @@ module.exports = async (req, res) => {
       }
 
       // ========================================================
-      // AD VERIFICATION FOR SPIN TICKETS (Adsgram Block 49079 & Gigapub):
+      // S2S VERIFICATION FOR SPIN TICKETS (Adsgram Block 49079):
       // ========================================================
-      const adProvider = (req.body && req.body.adProvider === "gigapub") ? "gigapub" : "adsgram";
-
       let s2sRecordTime = Number(user.lastAdsgramS2sRewardAt || 0);
       let lastConsumed = Math.max(
         Number(user.lastAdsgramS2sConsumedAt || 0),
@@ -693,8 +691,8 @@ module.exports = async (req, res) => {
       );
       let isS2sValid = (s2sRecordTime > 0) && (s2sRecordTime > lastConsumed) && ((now - s2sRecordTime) < 300000);
 
-      // Fast check if S2S callback arrived (for Adsgram)
-      if (!isS2sValid && adProvider === "adsgram") {
+      // Fast check if S2S callback arrived
+      if (!isS2sValid) {
         const freshUser = await usersCol.findOne({ _id: user._id });
         if (freshUser) {
           s2sRecordTime = Number(freshUser.lastAdsgramS2sRewardAt || 0);
@@ -710,7 +708,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      // If ad was not Adsgram S2S verified (or is Gigapub), verify that the user genuinely watched the video:
+      // If S2S callback was delayed, verify that the user genuinely watched the video:
       if (!isS2sValid) {
         if (duration < 5000) {
           res.status(400).json({
@@ -728,8 +726,7 @@ module.exports = async (req, res) => {
         spinAdsWatchedToday: spinWatchedToday,
         spinAdsCycleStartedAt: spinCycleStart,
         lastSpinAdWatchedAt: now,
-        lastSpinAdProvider: adProvider,
-        lastAdsgramS2sConsumedAt: (adProvider === "adsgram" ? now : (user.lastAdsgramS2sConsumedAt || 0)),
+        lastAdsgramS2sConsumedAt: now,
         lastSpinS2sConsumedAt: now,
         lastActiveAt: new Date()
       };
