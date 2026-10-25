@@ -10,8 +10,98 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+<script type="text/javascript">
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    if (typeof AdexiumWidget !== "function") return;
+    const adexiumWidget = new AdexiumWidget({
+      wid: '3244f7f7-db89-4f7a-8342-092d462aa3f8',
+      adFormat: 'interstitial'
+    });
+
+    // Anti-collision guard on canShowAds:
+    // Only allows Adexium to fetch/show an ad when NO other ad is active,
+    // NO modals are open, and safe cooldown has elapsed!
+    if (typeof adexiumWidget.canShowAds === "function") {
+      const origCanShowAds = adexiumWidget.canShowAds.bind(adexiumWidget);
+      adexiumWidget.canShowAds = function() {
+        if (window.AdBarrier && window.AdBarrier.isBusy()) {
+          console.warn("[AdBarrier] Blocked Adexium ad because another ad is currently active.");
+          return false;
+        }
+        if (window.AdBarrier && typeof window.AdBarrier.canStartNewAd === "function" && !window.AdBarrier.canStartNewAd()) {
+          console.warn("[AdBarrier] Blocked Adexium ad due to cooldown.");
+          return false;
+        }
+        if (window._isMiningClaimLocked || window.isWheelSpinning) return false;
+        var wModal = document.getElementById("watchEarnFlowModal");
+        if (wModal && wModal.classList.contains("open")) return false;
+        var spModal = document.getElementById("spinModal");
+        if (spModal && spModal.classList.contains("open")) return false;
+        var capModal = document.getElementById("securityCaptchaModal");
+        if (capModal && capModal.classList.contains("open")) return false;
+        var s2sModal = document.getElementById("s2sWaitingModal");
+        if (s2sModal && s2sModal.classList.contains("open")) return false;
+        var adMModal = document.getElementById("adMissionsModal");
+        if (adMModal && adMModal.classList.contains("open")) return false;
+        if (document.visibilityState !== "visible") return false;
+
+        return origCanShowAds();
+      };
+    }
+
+    // Anti-collision guard on displayAd:
+    // Guarantees zero DOM insertion / popup if another ad starts at the same time
+    if (typeof adexiumWidget.displayAd === "function") {
+      const origDisplayAd = adexiumWidget.displayAd.bind(adexiumWidget);
+      adexiumWidget.displayAd = function(o, p) {
+        if (window.AdBarrier && window.AdBarrier.isBusy()) {
+          console.warn("[AdBarrier] Blocked Adexium displayAd because an ad is currently playing!");
+          return;
+        }
+        if (window.AdBarrier && !window.AdBarrier.acquire("adexium_interstitial")) {
+          console.warn("[AdBarrier] Failed to acquire lock for Adexium ad!");
+          return;
+        }
+        return origDisplayAd(o, p);
+      };
+    }
+
+    // Lifecycle events: lock/unlock AdBarrier
+    if (typeof adexiumWidget.on === "function") {
+      adexiumWidget.on('adDisplayed', function() {
+        console.log("[AdBarrier] Adexium ad displayed on screen.");
+        if (window.AdBarrier) {
+          window.AdBarrier.acquire("adexium_interstitial");
+        }
+      });
+
+      adexiumWidget.on('adClosed', function() {
+        console.log("[AdBarrier] Adexium ad closed.");
+        if (window.AdBarrier) {
+          window.AdBarrier.release("adexium_interstitial");
+        }
+        window.lastAnyAdCompletedAt = Date.now();
+      });
+
+      adexiumWidget.on('adRedirected', function() {
+        if (window.AdBarrier) {
+          window.AdBarrier.release("adexium_interstitial");
+        }
+        window.lastAnyAdCompletedAt = Date.now();
+      });
+    }
+
+    window.adexiumWidgetInstance = adexiumWidget;
+    adexiumWidget.autoMode();
+  } catch (err) {
+    console.error("Adexium initialization error:", err);
+  }
+});
+</script>
 <style>
   :root {
     --bg: #eff5f5;
