@@ -645,6 +645,18 @@
           </tbody>
         </table>
       </div>
+
+      <!-- Pagination Controls for Withdrawals Table -->
+      <div class="pagination-bar" id="withdrawalsPaginationBar" style="display: none; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding: 12px 16px; background: rgba(15, 23, 42, 0.45); border-radius: 12px; border: 1px solid var(--border);">
+        <div style="font-size: 13px; color: var(--text-dim);">
+          Showing <strong id="wPageStart" style="color: var(--text-bright);">0</strong> - <strong id="wPageEnd" style="color: var(--text-bright);">0</strong> of <strong id="wTotalRecords" style="color: var(--accent);">0</strong> requests
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn-secondary" id="wPrevPageBtn" style="padding: 6px 14px; font-size: 12px; border-radius: 8px; cursor: pointer;">&laquo; Previous</button>
+          <span style="font-size: 12.5px; font-weight: 700; color: var(--text-bright); padding: 0 6px;" id="wCurrentPageLabel">Page 1 of 1</span>
+          <button class="btn-secondary" id="wNextPageBtn" style="padding: 6px 14px; font-size: 12px; border-radius: 8px; cursor: pointer;">Next &raquo;</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1411,6 +1423,9 @@
   document.getElementById("refreshStatsBtn").addEventListener("click", loadAll);
 
   // 2. Withdrawals
+  var currentWithdrawalsPage = 1;
+  var withdrawalsPageSize = 20;
+  var totalWithdrawalsPages = 1;
   var withdrawalsList = document.getElementById("withdrawalsList");
   var filterBtns = document.querySelectorAll(".pill-filter");
   filterBtns.forEach(function(fb){
@@ -1418,19 +1433,46 @@
       filterBtns.forEach(function(b){ b.classList.remove("active"); });
       fb.classList.add("active");
       currentFilter = fb.getAttribute("data-filter");
-      loadWithdrawals();
+      currentWithdrawalsPage = 1;
+      loadWithdrawals(1);
     });
   });
 
-  async function loadWithdrawals() {
+  var wPrevPageBtn = document.getElementById("wPrevPageBtn");
+  if (wPrevPageBtn) {
+    wPrevPageBtn.addEventListener("click", function(){
+      if (currentWithdrawalsPage > 1) {
+        loadWithdrawals(currentWithdrawalsPage - 1);
+      }
+    });
+  }
+  var wNextPageBtn = document.getElementById("wNextPageBtn");
+  if (wNextPageBtn) {
+    wNextPageBtn.addEventListener("click", function(){
+      if (currentWithdrawalsPage < totalWithdrawalsPages) {
+        loadWithdrawals(currentWithdrawalsPage + 1);
+      }
+    });
+  }
+
+  async function loadWithdrawals(targetPage) {
+    if (typeof targetPage === "number") {
+      currentWithdrawalsPage = targetPage;
+    }
     var bulkApproveBtn = document.getElementById("bulkApproveBtn");
     var bulkApproveSuspiciousBtn = document.getElementById("bulkApproveSuspiciousBtn");
     var banAllSuspiciousBtn = document.getElementById("banAllSuspiciousBtn");
     var susFilterBadge = document.getElementById("susFilterBadge");
+    var paginationBar = document.getElementById("withdrawalsPaginationBar");
 
-    withdrawalsList.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-dim);">Loading requests...</td></tr>';
+    withdrawalsList.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-dim);">Loading requests (Page ' + currentWithdrawalsPage + ')...</td></tr>';
     try {
-      var data = await apiAdmin("GET", { action: "withdrawals", status: currentFilter });
+      var data = await apiAdmin("GET", {
+        action: "withdrawals",
+        status: currentFilter,
+        page: currentWithdrawalsPage,
+        limit: withdrawalsPageSize
+      });
       if (data.ok) {
         if (data.pendingSuspiciousCount !== undefined && susFilterBadge) {
           if (data.pendingSuspiciousCount > 0) {
@@ -1457,6 +1499,37 @@
           if (bulkApproveBtn) bulkApproveBtn.style.display = "none";
           if (bulkApproveSuspiciousBtn) bulkApproveSuspiciousBtn.style.display = "none";
           if (banAllSuspiciousBtn) banAllSuspiciousBtn.style.display = "none";
+        }
+
+        var totalRecords = (typeof data.totalCount === "number") ? data.totalCount : (data.withdrawals ? data.withdrawals.length : 0);
+        totalWithdrawalsPages = (typeof data.totalPages === "number") ? data.totalPages : Math.max(1, Math.ceil(totalRecords / withdrawalsPageSize));
+        currentWithdrawalsPage = Math.min(Math.max(1, data.page || currentWithdrawalsPage), totalWithdrawalsPages);
+
+        var wPageStart = document.getElementById("wPageStart");
+        var wPageEnd = document.getElementById("wPageEnd");
+        var wTotalRecords = document.getElementById("wTotalRecords");
+        var wCurrentPageLabel = document.getElementById("wCurrentPageLabel");
+
+        if (paginationBar && totalRecords > 0) {
+          paginationBar.style.display = "flex";
+          var startIdx = ((currentWithdrawalsPage - 1) * withdrawalsPageSize) + 1;
+          var endIdx = Math.min(startIdx + (data.withdrawals ? data.withdrawals.length : 0) - 1, totalRecords);
+          if (wPageStart) wPageStart.textContent = startIdx;
+          if (wPageEnd) wPageEnd.textContent = endIdx;
+          if (wTotalRecords) wTotalRecords.textContent = totalRecords;
+          if (wCurrentPageLabel) wCurrentPageLabel.textContent = "Page " + currentWithdrawalsPage + " of " + totalWithdrawalsPages;
+          if (wPrevPageBtn) {
+            wPrevPageBtn.disabled = (currentWithdrawalsPage <= 1);
+            wPrevPageBtn.style.opacity = (currentWithdrawalsPage <= 1) ? "0.4" : "1";
+            wPrevPageBtn.style.cursor = (currentWithdrawalsPage <= 1) ? "not-allowed" : "pointer";
+          }
+          if (wNextPageBtn) {
+            wNextPageBtn.disabled = (currentWithdrawalsPage >= totalWithdrawalsPages);
+            wNextPageBtn.style.opacity = (currentWithdrawalsPage >= totalWithdrawalsPages) ? "0.4" : "1";
+            wNextPageBtn.style.cursor = (currentWithdrawalsPage >= totalWithdrawalsPages) ? "not-allowed" : "pointer";
+          }
+        } else if (paginationBar) {
+          paginationBar.style.display = "none";
         }
 
         if (!data.withdrawals || data.withdrawals.length === 0) {
@@ -1938,7 +2011,7 @@
 
       var data;
       try {
-        data = await apiAdmin("GET", { action: "withdrawals", status: "PENDING" });
+        data = await apiAdmin("GET", { action: "withdrawals", status: "PENDING", all: "true" });
       } catch(err) {
         alert("Failed to fetch pending withdrawals: " + (err.message || err));
         return;
@@ -1981,7 +2054,7 @@
 
       var data;
       try {
-        data = await apiAdmin("GET", { action: "withdrawals", status: "SUSPICIOUS" });
+        data = await apiAdmin("GET", { action: "withdrawals", status: "SUSPICIOUS", all: "true" });
       } catch(err) {
         alert("Failed to fetch suspicious withdrawals: " + (err.message || err));
         return;

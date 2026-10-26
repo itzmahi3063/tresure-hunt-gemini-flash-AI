@@ -14373,34 +14373,41 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elNetworkEarnings) elNetworkEarnings.textContent = earnings.toLocaleString();
   }
 
-  function renderRankingsView() {
+  var currentRankingsBatchSize = 15;
+  var currentRankingsLimit = 15;
+
+  function renderRankingsView(isLoadMore) {
     var isRecruiters = (currentRankSubTab === "recruiters");
     var list = isRecruiters ? (referralData && referralData.topRecruiters || []) : (referralData && referralData.topMiners || []);
 
-    var top1 = list[0] || null;
-    var top2 = list[1] || null;
-    var top3 = list[2] || null;
+    if (!isLoadMore) {
+      currentRankingsLimit = currentRankingsBatchSize;
 
-    var p1Name = document.getElementById("podium1Name");
-    var p1Score = document.getElementById("podium1Score");
-    var p1Avatar = document.getElementById("podium1Avatar");
-    if (p1Name) p1Name.textContent = top1 ? top1.name : "---";
-    if (p1Score) p1Score.textContent = top1 ? (isRecruiters ? (top1.recruitsCount || 0).toLocaleString() : (top1.score || 0).toLocaleString()) : "0";
-    if (p1Avatar) p1Avatar.textContent = top1 ? (top1.avatarText || (top1.name ? top1.name.slice(0, 2).toUpperCase() : "1")) : "-";
+      var top1 = list[0] || null;
+      var top2 = list[1] || null;
+      var top3 = list[2] || null;
 
-    var p2Name = document.getElementById("podium2Name");
-    var p2Score = document.getElementById("podium2Score");
-    var p2Avatar = document.getElementById("podium2Avatar");
-    if (p2Name) p2Name.textContent = top2 ? top2.name : "---";
-    if (p2Score) p2Score.textContent = top2 ? (isRecruiters ? (top2.recruitsCount || 0).toLocaleString() : (top2.score || 0).toLocaleString()) : "0";
-    if (p2Avatar) p2Avatar.textContent = top2 ? (top2.avatarText || (top2.name ? top2.name.slice(0, 2).toUpperCase() : "2")) : "-";
+      var p1Name = document.getElementById("podium1Name");
+      var p1Score = document.getElementById("podium1Score");
+      var p1Avatar = document.getElementById("podium1Avatar");
+      if (p1Name) p1Name.textContent = top1 ? top1.name : "---";
+      if (p1Score) p1Score.textContent = top1 ? (isRecruiters ? (top1.recruitsCount || 0).toLocaleString() : (top1.score || 0).toLocaleString()) : "0";
+      if (p1Avatar) p1Avatar.textContent = top1 ? (top1.avatarText || (top1.name ? top1.name.slice(0, 2).toUpperCase() : "1")) : "-";
 
-    var p3Name = document.getElementById("podium3Name");
-    var p3Score = document.getElementById("podium3Score");
-    var p3Avatar = document.getElementById("podium3Avatar");
-    if (p3Name) p3Name.textContent = top3 ? top3.name : "---";
-    if (p3Score) p3Score.textContent = top3 ? (isRecruiters ? (top3.recruitsCount || 0).toLocaleString() : (top3.score || 0).toLocaleString()) : "0";
-    if (p3Avatar) p3Avatar.textContent = top3 ? (top3.avatarText || (top3.name ? top3.name.slice(0, 2).toUpperCase() : "3")) : "-";
+      var p2Name = document.getElementById("podium2Name");
+      var p2Score = document.getElementById("podium2Score");
+      var p2Avatar = document.getElementById("podium2Avatar");
+      if (p2Name) p2Name.textContent = top2 ? top2.name : "---";
+      if (p2Score) p2Score.textContent = top2 ? (isRecruiters ? (top2.recruitsCount || 0).toLocaleString() : (top2.score || 0).toLocaleString()) : "0";
+      if (p2Avatar) p2Avatar.textContent = top2 ? (top2.avatarText || (top2.name ? top2.name.slice(0, 2).toUpperCase() : "2")) : "-";
+
+      var p3Name = document.getElementById("podium3Name");
+      var p3Score = document.getElementById("podium3Score");
+      var p3Avatar = document.getElementById("podium3Avatar");
+      if (p3Name) p3Name.textContent = top3 ? top3.name : "---";
+      if (p3Score) p3Score.textContent = top3 ? (isRecruiters ? (top3.recruitsCount || 0).toLocaleString() : (top3.score || 0).toLocaleString()) : "0";
+      if (p3Avatar) p3Avatar.textContent = top3 ? (top3.avatarText || (top3.name ? top3.name.slice(0, 2).toUpperCase() : "3")) : "-";
+    }
 
     var container = document.getElementById("leaderboardListContainer");
     if (!container) return;
@@ -14416,8 +14423,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    var displayedItems = rest.slice(0, currentRankingsLimit);
+
     var html = "";
-    rest.forEach(function(item) {
+    displayedItems.forEach(function(item) {
       var initials = item.avatarText || (item.name ? item.name.slice(0, 2).toUpperCase() : "M");
       var username = item.username || "";
       var scoreVal = isRecruiters ? (item.recruitsCount || 0).toLocaleString() : (item.score || 0).toLocaleString();
@@ -14437,7 +14446,24 @@ document.addEventListener('DOMContentLoaded', () => {
       '</div>';
     });
 
+    if (rest.length > currentRankingsLimit) {
+      html += '<div id="leaderboardLoadMoreBox" style="text-align: center; padding: 12px 0 6px;">' +
+        '<button id="leaderboardLoadMoreBtn" type="button" style="background: var(--sub-box-bg); border: 1px solid var(--border); color: var(--text); padding: 10px 22px; border-radius: 14px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px var(--card-shadow);">' +
+          '<span>Show More Rankers</span>' +
+          '<span style="font-size: 11px; opacity: 0.7; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 6px;">' + displayedItems.length + '/' + rest.length + '</span>' +
+        '</button>' +
+      '</div>';
+    }
+
     container.innerHTML = html;
+
+    var loadMoreBtn = document.getElementById("leaderboardLoadMoreBtn");
+    if (loadMoreBtn) {
+      loadMoreBtn.onclick = function() {
+        currentRankingsLimit += currentRankingsBatchSize;
+        renderRankingsView(true);
+      };
+    }
   }
 
   function renderMilestonesView() {

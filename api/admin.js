@@ -398,10 +398,10 @@ module.exports = async (req, res) => {
         const rawList = await withdrawalsCol
           .find(filter)
           .sort({ createdAt: -1 })
-          .limit(200)
+          .limit(500)
           .toArray();
 
-        // Attach user info
+        // Attach user info (with projection for minimal DB memory/CPU)
         const userIds = [...new Set(rawList.map(w => String(w.telegramId)))];
         const usersMap = {};
         if (userIds.length > 0) {
@@ -410,6 +410,30 @@ module.exports = async (req, res) => {
               { telegramId: { $in: userIds } },
               { telegramId: { $in: userIds.map(Number).filter(Boolean) } }
             ]
+          }, {
+            projection: {
+              telegramId: 1,
+              firstName: 1,
+              lastName: 1,
+              username: 1,
+              balance: 1,
+              recruitsCount: 1,
+              isBanned: 1,
+              isSuspicious: 1,
+              isHighRiskHacker: 1,
+              isFakeAdBypasser: 1,
+              permanentWarning: 1,
+              isSuspendedMultipleAccount: 1,
+              deviceViolationsCount: 1,
+              adSkipUnder9sStrikes: 1,
+              spinUnder5sStrikes: 1,
+              securityFlag: 1,
+              suspiciousReason: 1,
+              penaltyNotice: 1,
+              fraudScore: 1,
+              registeredIp: 1,
+              lastIp: 1
+            }
           }).toArray();
           foundUsers.forEach(u => {
             usersMap[String(u.telegramId)] = u;
@@ -492,9 +516,20 @@ module.exports = async (req, res) => {
           filteredList = list.filter(w => w.status === "PENDING" && !w.isSuspicious);
         }
 
+        const isAll = (req.query.all === "true" || req.query.all === "1");
+        const totalCount = filteredList.length;
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = isAll ? (totalCount || 1) : Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+        const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+        const paginatedList = isAll ? filteredList : filteredList.slice((page - 1) * limit, page * limit);
+
         res.status(200).json({
           ok: true,
-          withdrawals: filteredList,
+          withdrawals: paginatedList,
+          totalCount: totalCount,
+          page: page,
+          limit: limit,
+          totalPages: totalPages,
           pendingSuspiciousCount: Math.max(dbPendingSuspiciousCount, localSuspiciousCount)
         });
         return;

@@ -47,9 +47,18 @@ module.exports = async (req, res) => {
 
     // 1. GET: Fetch 100% REAL Rankings & Milestones from Database
     if (req.method === "GET") {
-      // Real Top Recruiters from Database
+      // Real Top Recruiters from Database (with projection for minimal DB memory/CPU)
       const dbRecruiters = await usersCol
-        .find({ recruitsCount: { $gt: 0 } })
+        .find({ recruitsCount: { $gt: 0 } }, {
+          projection: {
+            telegramId: 1,
+            firstName: 1,
+            lastName: 1,
+            username: 1,
+            recruitsCount: 1,
+            balance: 1
+          }
+        })
         .sort({ recruitsCount: -1, balance: -1 })
         .limit(20)
         .toArray();
@@ -76,13 +85,25 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Real Top Miners from Database: strictly based on Home 2-Hour Mining!
+      // Real Top Miners from Database (with projection for minimal DB memory/CPU)
       const dbMiners = await usersCol
         .find({
           $or: [
             { totalMinedCoins: { $gt: 0 } },
             { lastMineCollectedAt: { $ne: null } }
           ]
+        }, {
+          projection: {
+            telegramId: 1,
+            firstName: 1,
+            lastName: 1,
+            username: 1,
+            totalMinedCoins: 1,
+            lastMineCollectedAt: 1,
+            minerLevel: 1,
+            totalMinedClaims: 1,
+            balance: 1
+          }
         })
         .sort({ totalMinedCoins: -1, minerLevel: -1, totalMinedClaims: -1, balance: -1 })
         .limit(100)
