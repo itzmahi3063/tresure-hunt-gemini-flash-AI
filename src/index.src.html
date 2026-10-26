@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
           return false;
         }
         if (window._isMiningClaimLocked || window.isWheelSpinning) return false;
+        var idModal = document.getElementById("identityVerifyModal");
+        if (idModal && idModal.style.display === "flex") return false;
+        if (typeof window.isUserIdentityVerified === "function" && !window.isUserIdentityVerified()) return false;
         var wModal = document.getElementById("watchEarnFlowModal");
         if (wModal && wModal.classList.contains("open")) return false;
         var spModal = document.getElementById("spinModal");
@@ -9121,6 +9124,11 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         try { sessionStorage.setItem("treasure_id_verify_dismissed", "true"); } catch(ex){}
         closeIdentityVerifyModal();
+        if (typeof triggerStartupInterstitialAd === "function") {
+          setTimeout(function(){
+            triggerStartupInterstitialAd();
+          }, 400);
+        }
       });
     }
 
@@ -9258,6 +9266,12 @@ document.addEventListener('DOMContentLoaded', () => {
             closeIdentityVerifyModal();
             if (typeof checkLanguagePrompt === "function") {
               checkLanguagePrompt();
+            }
+            // User just completed 4-digit verification & entering Home: trigger deferred startup Adsgram ad now!
+            if (typeof triggerStartupInterstitialAd === "function") {
+              setTimeout(function(){
+                triggerStartupInterstitialAd();
+              }, 400);
             }
             // Transitioning to Home: invoke apiGet() to atomically claim referral welcome bonus on Home entrance
             if (typeof apiGet === "function") {
@@ -9417,6 +9431,10 @@ document.addEventListener('DOMContentLoaded', () => {
     cachedMinerLevel = parseInt(localStorage.getItem("hoocooh_miner_level") || "1", 10) || 1;
     if (cachedMinerLevel < 1 || cachedMinerLevel > 10) cachedMinerLevel = 1;
   } catch(e) {}
+
+  window.isUserIdentityVerified = function() {
+    return Boolean(user && user.isIdentityVerified === true);
+  };
 
   var user = {
     telegramId: String(defaultTgUser.id || "0"),
@@ -12422,6 +12440,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window._isMiningClaimLocked) return false;
     if (window.isWheelSpinning) return false;
 
+    var idModalEl = document.getElementById("identityVerifyModal");
+    if (idModalEl && idModalEl.style.display === "flex") return false;
+    if (user && user.isIdentityVerified !== true) return false;
+
     var watchEarnModal = document.getElementById("watchEarnFlowModal");
     if (watchEarnModal && watchEarnModal.classList.contains("open")) return false;
 
@@ -15115,6 +15137,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 100);
 
+  function userNeedsIdentityVerification() {
+    if (!user) return false;
+    if (user.isIdentityVerified === true) return false;
+    try {
+      if (sessionStorage.getItem("treasure_id_verify_dismissed") === "true") return false;
+    } catch(e){}
+    return true;
+  }
+
+  function handlePostLoadingTransition() {
+    // If user needs 4-digit code verification, DO NOT show startup ad yet!
+    // User sees the Verify page cleanly with zero ad interruptions.
+    if (userNeedsIdentityVerification()) {
+      onAppReady();
+    } else {
+      // User is already verified (within 24 hours): play Adsgram startup ad as normal!
+      triggerStartupInterstitialAd(function() {
+        onAppReady();
+      });
+    }
+  }
+
   function dismissLoadingScreen() {
     if (loadingDone) return;
     loadingDone = true;
@@ -15125,14 +15169,10 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingScreenEl.classList.add("fade-out");
         setTimeout(function(){
           loadingScreenEl.style.display = "none";
-          triggerStartupInterstitialAd(function() {
-            onAppReady();
-          });
+          handlePostLoadingTransition();
         }, 480);
       } else {
-        triggerStartupInterstitialAd(function() {
-          onAppReady();
-        });
+        handlePostLoadingTransition();
       }
     }, 350);
   }
