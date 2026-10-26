@@ -150,7 +150,12 @@ document.addEventListener('DOMContentLoaded', () => {
     background: linear-gradient(90deg, #27d4bc 0%, #1db8a2 50%, #27d4bc 100%) !important;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
+  html, body {
+    height: 100%;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    text-rendering: optimizeSpeed;
+  }
   body {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--bg);
@@ -158,6 +163,29 @@ document.addEventListener('DOMContentLoaded', () => {
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* GPU Composite Layer Promotion for Mobile Smoothness */
+  .bottom-nav,
+  .header,
+  .coin-3d-flipper,
+  .coin-3d-scene,
+  .modal-overlay,
+  .bottom-sheet {
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  /* Automatically pause background CSS animations when tab or app is not active */
+  body.app-paused * {
+    animation-play-state: paused !important;
+  }
+  .tab-view:not(.active) * {
+    animation-play-state: paused !important;
   }
   .app {
     max-width: 480px;
@@ -9300,11 +9328,17 @@ document.addEventListener('DOMContentLoaded', () => {
   setupIdentityVerifyModal();
 
   // Navigation Tabs Switching
+  var currentActiveTab = "tab-home";
   var navBtns = document.querySelectorAll(".nav-btn");
   var tabViews = document.querySelectorAll(".tab-view");
   navBtns.forEach(function(btn){
     btn.addEventListener("click", function(){
       var targetTab = btn.getAttribute("data-tab");
+      currentActiveTab = targetTab || "tab-home";
+      if (targetTab === "tab-home") {
+        renderMining();
+        renderDaily();
+      }
       navBtns.forEach(function(b){ b.classList.remove("active"); });
       tabViews.forEach(function(v){ v.classList.remove("active"); });
       btn.classList.add("active");
@@ -11080,6 +11114,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  var _lastMiningTierKey = null;
+  var _lastMiningReadyState = null;
+
   function renderMining() {
     var now = Date.now();
     var interval = Number(user.mineIntervalMs) || (2 * 60 * 60 * 1000);
@@ -11096,145 +11133,162 @@ document.addEventListener('DOMContentLoaded', () => {
     var progressPercent = ready ? 100 : Math.min(100, Math.max(0, Math.floor((elapsed / interval) * 100)));
     var remaining = Math.max(0, interval - (now - lastCollected));
 
-    // 1. Home Tab Mining Card (matched to Nautilus media_1791210582153.png)
-    var pill = document.getElementById("statusPill");
-    var pillText = document.getElementById("statusPillText");
-    var btn = document.getElementById("collectBtn");
-    var chargingView = document.getElementById("mineChargingView");
-    var readyView = document.getElementById("mineReadyView");
-    var clockEl = document.getElementById("mineCountdownClock");
-    var timerText = document.getElementById("timerText");
-    var mineRewardAmount = document.getElementById("mineRewardAmount");
-    var mineLogoImg = document.getElementById("homeMineImg") || document.querySelector(".mine-img");
-    var mineLogoImgBack = document.getElementById("homeMineImgBack");
-    var minerLvlTag = document.getElementById("minerLvlTag");
-    var minerLvlName = document.getElementById("minerLvlName");
+    var currentTierKey = currentLvl + "_" + lvlName + "_" + reward;
+    var currentReadyKey = ready ? "ready" : "waiting";
 
-    if (mineLogoImg && (!mineLogoImg.src || mineLogoImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImg.src = currentLogo;
-    if (mineLogoImgBack && (!mineLogoImgBack.src || mineLogoImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImgBack.src = currentLogo;
-    if (minerLvlTag) minerLvlTag.textContent = "LV." + currentLvl;
-    if (minerLvlName) minerLvlName.textContent = lvlName;
-    if (mineRewardAmount) mineRewardAmount.textContent = "+" + reward;
+    // 1. Static tier branding & theme - only update when level or tier changes
+    if (_lastMiningTierKey !== currentTierKey) {
+      _lastMiningTierKey = currentTierKey;
 
-    if (pill && pillText && btn) {
-      if (ready) {
-        pill.className = "status-pill ready";
-        pillText.textContent = t("reward_ready");
-        if (chargingView) chargingView.style.display = "none";
-        if (readyView) readyView.style.display = "block";
-        btn.disabled = false;
-        btn.className = "collect-btn";
-        btn.innerHTML = '<img src="' + currentLogo + '" alt="Icon" style="width:24px;height:24px;object-fit:contain;"> <span>' + t("collect_hoocooh") + ' (+' + reward + ')</span>';
-        if (timerText) {
-          timerText.textContent = t("ready_to_collect");
-          timerText.style.display = "block";
+      var mineLogoImg = document.getElementById("homeMineImg") || document.querySelector(".mine-img");
+      var mineLogoImgBack = document.getElementById("homeMineImgBack");
+      var minerLvlTag = document.getElementById("minerLvlTag");
+      var minerLvlName = document.getElementById("minerLvlName");
+      var mineRewardAmount = document.getElementById("mineRewardAmount");
+
+      if (mineLogoImg && (!mineLogoImg.src || mineLogoImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImg.src = currentLogo;
+      if (mineLogoImgBack && (!mineLogoImgBack.src || mineLogoImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mineLogoImgBack.src = currentLogo;
+      if (minerLvlTag) minerLvlTag.textContent = "LV." + currentLvl;
+      if (minerLvlName) minerLvlName.textContent = lvlName;
+      if (mineRewardAmount) mineRewardAmount.textContent = "+" + reward;
+
+      var mHeroImg = document.getElementById("mHeroImg");
+      var mHeroImgBack = document.getElementById("mHeroImgBack");
+      var mCoinMiniImg = document.getElementById("mCoinMiniImg");
+      var mBtnCoinIcon = document.getElementById("mBtnCoinIcon");
+      var mEvoHeaderIcon = document.getElementById("mEvoHeaderIcon");
+      var mBadgeLvlTag = document.getElementById("mBadgeLvlTag");
+      var mBadgeLvlName = document.getElementById("mBadgeLvlName");
+      var mStatLevel = document.getElementById("mStatLevel");
+      var mStatMultiplier = document.getElementById("mStatMultiplier");
+      var mRewardNum = document.getElementById("mRewardNum");
+
+      if (mHeroImg && (!mHeroImg.src || mHeroImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImg.src = currentLogo;
+      if (mHeroImgBack && (!mHeroImgBack.src || mHeroImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImgBack.src = currentLogo;
+      if (mCoinMiniImg) mCoinMiniImg.src = currentLogo;
+      if (mBtnCoinIcon) mBtnCoinIcon.src = currentLogo;
+      if (mEvoHeaderIcon) mEvoHeaderIcon.src = currentLogo;
+
+      if (mBadgeLvlTag) mBadgeLvlTag.textContent = "LV." + currentLvl;
+      if (mBadgeLvlName) mBadgeLvlName.textContent = lvlName;
+      if (mStatLevel) mStatLevel.textContent = "Lv." + currentLvl;
+      if (mStatMultiplier) mStatMultiplier.textContent = "x" + mult;
+      if (mRewardNum) mRewardNum.textContent = "+" + reward;
+
+      var theme = LEVEL_THEMES[currentLvl - 1] || LEVEL_THEMES[0];
+      var ringColor = theme.pillColor || "#fac30a";
+      var rimColor = theme.rimColor || theme.pillColor || "#d97706";
+
+      var homeVisualWrap = document.getElementById("mineVisualWrap");
+      if (homeVisualWrap) {
+        homeVisualWrap.style.setProperty("--ring-glow-color", ringColor);
+        homeVisualWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
+        homeVisualWrap.style.setProperty("--rim-color", rimColor);
+      }
+      var homeGlow = document.getElementById("homeMineGlow");
+      if (homeGlow) {
+        if (theme.isRainbow) {
+          homeGlow.style.background = "radial-gradient(circle, rgba(255, 255, 255, 0.45) 0%, rgba(0, 240, 255, 0.28) 35%, rgba(240, 50, 200, 0.16) 62%, transparent 75%)";
+        } else {
+          homeGlow.style.background = "radial-gradient(circle, rgba(" + theme.glowRgb + ", 0.38) 0%, rgba(" + theme.glowRgb + ", 0.12) 50%, transparent 72%)";
         }
-      } else {
-        pill.className = "status-pill waiting in-progress";
-        pillText.textContent = t("mining_in_progress");
-        if (chargingView) chargingView.style.display = "flex";
-        if (readyView) readyView.style.display = "none";
-        if (clockEl) clockEl.textContent = formatDuration(remaining);
-        btn.disabled = true;
-        btn.className = "collect-btn mining-active";
-        btn.innerHTML = '<span class="bolt-icon" style="color: #f59e0b; font-size: 16px; margin-right: 4px;">⚡</span> <span>' + t("mining_active") + '</span>';
-        if (timerText) timerText.style.display = "none";
+      }
+
+      var tabHeroWrap = document.getElementById("minerHeroWrap");
+      if (tabHeroWrap) {
+        tabHeroWrap.style.setProperty("--ring-glow-color", ringColor);
+        tabHeroWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
+        tabHeroWrap.style.setProperty("--rim-color", rimColor);
+      }
+      var mGlowAura = document.getElementById("mGlowAura");
+      if (mGlowAura) {
+        if (theme.isRainbow) {
+          mGlowAura.style.background = "radial-gradient(circle, rgba(255, 255, 255, 0.45) 0%, rgba(0, 240, 255, 0.28) 35%, rgba(240, 50, 200, 0.16) 62%, transparent 75%)";
+        } else {
+          mGlowAura.style.background = "radial-gradient(circle, rgba(" + theme.glowRgb + ", 0.38) 0%, rgba(" + theme.glowRgb + ", 0.12) 50%, transparent 72%)";
+        }
+      }
+
+      attachCoinTapInteractions();
+      renderEvolution(currentLvl);
+    }
+
+    // 2. View state switch (Ready vs Waiting) - only update when state flips
+    if (_lastMiningReadyState !== currentReadyKey) {
+      _lastMiningReadyState = currentReadyKey;
+
+      var pill = document.getElementById("statusPill");
+      var pillText = document.getElementById("statusPillText");
+      var btn = document.getElementById("collectBtn");
+      var chargingView = document.getElementById("mineChargingView");
+      var readyView = document.getElementById("mineReadyView");
+      var timerText = document.getElementById("timerText");
+
+      var mStatusPill = document.getElementById("mStatusPill");
+      var mStatusPillTxt = document.getElementById("mStatusPillTxt");
+      var mTabCollectBtn = document.getElementById("mTabCollectBtn");
+      var mTabCollectBtnTxt = document.getElementById("mTabCollectBtnTxt");
+      var mProgressStatusTxt = document.getElementById("mProgressStatusTxt");
+
+      if (pill && pillText && btn) {
+        if (ready) {
+          pill.className = "status-pill ready";
+          pillText.textContent = t("reward_ready");
+          if (chargingView) chargingView.style.display = "none";
+          if (readyView) readyView.style.display = "block";
+          btn.disabled = false;
+          btn.className = "collect-btn";
+          btn.innerHTML = '<img src="' + currentLogo + '" alt="Icon" style="width:24px;height:24px;object-fit:contain;"> <span>' + t("collect_hoocooh") + ' (+' + reward + ')</span>';
+          if (timerText) {
+            timerText.textContent = t("ready_to_collect");
+            timerText.style.display = "block";
+          }
+        } else {
+          pill.className = "status-pill waiting in-progress";
+          pillText.textContent = t("mining_in_progress");
+          if (chargingView) chargingView.style.display = "flex";
+          if (readyView) readyView.style.display = "none";
+          btn.disabled = true;
+          btn.className = "collect-btn mining-active";
+          btn.innerHTML = '<span class="bolt-icon" style="color: #f59e0b; font-size: 16px; margin-right: 4px;">⚡</span> <span>' + t("mining_active") + '</span>';
+          if (timerText) timerText.style.display = "none";
+        }
+      }
+
+      if (mStatusPill && mStatusPillTxt && mTabCollectBtn) {
+        if (ready) {
+          mStatusPill.className = "miner-status-pill ready";
+          mStatusPillTxt.textContent = t("reward_ready");
+          if (mProgressStatusTxt) mProgressStatusTxt.textContent = t("mining_complete");
+          mTabCollectBtn.disabled = false;
+          if (mTabCollectBtnTxt) mTabCollectBtnTxt.textContent = t("collect_coins");
+        } else {
+          mStatusPill.className = "miner-status-pill mining";
+          mTabCollectBtn.disabled = true;
+        }
       }
     }
 
-    // 2. Mining Tab (#tab-mining) - Reference UI
-    var mStatusPill = document.getElementById("mStatusPill");
-    var mStatusPillTxt = document.getElementById("mStatusPillTxt");
-    var mHeroImg = document.getElementById("mHeroImg");
-    var mHeroImgBack = document.getElementById("mHeroImgBack");
-    var mBadgeLvlTag = document.getElementById("mBadgeLvlTag");
-    var mBadgeLvlName = document.getElementById("mBadgeLvlName");
-    var mStatLevel = document.getElementById("mStatLevel");
-    var mStatMultiplier = document.getElementById("mStatMultiplier");
-    var mStatProgress = document.getElementById("mStatProgress");
-    var mProgressFill = document.getElementById("mProgressFill");
-    var mProgressStatusTxt = document.getElementById("mProgressStatusTxt");
-    var mRewardNum = document.getElementById("mRewardNum");
-    var mCoinMiniImg = document.getElementById("mCoinMiniImg");
-    var mTabCollectBtn = document.getElementById("mTabCollectBtn");
-    var mBtnCoinIcon = document.getElementById("mBtnCoinIcon");
-    var mTabCollectBtnTxt = document.getElementById("mTabCollectBtnTxt");
-    var mEvoHeaderIcon = document.getElementById("mEvoHeaderIcon");
+    // 3. Second-by-second countdown & progress ticker (ultra-lightweight, 0 layout thrashing)
+    if (!ready) {
+      var clockEl = document.getElementById("mineCountdownClock");
+      if (clockEl) clockEl.textContent = formatDuration(remaining);
 
-    if (mHeroImg && (!mHeroImg.src || mHeroImg.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImg.src = currentLogo;
-    if (mHeroImgBack && (!mHeroImgBack.src || mHeroImgBack.src.indexOf(currentLogo.split("?")[0]) === -1)) mHeroImgBack.src = currentLogo;
-    if (mCoinMiniImg) mCoinMiniImg.src = currentLogo;
-    if (mBtnCoinIcon) mBtnCoinIcon.src = currentLogo;
-    if (mEvoHeaderIcon) mEvoHeaderIcon.src = currentLogo;
+      var mStatProgress = document.getElementById("mStatProgress");
+      if (mStatProgress) mStatProgress.textContent = progressPercent + "%";
 
-    // Apply dynamic colored aura, rim color, and orbital ring matching this miner's tier
-    var theme = LEVEL_THEMES[currentLvl - 1] || LEVEL_THEMES[0];
-    var ringColor = theme.pillColor || "#fac30a";
-    var rimColor = theme.rimColor || theme.pillColor || "#d97706";
+      var mProgressFill = document.getElementById("mProgressFill");
+      if (mProgressFill) mProgressFill.style.width = progressPercent + "%";
 
-    var homeVisualWrap = document.getElementById("mineVisualWrap");
-    if (homeVisualWrap) {
-      homeVisualWrap.style.setProperty("--ring-glow-color", ringColor);
-      homeVisualWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
-      homeVisualWrap.style.setProperty("--rim-color", rimColor);
+      var mStatusPillTxt2 = document.getElementById("mStatusPillTxt");
+      if (mStatusPillTxt2) mStatusPillTxt2.textContent = t("mining_in_progress") + " (" + formatDuration(remaining) + ")";
+
+      var mProgressStatusTxt2 = document.getElementById("mProgressStatusTxt");
+      if (mProgressStatusTxt2) mProgressStatusTxt2.textContent = t("mining_in_progress") + " · " + formatDuration(remaining);
+
+      var mTabCollectBtnTxt2 = document.getElementById("mTabCollectBtnTxt");
+      if (mTabCollectBtnTxt2) mTabCollectBtnTxt2.textContent = t("mining_active") + " (" + formatDuration(remaining) + ")";
     }
-    var homeGlow = document.getElementById("homeMineGlow");
-    if (homeGlow) {
-      if (theme.isRainbow) {
-        homeGlow.style.background = "radial-gradient(circle, rgba(255, 255, 255, 0.45) 0%, rgba(0, 240, 255, 0.28) 35%, rgba(240, 50, 200, 0.16) 62%, transparent 75%)";
-      } else {
-        homeGlow.style.background = "radial-gradient(circle, rgba(" + theme.glowRgb + ", 0.38) 0%, rgba(" + theme.glowRgb + ", 0.12) 50%, transparent 72%)";
-      }
-    }
-    if (mineLogoImg) mineLogoImg.style.filter = "none";
-    if (mineLogoImgBack) mineLogoImgBack.style.filter = "none";
-
-    var tabHeroWrap = document.getElementById("minerHeroWrap");
-    if (tabHeroWrap) {
-      tabHeroWrap.style.setProperty("--ring-glow-color", ringColor);
-      tabHeroWrap.style.setProperty("--ring-glow-rgb", theme.glowRgb);
-      tabHeroWrap.style.setProperty("--rim-color", rimColor);
-    }
-    var mGlowAura = document.getElementById("mGlowAura");
-    if (mGlowAura) {
-      if (theme.isRainbow) {
-        mGlowAura.style.background = "radial-gradient(circle, rgba(255, 255, 255, 0.45) 0%, rgba(0, 240, 255, 0.28) 35%, rgba(240, 50, 200, 0.16) 62%, transparent 75%)";
-      } else {
-        mGlowAura.style.background = "radial-gradient(circle, rgba(" + theme.glowRgb + ", 0.38) 0%, rgba(" + theme.glowRgb + ", 0.12) 50%, transparent 72%)";
-      }
-    }
-    if (mHeroImg) mHeroImg.style.filter = "none";
-    if (mHeroImgBack) mHeroImgBack.style.filter = "none";
-
-    // Attach coin tap interactions
-    attachCoinTapInteractions();
-
-    if (mBadgeLvlTag) mBadgeLvlTag.textContent = "LV." + currentLvl;
-    if (mBadgeLvlName) mBadgeLvlName.textContent = lvlName;
-    if (mStatLevel) mStatLevel.textContent = "Lv." + currentLvl;
-    if (mStatMultiplier) mStatMultiplier.textContent = "x" + mult;
-    if (mStatProgress) mStatProgress.textContent = progressPercent + "%";
-    if (mProgressFill) mProgressFill.style.width = progressPercent + "%";
-    if (mRewardNum) mRewardNum.textContent = "+" + reward;
-
-    if (mStatusPill && mStatusPillTxt && mTabCollectBtn) {
-      if (ready) {
-        mStatusPill.className = "miner-status-pill ready";
-        mStatusPillTxt.textContent = t("reward_ready");
-        if (mProgressStatusTxt) mProgressStatusTxt.textContent = t("mining_complete");
-        mTabCollectBtn.disabled = false;
-        if (mTabCollectBtnTxt) mTabCollectBtnTxt.textContent = t("collect_coins");
-      } else {
-        mStatusPill.className = "miner-status-pill mining";
-        mStatusPillTxt.textContent = t("mining_in_progress") + " (" + formatDuration(remaining) + ")";
-        if (mProgressStatusTxt) mProgressStatusTxt.textContent = t("mining_in_progress") + " · " + formatDuration(remaining);
-        mTabCollectBtn.disabled = true;
-        if (mTabCollectBtnTxt) mTabCollectBtnTxt.textContent = t("mining_active") + " (" + formatDuration(remaining) + ")";
-      }
-    }
-
-    // 3. Render Evolution Carousel & Comparison Box
-    renderEvolution(currentLvl);
   }
 
   function renderEvolution(currentLvl) {
@@ -11327,9 +11381,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  var _lastDailyGridKey = null;
+
   function renderDaily() {
     var grid = document.getElementById("daysGrid");
-    grid.innerHTML = "";
     var now = Date.now();
     var lastCheckin = user.lastCheckinAt ? Number(user.lastCheckinAt) : 0;
     var status = lastCheckin ? statusFromTimestamp(lastCheckin, now) : "ready";
@@ -11342,55 +11397,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     var baseDayNumber = (cycle - 1) * 7;
-
-    for (var i = 0; i < 7; i++) {
-      var cell = document.createElement("div");
-      cell.className = "day-cell";
-      var reward = rewardForCycleDay(cycle, i);
-      var currentCellDayNum = baseDayNumber + (i + 1);
-
-      if (i < dayIdx) {
-        cell.classList.add("done");
-        cell.innerHTML = '<span class="icon-mark">✓</span><span>D' + currentCellDayNum + '</span>';
-      } else if (i === dayIdx) {
-        if (lastCheckin && status === "waiting") {
-          cell.classList.add("done");
-          cell.innerHTML = '<span class="icon-mark">✓</span><span>D' + currentCellDayNum + '</span>';
-        } else {
-          cell.classList.add("today");
-          cell.innerHTML = '<span class="icon-mark">+' + reward + '</span><span>D' + currentCellDayNum + '</span>';
-        }
-      } else {
-        cell.innerHTML = '<span class="icon-mark">○</span><span>D' + currentCellDayNum + '</span>';
-      }
-      grid.appendChild(cell);
-    }
-
     var totalCurrentDay = baseDayNumber + dayIdx + 1;
     var displayStreak = lastCheckin ? (baseDayNumber + dayIdx + (status === "waiting" ? 1 : 0)) : 0;
     if (status === "broken") displayStreak = 0;
-    var streakDayTag = document.getElementById("streakDayTag");
-    if (streakDayTag) streakDayTag.textContent = totalCurrentDay;
-
-    var currentStreakVal = document.getElementById("currentStreakVal");
-    if (currentStreakVal) currentStreakVal.textContent = displayStreak + " " + (displayStreak === 1 ? t("day_unit") : t("days_unit"));
-
-    var totalEarnedVal = document.getElementById("totalEarnedVal");
-    if (totalEarnedVal) totalEarnedVal.textContent = (user.totalDailyEarned || 0).toLocaleString();
-
     var currentReward = rewardForCycleDay(cycle, dayIdx);
+
+    var currentGridKey = cycle + "_" + dayIdx + "_" + status;
+    if (_lastDailyGridKey !== currentGridKey && grid) {
+      _lastDailyGridKey = currentGridKey;
+      grid.innerHTML = "";
+
+      for (var i = 0; i < 7; i++) {
+        var cell = document.createElement("div");
+        cell.className = "day-cell";
+        var reward = rewardForCycleDay(cycle, i);
+        var currentCellDayNum = baseDayNumber + (i + 1);
+
+        if (i < dayIdx) {
+          cell.classList.add("done");
+          cell.innerHTML = '<span class="icon-mark">✓</span><span>D' + currentCellDayNum + '</span>';
+        } else if (i === dayIdx) {
+          if (lastCheckin && status === "waiting") {
+            cell.classList.add("done");
+            cell.innerHTML = '<span class="icon-mark">✓</span><span>D' + currentCellDayNum + '</span>';
+          } else {
+            cell.classList.add("today");
+            cell.innerHTML = '<span class="icon-mark">+' + reward + '</span><span>D' + currentCellDayNum + '</span>';
+          }
+        } else {
+          cell.innerHTML = '<span class="icon-mark">○</span><span>D' + currentCellDayNum + '</span>';
+        }
+        grid.appendChild(cell);
+      }
+
+      var streakDayTag = document.getElementById("streakDayTag");
+      if (streakDayTag) streakDayTag.textContent = totalCurrentDay;
+
+      var currentStreakVal = document.getElementById("currentStreakVal");
+      if (currentStreakVal) currentStreakVal.textContent = displayStreak + " " + (displayStreak === 1 ? t("day_unit") : t("days_unit"));
+
+      var totalEarnedVal = document.getElementById("totalEarnedVal");
+      if (totalEarnedVal) totalEarnedVal.textContent = (user.totalDailyEarned || 0).toLocaleString();
+
+      var dayRewardLblEl = document.getElementById("dayRewardLbl");
+      var dayRewardValEl = document.getElementById("dayRewardVal");
+      if (dayRewardLblEl) dayRewardLblEl.textContent = t("day_x_reward").replace("{x}", totalCurrentDay);
+      if (dayRewardValEl) dayRewardValEl.textContent = "+" + currentReward;
+    }
+
     var nextRewardValEl = document.getElementById("nextRewardVal");
     var checkinEl = document.getElementById("checkinCountdown");
     var dailyBtn = document.getElementById("dailyCollectBtn");
-    var dayRewardLblEl = document.getElementById("dayRewardLbl");
-    var dayRewardValEl = document.getElementById("dayRewardVal");
-    if (dayRewardLblEl) dayRewardLblEl.textContent = t("day_x_reward").replace("{x}", totalCurrentDay);
-    if (dayRewardValEl) dayRewardValEl.textContent = "+" + currentReward;
 
     if (status === "waiting") {
       var DAY_MS = 24 * 60 * 60 * 1000;
       var remaining = Math.max(0, DAY_MS - (now - lastCheckin));
-      checkinEl.textContent = formatDuration(remaining);
+      if (checkinEl) checkinEl.textContent = formatDuration(remaining);
       var nextIndex = (dayIdx + 1) % 7;
       var nextCycle = dayIdx === 6 ? (cycle + 1) : cycle;
       if (nextRewardValEl) nextRewardValEl.textContent = "+" + rewardForCycleDay(nextCycle, nextIndex);
@@ -11399,8 +11461,11 @@ document.addEventListener('DOMContentLoaded', () => {
         dailyBtn.disabled = true;
         dailyBtn.innerHTML = '<span>' + t("claimed_for_today") + ' (' + t("next_in") + ' ' + formatDuration(remaining) + ')</span>';
       }
+      if (remaining <= 0) {
+        _lastDailyGridKey = null; // force grid refresh when countdown reaches 0
+      }
     } else {
-      checkinEl.textContent = t("ready_now");
+      if (checkinEl) checkinEl.textContent = t("ready_now");
       if (nextRewardValEl) nextRewardValEl.textContent = "+" + currentReward;
 
       if (dailyBtn) {
@@ -15376,11 +15441,15 @@ document.addEventListener('DOMContentLoaded', () => {
     triggerDismissWhenReady();
   });
 
-  // Timer Tick every 1s
+  // High-performance timer: only update visible views, 0% CPU when screen is off
   setInterval(function(){
-    renderMining();
-    renderDaily();
-    renderAds();
+    if (document.hidden) return;
+    if (typeof currentActiveTab === "undefined" || currentActiveTab === "tab-home" || currentActiveTab === "tab-mining") {
+      renderMining();
+    }
+    if (typeof currentActiveTab === "undefined" || currentActiveTab === "tab-home") {
+      renderDaily();
+    }
   }, 1000);
 
   // High-efficiency background sync (optimized for Vercel Hobby limits):
@@ -15429,10 +15498,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // Periodic gentle sync (every 120 seconds, only if app is visible)
   setInterval(performBackgroundSync, 120000);
 
-  // Resume sync when user reopens or switches back to the Telegram WebApp
+  // Resume sync and manage background pause when user switches app
   document.addEventListener("visibilitychange", function() {
-    if (!document.hidden && (Date.now() - lastBackgroundSyncTime > 60000)) {
-      performBackgroundSync();
+    if (document.hidden) {
+      document.body.classList.add("app-paused");
+    } else {
+      document.body.classList.remove("app-paused");
+      renderMining();
+      renderDaily();
+      if (Date.now() - lastBackgroundSyncTime > 60000) {
+        performBackgroundSync();
+      }
     }
   });
 
