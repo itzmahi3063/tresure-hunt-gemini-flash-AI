@@ -13,6 +13,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
 <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
+<script src="https://uslads.com/sdk/tower-ads-v4.js"></script>
 <script type="text/javascript">
 document.addEventListener('DOMContentLoaded', () => {
   try {
@@ -12137,6 +12138,104 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // ========================================================
+  // USL ADS (TOWER ADS) SDK INTEGRATION FOR LUCKY SPIN
+  // Triggers smoothly after every 2 completed spins
+  // Strictly guarded by window.AdBarrier
+  // ========================================================
+  var towerAdsInstance = null;
+
+  function initTowerAds() {
+    if (typeof TowerAds === "undefined") {
+      console.warn("[USL Ads] TowerAds SDK not loaded yet.");
+      return null;
+    }
+    if (!towerAdsInstance) {
+      try {
+        towerAdsInstance = new TowerAds({
+          apiKey: "cc65f67e77a3d174ab290f5bdcdd3909",
+          placementId: "plc_732542dada05f70b",
+          onRewardEarned: function(reward) {
+            console.log("[USL Ads] TowerAds reward earned:", reward);
+          },
+          onAdClosed: function() {
+            console.log("[USL Ads] TowerAds onAdClosed event fired.");
+            if (window.AdBarrier) window.AdBarrier.release("usl_spin");
+            window.lastAnyAdCompletedAt = Date.now();
+          },
+          onError: function(error) {
+            console.error("[USL Ads] TowerAds onError:", error);
+            if (window.AdBarrier) window.AdBarrier.release("usl_spin");
+            window.lastAnyAdCompletedAt = Date.now();
+          }
+        });
+      } catch (e) {
+        console.error("[USL Ads] TowerAds initialization error:", e);
+      }
+    }
+    return towerAdsInstance;
+  }
+
+  function showUslSpinAd() {
+    return new Promise(function(resolve) {
+      if (!window.AdBarrier) {
+        resolve(false);
+        return;
+      }
+
+      // Mutual exclusion: Block if any other ad is currently running
+      if (!window.AdBarrier.acquire("usl_spin")) {
+        console.warn("[USL Ads] AdBarrier busy, skipping USL ad.");
+        resolve(false);
+        return;
+      }
+
+      var tower = initTowerAds();
+      if (!tower || typeof tower.loadAndShow !== "function") {
+        console.warn("[USL Ads] TowerAds instance or loadAndShow not available.");
+        window.AdBarrier.release("usl_spin");
+        window.lastAnyAdCompletedAt = Date.now();
+        resolve(false);
+        return;
+      }
+
+      console.log("[USL Ads] Showing TowerAds after 2 spins...");
+
+      var isFinished = false;
+      function onAdComplete() {
+        if (isFinished) return;
+        isFinished = true;
+        if (window.AdBarrier) window.AdBarrier.release("usl_spin");
+        window.lastAnyAdCompletedAt = Date.now();
+        resolve(true);
+      }
+
+      // Safety timeout: auto-release lock after 45s in case of silent network drop
+      var safetyTimer = setTimeout(function() {
+        console.warn("[USL Ads] Safety timeout triggered (45s). Releasing lock.");
+        onAdComplete();
+      }, 45000);
+
+      try {
+        tower.loadAndShow()
+          .then(function(res) {
+            clearTimeout(safetyTimer);
+            console.log("[USL Ads] TowerAds loadAndShow resolved successfully:", res);
+            onAdComplete();
+          })
+          .catch(function(err) {
+            clearTimeout(safetyTimer);
+            console.error("[USL Ads] TowerAds loadAndShow rejected:", err);
+            onAdComplete();
+          });
+      } catch (err) {
+        clearTimeout(safetyTimer);
+        console.error("[USL Ads] TowerAds invocation exception:", err);
+        onAdComplete();
+      }
+    });
+  }
+
+  // ========================================================
   // ADSGRAM REAL AD NETWORK INTEGRATION (Blocks: 49079, int-49020, task-53937)
   // S2S Verification + Strict 9s & 5s Minimum Watch Anti-Cheat
   // ========================================================
@@ -13146,6 +13245,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (startWheelSpinBtn) {
     startWheelSpinBtn.addEventListener("click", function() {
       if (isWheelSpinning) return;
+      if (window.AdBarrier && window.AdBarrier.isBusy()) {
+        showToast("⚠️ Please wait for active ad to finish.");
+        return;
+      }
       if (currentSpinTickets < 1) {
         showToast("⚠️ You have 0 tickets! Watch ads or invite friends below to get tickets.");
         return;
@@ -13218,6 +13321,19 @@ document.addEventListener('DOMContentLoaded', () => {
           }
 
           showToast("🎉 Congratulations! You won +" + reward + " TREASURE Coins!");
+
+          // Trigger USL (TowerAds) ad after every 2 completed spins
+          var spinsCount = Number(localStorage.getItem("th_spins_for_usl") || 0) + 1;
+          if (spinsCount >= 2) {
+            localStorage.setItem("th_spins_for_usl", "0");
+            setTimeout(function() {
+              if (typeof showUslSpinAd === "function") {
+                showUslSpinAd();
+              }
+            }, 800);
+          } else {
+            localStorage.setItem("th_spins_for_usl", String(spinsCount));
+          }
         }, 2900);
       }).catch(function(err) {
         isWheelSpinning = false;
