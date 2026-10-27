@@ -9361,6 +9361,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (targetTab === "tab-earn") {
         initAdMissions(true);
+        loadTasks();
         var watchCard = document.querySelector("#tab-earn .watch-card") || document.querySelector("#tab-earn");
         if (watchCard && watchCard.scrollIntoView) {
           try {
@@ -13738,7 +13739,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function loadTasks() {
+  var _lastTasksLoadTime = 0;
+  function loadTasks(force) {
+    var now = Date.now();
+    if (!force && tasksData && tasksData.length > 0 && (now - _lastTasksLoadTime < 60000)) {
+      renderTasks();
+      return;
+    }
+    _lastTasksLoadTime = now;
     fetchTasksApi().then(function(res) {
       if (res.ok && res.data && res.data.tasks) {
         tasksData = res.data.tasks;
@@ -14724,7 +14732,7 @@ document.addEventListener('DOMContentLoaded', () => {
           user.claimedMilestones.push(mId);
           showToast(res.data.message || ("🎉 +" + res.data.reward + " TREASURE Coins claimed!"));
           renderBalance();
-          loadReferralData();
+          loadReferralData(true);
         }).catch(function(err) {
           showToast((err && err.message) ? err.message : "Milestone error");
           btn.disabled = false;
@@ -14734,7 +14742,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function loadReferralData() {
+  var _lastReferralLoadTime = 0;
+  function loadReferralData(force) {
+    var now = Date.now();
+    if (!force && referralData && (now - _lastReferralLoadTime < 60000)) {
+      renderInvite();
+      return;
+    }
+    _lastReferralLoadTime = now;
     fetchReferralApi().then(function(res) {
       if (res.ok && res.data) {
         referralData = res.data;
@@ -14880,7 +14895,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }).then(handleResponse);
   }
 
-  function loadWalletData() {
+  var _lastWalletLoadTime = 0;
+  function loadWalletData(force) {
+    var now = Date.now();
+    if (!force && walletData && (now - _lastWalletLoadTime < 60000)) {
+      renderWallet();
+      return Promise.resolve();
+    }
+    _lastWalletLoadTime = now;
     return fetchWalletApi().then(function(res) {
       if (res.ok && res.data) {
         walletData = res.data;
@@ -15304,7 +15326,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           user.walletUnlockedOnce = false;
           renderBalance();
-          loadWalletData();
+          loadWalletData(true);
 
           if (withdrawFeedbackBox) {
             withdrawFeedbackBox.style.display = "block";
@@ -15426,9 +15448,7 @@ document.addEventListener('DOMContentLoaded', () => {
   applyLanguage(currentLang);
 
   // Load Tasks, Referrals & Wallet on startup
-  loadTasks();
-  loadReferralData();
-  loadWalletData();
+  // On-demand lazy loading: Secondary tabs load only when opened, cutting boot API calls by 75%
   initAdMissions();
 
   // Fetch real server state
@@ -15611,10 +15631,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }).catch(function(){});
   }
 
-  // Periodic gentle sync (every 120 seconds, only if app is visible)
-  setInterval(performBackgroundSync, 120000);
-
-  // Resume sync and manage background pause when user switches app
+  // High-Efficiency Sync: Zero idle polling! User actions (mining, ads, spin, checkin, tasks)
+  // automatically sync balance and state via their own instant API responses.
+  // Gentle sync only runs if user was completely away/minimized for >5 minutes.
   document.addEventListener("visibilitychange", function() {
     if (document.hidden) {
       document.body.classList.add("app-paused");
@@ -15622,7 +15641,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.classList.remove("app-paused");
       renderMining();
       renderDaily();
-      if (Date.now() - lastBackgroundSyncTime > 60000) {
+      if (Date.now() - lastBackgroundSyncTime > 300000) {
         performBackgroundSync();
       }
     }
