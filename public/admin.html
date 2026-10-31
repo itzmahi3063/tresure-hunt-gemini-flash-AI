@@ -1594,10 +1594,11 @@
               <td data-label="TON Address">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <code style="font-size: 11.5px; background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px;" title="${w.walletAddress}">
-                    ${w.walletAddress.slice(0, 6)}...${w.walletAddress.slice(-6)}
+                    ${w.walletAddress ? (w.walletAddress.slice(0, 6) + '...' + w.walletAddress.slice(-6)) : 'N/A'}
                   </code>
                   <button class="btn-secondary" style="padding: 2px 7px; font-size: 11px; cursor: pointer;" onclick="copyToClipboard('${w.walletAddress}', 'Address copied!')" title="Copy full address">📋 Copy</button>
                 </div>
+                ${w.lastAutoPayError ? `<div style="font-size: 10px; color: #ef4444; margin-top: 3px; max-width: 220px; line-height: 1.3;">⚠️ <strong>Send Failed:</strong> ${escapeHtml(w.lastAutoPayError)}</div>` : ''}
               </td>
               <td data-label="Date" style="font-size: 11.5px; color: var(--text-dim);">${dateStr}</td>
               <td data-label="Status"><span class="status-tag ${statusClass}">${w.status}</span></td>
@@ -1934,6 +1935,13 @@
             if (errDetail.includes("INSUFFICIENT_HOT_WALLET_BALANCE") || errDetail.includes("not configured") || errDetail.includes("missing") || errDetail.includes("INVALID_MNEMONIC")) {
               alert("⚠️ Auto-pay halted:\n" + errDetail);
               stopAutoPayRequested = true;
+              break;
+            }
+            // If address is invalid or malformed for this user, skip immediately without retrying:
+            if (res && (res.isAddressInvalid || res.autoPayError === "INVALID_DESTINATION_ADDRESS" || errDetail.includes("INVALID_DESTINATION_ADDRESS") || errDetail.includes("Invalid TON wallet address format"))) {
+              console.warn(`[Auto-Pay] Item ${w.id} has invalid address, skipping to next user:`, errDetail);
+              autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} &mdash; <span style="color: #ef4444; font-weight: 700;">⚠️ Invalid TON Address! Skipped (remains pending). Moving to next...</span>`;
+              await new Promise(function(resolve){ setTimeout(resolve, 1500); });
               break;
             }
             console.warn(`[Auto-Pay] Item ${w.id} attempt ${attempt + 1} failed:`, errDetail);

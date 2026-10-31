@@ -6,6 +6,7 @@ const { getMax24hMiningForLevel } = require("../lib/gameLogic");
 const crypto = require("crypto");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
+const { Address } = require("@ton/ton");
 
 // Base rate fallback: 1 TREASURE Coin = $0.00003 USD
 const COIN_RATE = 0.00003;
@@ -256,9 +257,16 @@ module.exports = async (req, res) => {
         } else {
           // First withdrawal OR 1-time unlocked by admin:
           cleanAddress = (walletAddress || "").trim();
+          let isAddressValid = false;
+          try {
+            Address.parse(cleanAddress);
+            isAddressValid = true;
+          } catch (_) {
+            isAddressValid = false;
+          }
           const isTon = /^(UQ|EQ|kQ|0Q)[A-Za-z0-9_-]{46}$/.test(cleanAddress) || /^(-1|0):[0-9a-fA-F]{64}$/.test(cleanAddress);
-          if (!isTon) {
-            res.status(400).json({ error: "Invalid TON address! Address must be 48 characters starting with UQ or EQ" });
+          if (!isTon || !isAddressValid) {
+            res.status(400).json({ error: "Invalid TON address! Please enter a valid TON wallet address (with correct checksum starting with UQ or EQ)." });
             return;
           }
 

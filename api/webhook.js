@@ -342,14 +342,42 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   try {
     autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
   } catch (payErr) {
-    try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
+    try {
+      await withdrawalsCol.updateOne(
+        { ...wQuery, status: "PROCESSING" },
+        {
+          $set: {
+            status: "PENDING",
+            lastAutoPayError: payErr && payErr.message ? payErr.message : String(payErr),
+            lastAutoPayAttemptAt: now
+          },
+          $unset: { processingAt: "" }
+        }
+      );
+    } catch (e) {}
     return { ok: false, message: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` };
   }
-  if (autoPayRes && autoPayRes.isConfigured && autoPayRes.success) {
-    finalTx = autoPayRes.txHash;
-  } else {
-    finalTx = "0x" + Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2);
+
+  // STRICT ON-CHAIN REQUIREMENT: Withdrawal MUST NOT be approved if TON was NOT actually sent and confirmed!
+  if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success) {
+    const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent).";
+    try {
+      await withdrawalsCol.updateOne(
+        { ...wQuery, status: "PROCESSING" },
+        {
+          $set: {
+            status: "PENDING",
+            lastAutoPayError: haltReason,
+            lastAutoPayAttemptAt: now
+          },
+          $unset: { processingAt: "" }
+        }
+      );
+    } catch (e) {}
+    return { ok: false, message: `Auto-Pay failed (TON NOT sent): ${haltReason}` };
   }
+
+  finalTx = autoPayRes.txHash;
 
   const approveUpdateRes = await withdrawalsCol.updateOne(
     { ...wQuery, status: "PROCESSING" },
