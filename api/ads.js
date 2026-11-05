@@ -54,8 +54,8 @@ module.exports = async (req, res) => {
   // 0. ADSGRAM SERVER-TO-SERVER (S2S) REWARD CALLBACK (HOSTED ON VERCEL)
   // Blocks: 49079 (Reward Ad), task-53937 (Task Ad)
   // Handles incoming GET requests from Adsgram servers containing [userId]
-  // Format: /api/adsgram-reward?userid=[userId]&secret=treasure_s2s_secret_2026
-  // Or:     /api/ads?action=adsgram_reward&userid=[userId]&secret=treasure_s2s_secret_2026
+  // Format: /api/adsgram-reward?userid=[userId]&secret=YOUR_ADSGRAM_S2S_SECRET
+  // Or:     /api/ads?action=adsgram_reward&userid=[userId]&secret=YOUR_ADSGRAM_S2S_SECRET
   // ========================================================
   const queryAction = req.query && (req.query.action || req.query.type || req.query.reward_callback);
   const hasUserQuery = Boolean(
@@ -86,15 +86,13 @@ module.exports = async (req, res) => {
     ).trim();
 
     const s2sSecretEnv = (process.env.ADSGRAM_S2S_SECRET || "").trim();
-    const fallbackSecret = (process.env.ADMIN_SECRET_KEY || "treasure_s2s_secret_2026").trim();
+    const fallbackSecret = (process.env.ADMIN_SECRET_KEY || "").trim();
     const botToken = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
 
     // Flexible & robust secret matching against all configured secrets
     const isAuthorizedSecret = Boolean(
       (s2sSecretEnv && providedSecret === s2sSecretEnv) ||
       (fallbackSecret && providedSecret === fallbackSecret) ||
-      providedSecret === "treasure_s2s_secret_2026" ||
-      providedSecret === "hoocooh_admin_2026" ||
       (botToken && providedSecret === botToken) ||
       (!s2sSecretEnv && !providedSecret) // Allow if no custom secret env variable was configured
     );

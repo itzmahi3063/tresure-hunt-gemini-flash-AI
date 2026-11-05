@@ -932,7 +932,7 @@
         Configure this Reward URL in your <strong>Adsgram Publisher Dashboard</strong> under Reward Block <strong>53118</strong>. This postback is <strong>100% hosted on Vercel</strong> (not GitHub) and secured with a 23-character secret key. Adsgram replaces <code>[userId]</code> with the viewer's Telegram ID:
       </p>
       <div style="background: rgba(0,0,0,0.04); border-radius: 12px; padding: 12px 14px; font-family: monospace; font-size: 12.5px; word-break: break-all; margin-bottom: 12px; border: 1px solid var(--border);" id="adsgramRewardUrlDisplay">
-        https://hoocooh-miner-roan.vercel.app/api/ads?action=adsgram_reward&userid=[userId]&secret=hoocooh_s2s_secret_2026
+        https://hoocooh-miner-roan.vercel.app/api/ads?action=adsgram_reward&userid=[userId]&secret=YOUR_ADSGRAM_S2S_SECRET
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
         <button class="btn-primary" id="copyAdsgramRewardUrlBtn" type="button" style="font-size: 12.5px; padding: 8px 16px; background: #6366f1; border-color: #6366f1;">
@@ -1552,6 +1552,9 @@
           } else if (w.isSuspendedMultipleAccount) {
             securityBadge = `<div style="margin-top: 4px;"><span class="status-tag banned" style="font-size: 10px; padding: 2px 7px;">🚫 MULTI-ACCOUNT</span></div>`;
           }
+          if (w.addressInvalid || (w.status === "PENDING" && !isValidTonAddrClient(w.walletAddress))) {
+            securityBadge += `<div style="font-size: 10px; color: #ef4444; margin-top: 2px;">⚠️ Invalid / wrong TON address (auto-pay skips it)</div>`;
+          }
           if (w.deviceViolationsCount > 0) {
             securityBadge += `<div style="font-size: 10px; color: #ef4444; margin-top: 2px;">⚠️ Multi-Acc Strikes: ${w.deviceViolationsCount}</div>`;
           }
@@ -1564,6 +1567,14 @@
                 <button class="btn-secondary" onclick="rejectWithdrawal('${w.id}')">Reject</button>
                 <button class="btn-danger" onclick="banUserFromW('${w.telegramId}', '${w.id}')">Ban</button>
               </div>
+            `;
+          } else if (w.status === "PROCESSING") {
+            actions = `
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button class="btn-success" onclick="finalizeProcessing('${w.id}')">🔄 Finalize</button>
+                <button class="btn-secondary" onclick="releaseProcessing('${w.id}', ${w.needsReview ? 'true' : 'false'})">↩ Release</button>
+              </div>
+              <div style="font-size: 10px; color: #f59e0b; margin-top: 3px;">${w.needsReview ? ('⚠️ Needs review: ' + (w.reviewTxHash || '')) : '⏳ Waiting for blockchain confirmation (not lost, not sent twice)'}</div>
             `;
           } else {
             actions = `<span style="font-size: 11px; color: var(--text-dim);">${w.reason || w.txHash ? (w.reason || 'Tx: ' + w.txHash.slice(0, 10) + '...') : 'Processed'}</span>`;
@@ -1690,6 +1701,82 @@
   // Withdrawal Actions attached to window
   var isActionProcessing = false;
 
+  // TON address sanity check (mainnet only). Wrong addresses are skipped instantly, they stay PENDING for manual review/reject.
+  function isValidTonAddrClient(a) {
+    a = String(a || "").trim();
+    return /^(UQ|EQ)[A-Za-z0-9_-]{46}$/.test(a) || /^(-1|0):[0-9a-fA-F]{64}$/.test(a);
+  }
+
+  // A payout that was broadcast but not yet confirmed is NEVER sent again. We only re-check it (approve = finalize on PROCESSING).
+  // Returns "ok" | "released" | "review" | "pending"
+  async function waitForPayoutFinalize(id, onTick) {
+    for (var n = 0; n < 12; n++) {
+      for (var cd = 4; cd > 0; cd--) {
+        if (onTick) onTick(n + 1, cd);
+        await new Promise(function(resolve){ setTimeout(resolve, 1000); });
+      }
+      var r;
+      try {
+        r = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
+      } catch (e) {
+        continue;
+      }
+      if (r && r.ok) return "ok";
+      if (r && r.released) return "released";
+      if (r && r.pending && r.action === "REVIEW") return "review";
+    }
+    return "pending";
+  }
+
+  window.finalizeProcessing = async function(id) {
+    if (isActionProcessing) return;
+    isActionProcessing = true;
+    showToast("⏳ Checking blockchain...");
+    try {
+      var r = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
+      if (r && r.ok) {
+        showToast("💎 Confirmed on-chain! Approved.");
+      } else if (r && r.released) {
+        alert("↩ " + (r.message || r.error));
+      } else {
+        alert("⏳ " + ((r && (r.message || r.error)) || "Still waiting for blockchain confirmation. Do NOT resend."));
+        if (r && r.action === "REVIEW") {
+          var manualTx = prompt("Verified on tonviewer.com that this payout WAS sent? Paste the TxHash to approve (leave empty to cancel):");
+          if (manualTx && manualTx.trim()) {
+            var m = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id, txHash: manualTx.trim() });
+            if (m && m.ok) showToast("✅ Approved with TxHash!"); else alert("❌ " + ((m && m.error) || "Failed"));
+          }
+        }
+      }
+      loadWithdrawals();
+      loadStats();
+    } catch(e) {
+      alert("❌ " + (e.message || e));
+    } finally {
+      isActionProcessing = false;
+    }
+  };
+
+  window.releaseProcessing = async function(id, needsReview) {
+    if (isActionProcessing) return;
+    if (!confirm("↩ Release this withdrawal back to PENDING?\n\nOnly do this if you are 100% sure the TON was NOT sent (check the hot wallet history on tonviewer.com). If it WAS sent, use Finalize instead, otherwise the user gets paid twice.")) return;
+    isActionProcessing = true;
+    try {
+      var r = await apiAdmin("POST", null, { action: "release_processing_withdrawal", withdrawalId: id, force: !!needsReview });
+      if (r && r.ok) {
+        showToast("↩ " + (r.message || "Released to PENDING"));
+      } else {
+        alert("❌ " + ((r && r.error) || "Release failed"));
+      }
+      loadWithdrawals();
+      loadStats();
+    } catch(e) {
+      alert("❌ " + (e.message || e));
+    } finally {
+      isActionProcessing = false;
+    }
+  };
+
   window.approveWithdrawal = async function(id, tonAmount, walletAddr) {
     if (isActionProcessing) return;
     var confirmMsg = `⚡ Confirm Auto-Payout & Approval?\n\n💎 Amount: ${tonAmount ? tonAmount + ' TON' : ''}\n📍 Destination: ${walletAddr || ''}\n\nClick OK to automatically pay & confirm on-chain!`;
@@ -1699,6 +1786,20 @@
     showToast("⏳ Processing Auto-Pay...");
     try {
       var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
+      if (res && res.pending) {
+        showToast("⏳ Broadcast! Waiting for blockchain confirmation (never sent twice)...");
+        var settledSingle = await waitForPayoutFinalize(id, function(n, cd){ showToast("⏳ Confirming on-chain... check " + n + "/12 (" + cd + "s)"); });
+        if (settledSingle === "ok") {
+          showToast("💎 Confirmed on-chain! Approved.");
+        } else if (settledSingle === "released") {
+          alert("↩ Payout did not land (nothing was sent). It is back in PENDING - you can approve again.");
+        } else {
+          alert("⏳ Still not confirmed. It stays in PROCESSING - do NOT send again. Use the Finalize button on that row in a minute.");
+        }
+        loadWithdrawals();
+        loadStats();
+        return;
+      }
       if (res.ok) {
         if (res.autoPaySuccess) {
           showToast(`💎 Sent ${res.tonAmount} TON on-chain! Approved.`);
@@ -1864,6 +1965,17 @@
       return;
     }
 
+    // Wrong / testnet addresses are skipped instantly (zero time wasted) and stay PENDING for manual review.
+    var skippedBadAddr = list.filter(function(x){ return x.addressInvalid || !isValidTonAddrClient(x.walletAddress); }).length;
+    if (skippedBadAddr > 0) {
+      list = list.filter(function(x){ return !(x.addressInvalid || !isValidTonAddrClient(x.walletAddress)); });
+      confirmMsg += "\n\n⚠️ " + skippedBadAddr + " request(s) with a wrong TON address will be SKIPPED automatically.";
+      if (list.length === 0) {
+        alert("All " + skippedBadAddr + " request(s) in " + queueTitle + " have invalid TON addresses - nothing to pay.");
+        return;
+      }
+    }
+
     if (!confirm(confirmMsg)) return;
 
     // Enter running state
@@ -1912,10 +2024,10 @@
         if (attempt > 0) {
           autoPayStatusText.innerHTML = `⚠️ Retrying ${i + 1} of ${totalCount} (Attempt ${attempt + 1}/${maxItemRetries + 1})...`;
           autoPayStatusText.style.color = "#f59e0b";
-          // Wait 6 seconds before retry so on-chain block can finalize
-          for (var cd = 6; cd > 0; cd--) {
+          // Short wait before retry (the server already verifies on-chain confirmation, a payout is never re-sent while one is pending)
+          for (var cd = 3; cd > 0; cd--) {
             if (stopAutoPayRequested) break;
-            autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &mdash; <span style="color: #f59e0b;">Waiting ${cd}s for block confirmation before retry...</span>`;
+            autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} (<code>${tonAmtStr}</code>) &mdash; <span style="color: #f59e0b;">Retrying in ${cd}s...</span>`;
             await new Promise(function(resolve){ setTimeout(resolve, 1000); });
           }
           if (stopAutoPayRequested) break;
@@ -1925,6 +2037,25 @@
 
         try {
           var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: w.id });
+          if (res && res.pending) {
+            // Broadcast but not confirmed yet: NEVER re-send. Only re-check until it is confirmed.
+            var settledItem = await waitForPayoutFinalize(w.id, function(n, cd){
+              autoPayStatusText.innerHTML = `⏳ Waiting for on-chain confirmation (${n}/12)...`;
+              autoPayStatusText.style.color = "#3b82f6";
+              autoPayCurrentDetail.innerHTML = `Paying <strong>${i + 1} of ${totalCount}</strong>: ${userLabel} &mdash; confirming on-chain, next check in ${cd}s (not sent twice)`;
+            });
+            if (settledItem === "ok") {
+              itemSuccess = true;
+              successCount++;
+              break;
+            } else if (settledItem === "released") {
+              continue; // provably NOT sent: safe to try again
+            } else {
+              alert("⏳ Auto-pay paused: payout for " + userLabel + " is still not confirmed on-chain.\n\nIt stays in PROCESSING (never sent twice). Use the 🔄 Finalize button on that row, then restart Auto-Pay.");
+              stopAutoPayRequested = true;
+              break;
+            }
+          }
           if (res && res.ok) {
             itemSuccess = true;
             successCount++;
@@ -1970,9 +2101,9 @@
         break;
       }
 
-      // Polite pause between on-chain transactions (8 seconds) with live countdown so blockchain finalizes previous block!
+      // Short pause only: the previous payout is already verified on-chain by the server before it is reported as done.
       if (i < totalCount - 1) {
-        for (var waitSec = 8; waitSec > 0; waitSec--) {
+        for (var waitSec = 1; waitSec > 0; waitSec--) {
           if (stopAutoPayRequested) break;
           autoPayStatusText.innerHTML = `⏳ Confirmed! Syncing blockchain (${waitSec}s)...`;
           autoPayStatusText.style.color = "#3b82f6";
@@ -2047,7 +2178,7 @@
         "📋 Clean Queue: " + totalCount + " request(s)\n" +
         "💎 Total TON: ~" + totalTonEst.toFixed(4) + " TON\n\n" +
         "🛡️ Notice: Suspicious, high-risk, and banned accounts are 100% EXCLUDED from this payout.\n" +
-        "Each payout will be safely sent on-chain with an 8-second blockchain confirmation delay between transactions to prevent seqno collisions.\n" +
+        "Each payout is sent on-chain and VERIFIED on the blockchain before the next one starts (no seqno collisions, no double pay).\n" +
         "You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n" +
         "Start Auto-Pay for clean requests now?";
 
@@ -2090,7 +2221,7 @@
         "📋 Suspicious Queue: " + totalCount + " request(s)\n" +
         "💎 Total TON: ~" + totalTonEst.toFixed(4) + " TON\n\n" +
         "⚠️ Notice: These users were flagged by security/risk policies. Approving will send real TON on-chain to their addresses.\n" +
-        "Each payout will be safely sent on-chain with an 8-second blockchain confirmation delay between transactions to prevent seqno collisions.\n" +
+        "Each payout is sent on-chain and VERIFIED on the blockchain before the next one starts (no seqno collisions, no double pay).\n" +
         "You can click 'Turn OFF Auto-Pay' at ANY time to safely stop after the current transaction finishes.\n\n" +
         "Are you sure you want to Auto-Withdraw all suspicious requests?";
 

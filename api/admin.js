@@ -1,13 +1,13 @@
 const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig } = require("../lib/tonAutoPay");
+const { dispatchTonPayout, getTonAutoPayStatus, getTonAutoPayConfig, resolveProcessingWithdrawal } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
 const crypto = require("crypto");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "";
 
 async function getAdminTelegramIds(db) {
   const ids = new Set();
@@ -57,11 +57,9 @@ function checkAdminAuth(req) {
   const s2sSecret = process.env.ADSGRAM_S2S_SECRET ? String(process.env.ADSGRAM_S2S_SECRET).trim() : null;
 
   if (
-    key === adminSecret ||
+    (adminSecret && key === adminSecret) ||
     (botToken && key === botToken) ||
-    (s2sSecret && key === s2sSecret) ||
-    key === "hoocooh_admin_2026" ||
-    key === "treasure_s2s_secret_2026"
+    (s2sSecret && key === s2sSecret)
   ) {
     return true;
   }
@@ -386,7 +384,7 @@ module.exports = async (req, res) => {
         const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
         if (reqStatus === "PENDING") {
-          filter.status = "PENDING";
+          filter.status = { $in: ["PENDING", "PROCESSING"] };
           filter.isSuspicious = { $ne: true };
           filter.isSuspiciousWithdrawalDistance = { $ne: true };
         } else if (reqStatus === "SUSPICIOUS") {
@@ -505,7 +503,12 @@ module.exports = async (req, res) => {
             approvedAt: w.approvedAt,
             rejectedAt: w.rejectedAt,
             reason: w.reason || "",
-            lastAutoPayError: w.lastAutoPayError || ""
+            lastAutoPayError: w.lastAutoPayError || "",
+            addressInvalid: !!w.addressInvalid,
+            needsReview: !!w.needsReview,
+            reviewTxHash: w.reviewTxHash || "",
+            processingAt: w.processingAt || 0,
+            hasPendingTx: !!w.pendingTx
           };
         });
 
@@ -514,7 +517,7 @@ module.exports = async (req, res) => {
         if (reqStatus === "SUSPICIOUS") {
           filteredList = list.filter(w => w.status === "PENDING" && w.isSuspicious);
         } else if (reqStatus === "PENDING") {
-          filteredList = list.filter(w => w.status === "PENDING" && !w.isSuspicious);
+          filteredList = list.filter(w => (w.status === "PENDING" || w.status === "PROCESSING") && !w.isSuspicious);
         }
 
         const isAll = (req.query.all === "true" || req.query.all === "1");
@@ -948,7 +951,7 @@ module.exports = async (req, res) => {
           return;
         }
 
-        if (w.status !== "PENDING") {
+        if (w.status !== "PENDING" && w.status !== "PROCESSING") {
           res.status(400).json({ error: `Withdrawal has already been processed (Current status: ${w.status}). Cannot approve again.` });
           return;
         }
@@ -959,26 +962,59 @@ module.exports = async (req, res) => {
         let autoPaySuccess = false;
         let autoPayMsg = "";
 
+        // RESUME / FINALIZE: a payout that was broadcast but not confirmed in time stays in PROCESSING.
+        // Re-approving it NEVER sends TON again: it only checks the chain and finalizes (or safely releases).
+        const isResume = w.status === "PROCESSING";
+        if (isResume && !finalTx) {
+          let resolved;
+          try {
+            resolved = await resolveProcessingWithdrawal(db, w);
+          } catch (rErr) {
+            res.status(500).json({ error: `Could not check payout status: ${rErr && rErr.message ? rErr.message : rErr}` });
+            return;
+          }
+          if (resolved.action === "CONFIRMED") {
+            finalTx = resolved.txHash;
+            autoPaySuccess = true;
+            autoPayMsg = "On-chain transfer confirmed (finalized)";
+          } else if (resolved.action === "RELEASED") {
+            res.status(200).json({ ok: false, released: true, error: resolved.message, message: resolved.message });
+            return;
+          } else {
+            res.status(200).json({ ok: false, pending: true, action: resolved.action, error: resolved.message, message: resolved.message });
+            return;
+          }
+        }
+
         // ATOMIC CLAIM BEFORE PAYING: move PENDING -> PROCESSING first. Only ONE request can win this.
         // Previously the real TON payout was sent first and the status changed afterwards, so a double
         // click / two admins / a retry could send the same payout twice.
-        const claimPayoutRes = await withdrawalsCol.updateOne(
-          { ...wQuery, status: "PENDING" },
-          { $set: { status: "PROCESSING", processingAt: now } }
-        );
-        if (!claimPayoutRes || claimPayoutRes.modifiedCount === 0) {
-          res.status(400).json({ error: "Withdrawal has already been processed or is being processed right now." });
-          return;
+        if (!isResume) {
+          const claimPayoutRes = await withdrawalsCol.updateOne(
+            { ...wQuery, status: "PENDING" },
+            { $set: { status: "PROCESSING", processingAt: now, payoutV: 2 } }
+          );
+          if (!claimPayoutRes || claimPayoutRes.modifiedCount === 0) {
+            res.status(400).json({ error: "Withdrawal has already been processed or is being processed right now." });
+            return;
+          }
         }
         const releasePayoutClaim = async () => {
-          try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
+          try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "", pendingTx: "" } }); } catch (e) {}
         };
 
         // If no manual TxHash provided, try automated TON payout dispatcher
         if (!finalTx) {
           let autoPayRes;
           try {
-            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
+            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db, {
+              withdrawalId: String(w._id),
+              // saved BEFORE broadcast: if anything dies later, the payout can still be found on-chain and finalized
+              onPrepared: async (prepared) => {
+                const rp = await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { pendingTx: prepared } });
+                if (!rp || rp.matchedCount === 0) throw new Error("withdrawal claim lost");
+              }
+            });
           } catch (payErr) {
             await releasePayoutClaim();
             try {
@@ -990,13 +1026,18 @@ module.exports = async (req, res) => {
             res.status(500).json({ error: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` });
             return;
           }
+          if (autoPayRes && autoPayRes.pendingConfirmation) {
+            // Broadcast done, chain confirmation is slow. KEEP it in PROCESSING (never release => never double pay).
+            res.status(200).json({ ok: false, pending: true, action: "PENDING", withdrawalId: String(w._id), error: autoPayRes.message, message: autoPayRes.message });
+            return;
+          }
           if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success) {
             await releasePayoutClaim();
             const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent)";
             try {
               await withdrawalsCol.updateOne(
                 wQuery,
-                { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
+                { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now, ...(autoPayRes && autoPayRes.isAddressInvalid ? { addressInvalid: true } : {}) } }
               );
             } catch (_) {}
             res.status(400).json({
@@ -1108,6 +1149,48 @@ module.exports = async (req, res) => {
           autoPaySuccess,
           autoPayMsg
         });
+        return;
+      }
+
+      // 1b. Release a stuck PROCESSING withdrawal back to PENDING (only when it is provably / admin-verified NOT paid)
+      if (action === "release_processing_withdrawal") {
+        const { withdrawalId, force } = req.body || {};
+        if (!withdrawalId) {
+          res.status(400).json({ error: "withdrawalId required" });
+          return;
+        }
+        let objIdR;
+        try { objIdR = new ObjectId(withdrawalId); } catch(e){ objIdR = null; }
+        const wQueryR = objIdR ? { _id: objIdR } : { _id: withdrawalId };
+        const wR = await withdrawalsCol.findOne(wQueryR);
+        if (!wR) {
+          res.status(404).json({ error: "Withdrawal not found" });
+          return;
+        }
+        if (wR.status !== "PROCESSING") {
+          res.status(400).json({ error: `Withdrawal is not in PROCESSING (current: ${wR.status}).` });
+          return;
+        }
+        if (wR.pendingTx) {
+          const resolvedR = await resolveProcessingWithdrawal(db, wR);
+          if (resolvedR.action === "CONFIRMED") {
+            res.status(400).json({ error: "This payout actually landed on-chain. Use Finalize (approve) instead of releasing." });
+            return;
+          }
+          if (resolvedR.action === "RELEASED") {
+            res.status(200).json({ ok: true, message: resolvedR.message });
+            return;
+          }
+          if (!(force === true && resolvedR.action === "REVIEW")) {
+            res.status(400).json({ error: `Not safe to release yet: ${resolvedR.message}` });
+            return;
+          }
+        }
+        await withdrawalsCol.updateOne(
+          { ...wQueryR, status: "PROCESSING" },
+          { $set: { status: "PENDING", lastAutoPayError: "Released manually by admin (verified NOT paid)." }, $unset: { processingAt: "", pendingTx: "", needsReview: "", reviewTxHash: "" } }
+        );
+        res.status(200).json({ ok: true, message: "Withdrawal released back to PENDING." });
         return;
       }
 

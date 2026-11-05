@@ -8,7 +8,7 @@ const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "";
 
 let cachedWelcomeBannerFileId = null;
 let cachedAdminIds = null;
