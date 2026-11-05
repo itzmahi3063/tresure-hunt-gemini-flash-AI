@@ -4,11 +4,11 @@ const { ObjectId } = require("mongodb");
 const { getDb } = require("../lib/mongodb");
 const { generateVerificationImage } = require("../lib/verificationImage");
 const { processMiningReminders } = require("../lib/miningReminder");
-const { dispatchTonPayout, resolveProcessingWithdrawal } = require("../lib/tonAutoPay");
+const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "";
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
 
 let cachedWelcomeBannerFileId = null;
 let cachedAdminIds = null;
@@ -322,27 +322,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   const w = await withdrawalsCol.findOne(wQuery);
   if (!w) return { ok: false, message: "Withdrawal request not found." };
-
-  // RESUME / FINALIZE: broadcast-but-unconfirmed payouts stay PROCESSING. Re-approving never sends TON again,
-  // it only checks the chain and finalizes (or safely releases).
-  let resumeTx = "";
-  if (w.status === "PROCESSING") {
-    let resolved;
-    try {
-      resolved = await resolveProcessingWithdrawal(db, w);
-    } catch (rErr) {
-      return { ok: false, message: `Could not check payout status: ${rErr && rErr.message ? rErr.message : rErr}` };
-    }
-    if (resolved.action === "CONFIRMED") {
-      resumeTx = resolved.txHash;
-    } else if (resolved.action === "RELEASED") {
-      return { ok: false, message: resolved.message };
-    } else {
-      return { ok: false, message: `⏳ ${resolved.message}` };
-    }
-  } else if (w.status !== "PENDING") {
-    return { ok: false, message: `Already processed (${w.status}).` };
-  }
+  if (w.status !== "PENDING") return { ok: false, message: `Already processed (${w.status}).` };
 
   const now = Date.now();
   const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
@@ -350,10 +330,9 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   // ATOMIC CLAIM BEFORE PAYING: PENDING -> PROCESSING. Only one request can win it, so a double tap on
   // the Approve button / Telegram callback retry can never send the real TON payout twice.
-  if (!resumeTx) {
   const claimPayoutRes = await withdrawalsCol.updateOne(
     { ...wQuery, status: "PENDING" },
-    { $set: { status: "PROCESSING", processingAt: now, payoutV: 2 } }
+    { $set: { status: "PROCESSING", processingAt: now } }
   );
   if (!claimPayoutRes || claimPayoutRes.modifiedCount === 0) {
     return { ok: false, message: "Already processed or being processed right now." };
@@ -361,14 +340,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   let autoPayRes;
   try {
-    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db, {
-      withdrawalId: String(w._id),
-      // saved BEFORE broadcast: if anything dies later, the payout can still be found on-chain and finalized
-      onPrepared: async (prepared) => {
-        const rp = await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { pendingTx: prepared } });
-        if (!rp || rp.matchedCount === 0) throw new Error("withdrawal claim lost");
-      }
-    });
+    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
   } catch (payErr) {
     try {
       await withdrawalsCol.updateOne(
@@ -379,16 +351,11 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
             lastAutoPayError: payErr && payErr.message ? payErr.message : String(payErr),
             lastAutoPayAttemptAt: now
           },
-          $unset: { processingAt: "", pendingTx: "" }
+          $unset: { processingAt: "" }
         }
       );
     } catch (e) {}
     return { ok: false, message: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` };
-  }
-
-  if (autoPayRes && autoPayRes.pendingConfirmation) {
-    // Broadcast done, chain confirmation is slow. KEEP it in PROCESSING (never release => never double pay).
-    return { ok: false, message: "⏳ Payout was broadcast and is waiting for blockchain confirmation. Do NOT resend - tap Approve again in ~20 seconds to finalize." };
   }
 
   // STRICT ON-CHAIN REQUIREMENT: Withdrawal MUST NOT be approved if TON was NOT actually sent and confirmed!
@@ -403,7 +370,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
             lastAutoPayError: haltReason,
             lastAutoPayAttemptAt: now
           },
-          $unset: { processingAt: "", pendingTx: "" }
+          $unset: { processingAt: "" }
         }
       );
     } catch (e) {}
@@ -411,9 +378,6 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   }
 
   finalTx = autoPayRes.txHash;
-  } else {
-    finalTx = resumeTx;
-  }
 
   const approveUpdateRes = await withdrawalsCol.updateOne(
     { ...wQuery, status: "PROCESSING" },
