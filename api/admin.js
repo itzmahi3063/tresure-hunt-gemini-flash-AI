@@ -7,7 +7,7 @@ const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broa
 
 const crypto = require("crypto");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : "";
 
 async function getAdminTelegramIds(db) {
   const ids = new Set();
@@ -56,13 +56,13 @@ function checkAdminAuth(req) {
   const adminSecret = String(ADMIN_SECRET).trim();
   const s2sSecret = process.env.ADSGRAM_S2S_SECRET ? String(process.env.ADSGRAM_S2S_SECRET).trim() : null;
 
-  if (
-    key === adminSecret ||
-    (botToken && key === botToken) ||
-    (s2sSecret && key === s2sSecret) ||
-    key === "hoocooh_admin_2026" ||
-    key === "treasure_s2s_secret_2026"
-  ) {
+  if (adminSecret && key === adminSecret) {
+    return true;
+  }
+  if (botToken && key === botToken) {
+    return true;
+  }
+  if (s2sSecret && key === s2sSecret) {
     return true;
   }
   return false;

@@ -8,7 +8,7 @@ const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY || "hoocooh_admin_2026";
+const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : "";
 
 let cachedWelcomeBannerFileId = null;
 let cachedAdminIds = null;
@@ -1030,7 +1030,7 @@ module.exports = async (req, res) => {
 
     // Set Admin Telegram ID helper: /api/webhook?action=set_admin&id=123456789&key=SECRET
     if (action === "set_admin" && id && key) {
-      if (String(key).trim() !== String(ADMIN_SECRET).trim()) {
+      if (!ADMIN_SECRET || String(key).trim() !== String(ADMIN_SECRET).trim()) {
         res.status(401).json({ error: "Invalid Admin Secret Key" });
         return;
       }
