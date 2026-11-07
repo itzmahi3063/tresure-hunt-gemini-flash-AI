@@ -1610,11 +1610,9 @@
         var s = data.status;
         if (s.configured && s.enabled) {
           hotWalletDot.style.background = "#10b981";
-          hotWalletTitle.innerHTML = `💎 Hot Wallet Ready (${s.walletType}) · Balance: <strong style="color: #00b4d8;">${Number(s.balanceTon).toFixed(4)} TON</strong>`;
-          var shortAddr = s.walletAddress ? (s.walletAddress.slice(0, 8) + '...' + s.walletAddress.slice(-6)) : '';
-          var v4Short = s.v4Address ? (s.v4Address.slice(0, 6) + '...' + s.v4Address.slice(-4)) : '';
-          var v5Short = s.v5Address ? (s.v5Address.slice(0, 6) + '...' + s.v5Address.slice(-4)) : '';
-          hotWalletSubtitle.innerHTML = `Active: <code title="${s.walletAddress}">${shortAddr}</code> <button type="button" class="btn-copy-tag" onclick="copyToClipboard('${s.walletAddress}', 'Active address copied!')" style="padding: 2px 6px; font-size: 10px;">📋 Copy</button> · V4: <code title="${s.v4Address}">${v4Short}</code> · W5: <code title="${s.v5Address}">${v5Short}</code> · Source: ${s.source === 'env' ? 'Vercel Env' : 'Database'}`;
+          hotWalletTitle.innerHTML = `💎 Hot Wallet Ready (V4R2) · Balance: <strong style="color: #00b4d8;">${Number(s.balanceTon).toFixed(4)} TON</strong>`;
+          var shortAddr = s.walletAddress ? (s.walletAddress.slice(0, 10) + '...' + s.walletAddress.slice(-8)) : '';
+          hotWalletSubtitle.innerHTML = `Address (V4R2): <code title="${s.walletAddress}">${shortAddr}</code> <button type="button" class="btn-copy-tag" onclick="copyToClipboard('${s.walletAddress}', 'V4R2 address copied!')" style="padding: 2px 7px; font-size: 11px;">📋 Copy</button> · Seqno: ${s.seqno} · Source: ${s.source === 'env' ? 'Vercel Env' : 'Database'}`;
         } else if (s.configured && !s.enabled) {
           hotWalletDot.style.background = "#f59e0b";
           hotWalletTitle.innerHTML = `⚠️ Hot Wallet Configured but Auto-Pay is DISABLED`;

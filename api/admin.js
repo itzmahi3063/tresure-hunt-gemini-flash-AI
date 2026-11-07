@@ -1813,39 +1813,14 @@ module.exports = async (req, res) => {
           return;
         }
         const { mnemonicToPrivateKey } = require("@ton/crypto");
-        const { WalletContractV5R1, WalletContractV4 } = require("@ton/ton");
+        const { WalletContractV4 } = require("@ton/ton");
         let derivedAddr = "";
-        let addrV4 = "";
-        let addrV5 = "";
         try {
           const keyPair = await mnemonicToPrivateKey(words);
-          const w5 = WalletContractV5R1 ? WalletContractV5R1.create({ workchain: 0, publicKey: keyPair.publicKey }) : null;
           const w4 = WalletContractV4.create({ workchain: 0, publicKey: keyPair.publicKey });
-          addrV4 = w4.address.toString({ bounceable: false });
-          addrV5 = w5 ? w5.address.toString({ bounceable: false }) : "";
-
-          // Check if user specified a preferred wallet address (e.g. from Tonkeeper)
-          const targetAddr = (req.body.walletAddress || "").trim();
-          if (targetAddr) {
-            try {
-              const { Address } = require("@ton/ton");
-              const parsed = Address.parse(targetAddr);
-              if (parsed.equals(w4.address)) {
-                derivedAddr = addrV4;
-              } else if (w5 && parsed.equals(w5.address)) {
-                derivedAddr = addrV5;
-              } else {
-                derivedAddr = addrV4;
-              }
-            } catch (_) {
-              derivedAddr = (targetAddr.toLowerCase() === addrV5.toLowerCase()) ? addrV5 : addrV4;
-            }
-          } else {
-            // Default to V4 (Tonkeeper standard format)
-            derivedAddr = addrV4;
-          }
+          derivedAddr = w4.address.toString({ bounceable: false });
         } catch (derErr) {
-          res.status(400).json({ error: `Could not derive wallet address from mnemonic: ${derErr.message}` });
+          res.status(400).json({ error: `Could not derive V4R2 wallet address from mnemonic: ${derErr.message}` });
           return;
         }
 
