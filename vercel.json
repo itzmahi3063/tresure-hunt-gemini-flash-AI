@@ -39,6 +39,13 @@
       }
     },
     {
+      "src": "/admin(?:\\.html)?$",
+      "dest": "/public/admin.html",
+      "headers": {
+        "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate"
+      }
+    },
+    {
       "src": "/assets/(.*)",
       "dest": "/public/assets/$1",
       "headers": {

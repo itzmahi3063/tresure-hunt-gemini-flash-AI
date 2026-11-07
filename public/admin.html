@@ -5,6 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TREASURE Miner — Admin Control Center</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+  // =========================================================================
+  // ZERO-TRUST BROWSER SHIELD:
+  // Admin panel CANNOT be opened in any web browser.
+  // Must be strictly opened inside Telegram WebApp with genuine initData.
+  // External browser visits are instantly stopped, wiped, and redirected to /
+  // =========================================================================
+  (function() {
+    var isInsideTelegram = false;
+    try {
+      var tgApp = window.Telegram && window.Telegram.WebApp;
+      if (tgApp && typeof tgApp.initData === "string" && tgApp.initData.length > 10) {
+        isInsideTelegram = true;
+      }
+    } catch(e) {}
+
+    if (!isInsideTelegram) {
+      try { if (window.stop) window.stop(); } catch(e) {}
+      document.documentElement.innerHTML = "";
+      window.location.replace("/");
+    }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1100,13 +1123,14 @@
   }
 
   function showAccessDenied(message) {
-    if (authOverlay) authOverlay.style.display = "none";
-    if (adminWrap) adminWrap.style.display = "none";
-    if (accessDeniedOverlay) {
-      accessDeniedOverlay.style.display = "flex";
-      var msgEl = document.getElementById("accessDeniedMsg");
-      if (msgEl && message) msgEl.textContent = message;
-    }
+    try {
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.close) {
+        window.Telegram.WebApp.close();
+      }
+    } catch(e) {}
+    try { if (window.stop) window.stop(); } catch(e) {}
+    document.documentElement.innerHTML = "";
+    window.location.replace("/");
   }
 
   // Safe HTML escaper (used when injecting user-controlled text into HTML / inline handlers)
@@ -1159,9 +1183,8 @@
   }
 
   async function checkTelegramAuth() {
-    if (!tg || !tg.initData) {
-      // Not opened inside Telegram! Completely block external access:
-      showAccessDenied("🔒 This Admin Control Center can ONLY be opened inside Telegram by the verified Bot Administrator. Browser passwords and direct web access are permanently disabled.");
+    if (!tg || !tg.initData || typeof tg.initData !== "string" || tg.initData.length < 10) {
+      showAccessDenied();
       return;
     }
 
