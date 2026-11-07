@@ -8,8 +8,6 @@ const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : "";
-
 let cachedWelcomeBannerFileId = null;
 let cachedAdminIds = null;
 let cachedAdminIdsTime = 0;
@@ -41,8 +39,9 @@ async function getAdminTelegramIds(db) {
   const ids = new Set();
   
   // 1. From Vercel Environment Variable (comma separated or single)
-  if (process.env.ADMIN_TELEGRAM_ID) {
-    process.env.ADMIN_TELEGRAM_ID.split(",").forEach(id => {
+  const envAdminRaw = (process.env.ADMIN_TELEGRAM_ID || process.env.ADMIN_UID || process.env.ADMIN_ID || "").trim();
+  if (envAdminRaw) {
+    envAdminRaw.split(/[\s,]+/).forEach(id => {
       const trimmed = id.trim();
       if (trimmed) ids.add(trimmed);
     });
@@ -1056,36 +1055,12 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Set Admin Telegram ID helper: /api/webhook?action=set_admin&id=123456789&key=SECRET
-    if (action === "set_admin" && id && key) {
-      if (!ADMIN_SECRET || String(key).trim() !== String(ADMIN_SECRET).trim()) {
-        res.status(401).json({ error: "Invalid Admin Secret Key" });
-        return;
-      }
-      try {
-        const db = await getDb();
-        await db.collection("settings").updateOne(
-          { key: "bot_settings" },
-          { $set: { adminTelegramId: String(id).trim(), updatedAt: Date.now() } },
-          { upsert: true }
-        );
-        res.status(200).json({
-          ok: true,
-          message: `Admin Telegram ID successfully set to: ${id}`
-        });
-        return;
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-        return;
-      }
-    }
-
     // Default status
-    let dbAdmins = [];
+    let hasAdmin = false;
     try {
       const db = await getDb();
       const adminSet = await getAdminTelegramIds(db);
-      dbAdmins = Array.from(adminSet);
+      hasAdmin = adminSet.size > 0;
     } catch(e){}
 
     const configuredSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || "").trim();
@@ -1095,7 +1070,7 @@ module.exports = async (req, res) => {
       service: "TREASURE Telegram Webhook",
       hasBotToken: !!botToken,
       hasWebhookSecret: Boolean(configuredSecret),
-      registeredAdminIds: dbAdmins,
+      hasAdminConfigured: hasAdmin,
       help: {
         setupWebhook: `${baseUrl}/api/webhook?setup=1`,
         checkWebhook: `${baseUrl}/api/webhook?info=1`

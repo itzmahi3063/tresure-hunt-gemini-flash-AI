@@ -480,31 +480,28 @@
 </head>
 <body>
 
-<!-- Access Denied Overlay for Unauthorized Users -->
+<!-- Access Denied Overlay for Unauthorized Users / External Browsers -->
 <div id="accessDeniedOverlay" style="display: none; position: fixed; inset: 0; z-index: 999999; background: #090f15; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px;">
-  <div style="width: 80px; height: 80px; border-radius: 50%; background: rgba(239, 68, 68, 0.15); border: 2px solid rgba(239, 68, 68, 0.4); display: flex; align-items: center; justify-content: center; font-size: 38px; margin-bottom: 20px;">⛔</div>
-  <h2 style="color: #ef4444; font-size: 24px; font-weight: 800; margin-bottom: 10px;">Access Denied</h2>
-  <p style="color: #8ba2b5; font-size: 14.5px; max-width: 360px; line-height: 1.6;" id="accessDeniedMsg">
-    Your Telegram account is not authorized to access the Admin Control Center.
+  <div style="width: 80px; height: 80px; border-radius: 50%; background: rgba(239, 68, 68, 0.15); border: 2px solid rgba(239, 68, 68, 0.4); display: flex; align-items: center; justify-content: center; font-size: 38px; margin-bottom: 20px;">🔒</div>
+  <h2 style="color: #ef4444; font-size: 24px; font-weight: 800; margin-bottom: 10px;" id="accessDeniedTitle">Restricted Admin Access</h2>
+  <p style="color: #8ba2b5; font-size: 14.5px; max-width: 420px; line-height: 1.6;" id="accessDeniedMsg">
+    This Admin Control Center is strictly secured and can ONLY be opened inside Telegram by the verified Bot Administrator. Passwords and external web access are permanently disabled.
   </p>
 </div>
 
-<!-- Secret Key Auth Modal -->
-<div class="auth-overlay" id="authOverlay">
-  <div class="auth-box">
-    <div class="auth-icon">🛡️</div>
-    <div class="auth-title">Admin Access</div>
-    <div class="auth-sub">Enter your secret key to access the control panel</div>
-    <div class="form-group">
-      <input type="password" id="adminKeyInput" class="form-input" placeholder="Enter Admin Secret Key..." autofocus>
+<!-- Telegram Verification Loading Modal (No Password) -->
+<div class="auth-overlay" id="authOverlay" style="display: flex;">
+  <div class="auth-box" style="text-align: center;">
+    <div class="auth-icon" style="font-size: 42px; margin-bottom: 12px;">🛡️</div>
+    <div class="auth-title" id="authTitle" style="font-size: 20px; font-weight: 700; color: #fff;">Verifying Telegram Access</div>
+    <div class="auth-sub" id="authSub" style="font-size: 14px; color: #8ba2b5; margin-top: 8px;">Authenticating your Telegram Administrator identity...</div>
+    <div style="margin-top: 24px; display: flex; justify-content: center;">
+      <div style="width: 34px; height: 34px; border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
     </div>
-    <button class="btn-primary" id="loginBtn" style="width: 100%; justify-content: center;">
-      <span>Unlock Dashboard</span>
-    </button>
   </div>
 </div>
 
-<div class="admin-wrap" id="adminWrap">
+<div class="admin-wrap" id="adminWrap" style="display: none;">
 
   <!-- Top Header -->
   <header class="admin-header">
@@ -1086,13 +1083,13 @@
 
 <script>
 (function(){
-  var currentAdminKey = sessionStorage.getItem("hoocooh_admin_key") || "";
+  var currentAdminToken = sessionStorage.getItem("treasure_admin_token") || "";
   var currentFilter = "PENDING";
   var selectedFundsUser = null;
 
   var authOverlay = document.getElementById("authOverlay");
-  var adminKeyInput = document.getElementById("adminKeyInput");
-  var loginBtn = document.getElementById("loginBtn");
+  var accessDeniedOverlay = document.getElementById("accessDeniedOverlay");
+  var adminWrap = document.getElementById("adminWrap");
   var toastEl = document.getElementById("adminToast");
 
   function showToast(msg) {
@@ -1100,6 +1097,16 @@
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     setTimeout(function(){ toastEl.classList.remove("show"); }, 3000);
+  }
+
+  function showAccessDenied(message) {
+    if (authOverlay) authOverlay.style.display = "none";
+    if (adminWrap) adminWrap.style.display = "none";
+    if (accessDeniedOverlay) {
+      accessDeniedOverlay.style.display = "flex";
+      var msgEl = document.getElementById("accessDeniedMsg");
+      if (msgEl && message) msgEl.textContent = message;
+    }
   }
 
   // Safe HTML escaper (used when injecting user-controlled text into HTML / inline handlers)
@@ -1145,93 +1152,66 @@
     document.body.removeChild(ta);
   }
 
-  // Telegram WebApp Auto-Authentication
+  // Telegram WebApp Auto-Authentication (Pure Telegram SSO - No Passwords)
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) {
     try { tg.ready(); tg.expand(); } catch(e){}
   }
 
   async function checkTelegramAuth() {
-    if (tg && tg.initData) {
-      // Auto-authenticating via Telegram WebApp initData
-      authOverlay.style.display = "flex";
-      var titleEl = document.querySelector(".auth-title");
-      var subEl = document.querySelector(".auth-sub");
-      var inputGroup = document.querySelector(".auth-box .form-group");
-      if (titleEl) titleEl.textContent = "Verifying Telegram Access...";
-      if (subEl) subEl.textContent = "Checking your administrator permissions...";
-      if (inputGroup) inputGroup.style.display = "none";
-      if (loginBtn) loginBtn.style.display = "none";
-
-      try {
-        var res = await fetch("/api/admin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "auth_init_data",
-            initData: tg.initData
-          })
-        });
-        var data = await res.json();
-        if (data.ok && data.authorized) {
-          currentAdminKey = data.adminKey;
-          sessionStorage.setItem("hoocooh_admin_key", data.adminKey);
-          authOverlay.style.display = "none";
-          var vSub = document.getElementById("adminVerifiedSub");
-          if (vSub && data.user) {
-            vSub.textContent = "🛡️ Verified: " + (data.user.firstName || "Admin") + " (UID: " + data.user.id + ")";
-          }
-          loadAll();
-          return;
-        } else {
-          // Strictly unauthorized: hide admin UI completely, show access denied
-          authOverlay.style.display = "none";
-          var adminWrap = document.getElementById("adminWrap");
-          if (adminWrap) adminWrap.style.display = "none";
-          var denied = document.getElementById("accessDeniedOverlay");
-          if (denied) {
-            denied.style.display = "flex";
-            var msg = document.getElementById("accessDeniedMsg");
-            if (msg) msg.textContent = data.message || "Your Telegram account is not authorized as an administrator.";
-          }
-          return;
-        }
-      } catch(e) {
-        console.error("Auth check failed:", e);
-      }
+    if (!tg || !tg.initData) {
+      // Not opened inside Telegram! Completely block external access:
+      showAccessDenied("🔒 This Admin Control Center can ONLY be opened inside Telegram by the verified Bot Administrator. Browser passwords and direct web access are permanently disabled.");
+      return;
     }
 
-    // Fallback for regular web browsers
-    if (currentAdminKey) {
-      authOverlay.style.display = "none";
-      loadAll();
-    } else {
-      authOverlay.style.display = "flex";
-      var titleEl = document.querySelector(".auth-title");
-      var subEl = document.querySelector(".auth-sub");
-      var inputGroup = document.querySelector(".auth-box .form-group");
-      if (titleEl) titleEl.textContent = "Admin Access";
-      if (subEl) subEl.textContent = "Enter your secret key to access the control panel";
-      if (inputGroup) inputGroup.style.display = "block";
-      if (loginBtn) loginBtn.style.display = "block";
+    if (authOverlay) authOverlay.style.display = "flex";
+
+    try {
+      var res = await fetch("/api/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-telegram-init-data": tg.initData
+        },
+        body: JSON.stringify({
+          action: "auth_init_data",
+          initData: tg.initData
+        })
+      });
+      var data = await res.json();
+      if (data.ok && data.authorized && data.token) {
+        currentAdminToken = data.token;
+        sessionStorage.setItem("treasure_admin_token", data.token);
+        if (authOverlay) authOverlay.style.display = "none";
+        if (adminWrap) adminWrap.style.display = "block";
+        var vSub = document.getElementById("adminVerifiedSub");
+        if (vSub && data.user) {
+          vSub.textContent = "🛡️ Verified Admin: " + (data.user.firstName || "Admin") + " (UID: " + data.user.id + ")";
+        }
+        loadAll();
+      } else {
+        showAccessDenied(data.message || data.error || "Your Telegram account is not authorized as an Administrator.");
+      }
+    } catch(e) {
+      console.error("Auth check failed:", e);
+      showAccessDenied("Failed to authenticate Telegram session. Please open the Admin Panel directly from the Telegram Bot.");
     }
   }
 
   checkTelegramAuth();
 
-  loginBtn.addEventListener("click", function(){
-    var key = (adminKeyInput.value || "").trim();
-    if (!key) { alert("Please enter secret key"); return; }
-    currentAdminKey = key;
-    sessionStorage.setItem("hoocooh_admin_key", key);
-    authOverlay.style.display = "none";
-    loadAll();
-  });
-
-  document.getElementById("logoutBtn").addEventListener("click", function(){
-    sessionStorage.removeItem("hoocooh_admin_key");
-    location.reload();
-  });
+  var logoutBtn = document.getElementById("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", function(){
+      sessionStorage.removeItem("treasure_admin_token");
+      if (tg && tg.close) {
+        tg.close();
+      } else {
+        location.reload();
+      }
+    });
+  }
 
   var resetMyVerifyBtn = document.getElementById("resetMyVerifyBtn");
   if (resetMyVerifyBtn) {
@@ -1285,27 +1265,30 @@
     var url = "/api/admin";
     if (params) {
       var q = new URLSearchParams(params);
-      q.set("adminKey", currentAdminKey);
       url += "?" + q.toString();
+    }
+    var headers = {
+      "Content-Type": "application/json"
+    };
+    if (currentAdminToken) {
+      headers["x-admin-token"] = currentAdminToken;
+    }
+    if (tg && tg.initData) {
+      headers["x-telegram-init-data"] = tg.initData;
     }
     var opts = {
       method: method,
-      headers: {
-        "Content-Type": "application/json",
-        "x-admin-key": currentAdminKey
-      }
+      headers: headers
     };
     if (body) {
-      body.adminKey = currentAdminKey;
       opts.body = JSON.stringify(body);
     }
     var res = await fetch(url, opts);
     var data = await res.json();
-    if (res.status === 401) {
-      sessionStorage.removeItem("hoocooh_admin_key");
-      alert("Invalid Admin Secret Key. Please re-enter.");
-      location.reload();
-      throw new Error("Unauthorized");
+    if (res.status === 401 || res.status === 403) {
+      sessionStorage.removeItem("treasure_admin_token");
+      showAccessDenied(data.message || data.error || "Session unauthorized. Please reopen from Telegram Bot.");
+      throw new Error(data.error || "Unauthorized");
     }
     return data;
   }

@@ -7,34 +7,74 @@ const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broa
 
 const crypto = require("crypto");
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET_KEY ? String(process.env.ADMIN_SECRET_KEY).trim() : "";
-
-async function getAdminTelegramIds(db) {
+function getAuthorizedAdminTelegramIds() {
   const ids = new Set();
-  if (process.env.ADMIN_TELEGRAM_ID) {
-    process.env.ADMIN_TELEGRAM_ID.split(",").forEach(id => {
-      const trimmed = id.trim();
-      if (trimmed) ids.add(trimmed);
+  const rawEnv = (process.env.ADMIN_TELEGRAM_ID || process.env.ADMIN_UID || process.env.ADMIN_ID || "").trim();
+  if (rawEnv) {
+    rawEnv.split(/[\s,]+/).forEach(id => {
+      const clean = id.trim();
+      if (clean) ids.add(clean);
     });
   }
-  try {
-    if (db) {
-      const setting = await db.collection("settings").findOne({ key: "bot_settings" });
-      if (setting && setting.adminTelegramId) {
-        String(setting.adminTelegramId).split(",").forEach(id => {
-          const trimmed = id.trim();
-          if (trimmed) ids.add(trimmed);
-        });
-      }
-      const adminDocs = await db.collection("admins").find({}).toArray();
-      adminDocs.forEach(doc => {
-        if (doc.telegramId) ids.add(String(doc.telegramId).trim());
-      });
-    }
-  } catch (e) {
-    console.error("Error reading admin IDs from DB:", e);
-  }
   return ids;
+}
+
+function createAdminSessionToken(telegramId, botToken) {
+  const now = Date.now();
+  const payload = `${telegramId}:${now}`;
+  const sig = crypto.createHmac("sha256", botToken).update(payload).digest("hex");
+  return `${payload}:${sig}`;
+}
+
+function verifyAdminSessionToken(token, botToken, allowedIds, maxAgeMs = 12 * 60 * 60 * 1000) {
+  if (!token || !botToken) return null;
+  const parts = String(token).split(":");
+  if (parts.length !== 3) return null;
+  const [tgId, timestampStr, sig] = parts;
+  const timestamp = parseInt(timestampStr, 10);
+  if (!timestamp || isNaN(timestamp)) return null;
+  if (Date.now() - timestamp > maxAgeMs || timestamp - Date.now() > 60000) return null;
+
+  const expectedSig = crypto.createHmac("sha256", botToken).update(`${tgId}:${timestampStr}`).digest("hex");
+  const a = Buffer.from(sig, "hex");
+  const b = Buffer.from(expectedSig, "hex");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  if (!allowedIds.has(String(tgId))) return null;
+  return { id: tgId };
+}
+
+function verifyAdminTelegramRequest(req, botToken, allowedIds) {
+  if (!botToken) {
+    return { ok: false, status: 500, error: "BOT_TOKEN_NOT_CONFIGURED", message: "TELEGRAM_BOT_TOKEN is not configured in Vercel environment variables." };
+  }
+  if (!allowedIds || allowedIds.size === 0) {
+    return { ok: false, status: 403, error: "ADMIN_UID_NOT_CONFIGURED", message: "ADMIN_TELEGRAM_ID is not configured in Vercel environment variables. Access is strictly blocked." };
+  }
+
+  // Check 1: Session token (x-admin-token header or adminToken param/body)
+  const sessionToken = req.headers["x-admin-token"] || (req.query && req.query.adminToken) || (req.body && req.body.adminToken);
+  if (sessionToken) {
+    const sessionUser = verifyAdminSessionToken(sessionToken, botToken, allowedIds);
+    if (sessionUser) {
+      return { ok: true, user: sessionUser };
+    }
+  }
+
+  // Check 2: Direct Telegram initData (x-telegram-init-data header or initData param/body)
+  const initData = req.headers["x-telegram-init-data"] || (req.body && req.body.initData) || (req.query && req.query.initData);
+  if (initData) {
+    const tgUser = validateInitData(initData, botToken);
+    if (tgUser && tgUser.id) {
+      const senderId = String(tgUser.id);
+      if (allowedIds.has(senderId)) {
+        return { ok: true, user: tgUser };
+      }
+      return { ok: false, status: 403, error: "ACCESS_DENIED_NOT_ADMIN", message: `Telegram ID ${senderId} is not authorized. Only the Admin UID configured in Vercel ENV can access.` };
+    }
+  }
+
+  return { ok: false, status: 401, error: "UNAUTHORIZED_TELEGRAM_ONLY", message: "Admin Panel can only be accessed through Telegram from your verified Admin account. Passwords and external access are permanently disabled." };
 }
 
 function escapeHtml(str) {
@@ -43,29 +83,6 @@ function escapeHtml(str) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function checkAdminAuth(req) {
-  const headerKey = req.headers["x-admin-key"];
-  const bodyKey = req.body && (req.body.adminKey || req.body.secret || req.body.key);
-  const queryKey = req.query && (req.query.adminKey || req.query.secret || req.query.key);
-  const key = String(headerKey || bodyKey || queryKey || "").trim();
-  if (!key) return false;
-
-  const botToken = process.env.TELEGRAM_BOT_TOKEN ? String(process.env.TELEGRAM_BOT_TOKEN).trim() : null;
-  const adminSecret = String(ADMIN_SECRET).trim();
-  const s2sSecret = process.env.ADSGRAM_S2S_SECRET ? String(process.env.ADSGRAM_S2S_SECRET).trim() : null;
-
-  if (adminSecret && key === adminSecret) {
-    return true;
-  }
-  if (botToken && key === botToken) {
-    return true;
-  }
-  if (s2sSecret && key === s2sSecret) {
-    return true;
-  }
-  return false;
 }
 
 async function sendTelegramMsg(botToken, chatId, text, options = {}) {
@@ -201,7 +218,7 @@ module.exports = async (req, res) => {
   // CORS / Options preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,x-admin-key");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,x-admin-token,x-telegram-init-data");
   if (req.method === "OPTIONS") {
     res.status(200).end();
     return;
@@ -221,7 +238,7 @@ module.exports = async (req, res) => {
       return;
     }
     if (!botToken) {
-      res.status(500).json({ ok: false, error: "TELEGRAM_BOT_TOKEN or BOT_TOKEN is not configured in Vercel" });
+      res.status(500).json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured in Vercel environment variables." });
       return;
     }
 
@@ -231,40 +248,47 @@ module.exports = async (req, res) => {
       return;
     }
 
-    try {
-      const db = await getDb();
-      const adminIds = await getAdminTelegramIds(db);
-      const senderId = String(tgUser.id);
+    const adminIds = getAuthorizedAdminTelegramIds();
+    const senderId = String(tgUser.id);
 
-      if (!adminIds.has(senderId)) {
-        res.status(403).json({
-          ok: false,
-          error: "ACCESS_DENIED_NOT_ADMIN",
-          message: `Telegram ID ${senderId} is not registered as an Administrator.`
-        });
-        return;
-      }
-
-      // Verified Admin! Return temporary adminKey for frontend API sessions
-      res.status(200).json({
-        ok: true,
-        authorized: true,
-        adminKey: ADMIN_SECRET,
-        user: {
-          id: tgUser.id,
-          username: tgUser.username || "",
-          firstName: tgUser.first_name || ""
-        }
+    if (adminIds.size === 0) {
+      res.status(403).json({
+        ok: false,
+        error: "ADMIN_UID_NOT_CONFIGURED",
+        message: "ADMIN_TELEGRAM_ID is not configured in Vercel environment variables. Access blocked."
       });
       return;
-    } catch (err) {
-      res.status(500).json({ ok: false, error: err.message });
+    }
+
+    if (!adminIds.has(senderId)) {
+      res.status(403).json({
+        ok: false,
+        error: "ACCESS_DENIED_NOT_ADMIN",
+        message: `Telegram ID ${senderId} is not authorized. Only the Admin UID configured in Vercel ENV can access.`
+      });
       return;
     }
+
+    // Verified Admin! Return secure session token (NO PASSWORDS, NO SECRETS EXPOSED!)
+    const sessionToken = createAdminSessionToken(senderId, botToken);
+    res.status(200).json({
+      ok: true,
+      authorized: true,
+      token: sessionToken,
+      user: {
+        id: tgUser.id,
+        username: tgUser.username || "",
+        firstName: tgUser.first_name || ""
+      }
+    });
+    return;
   }
 
-  if (!checkAdminAuth(req)) {
-    res.status(401).json({ error: "Unauthorized: Invalid Admin Secret Key" });
+  // Strict Telegram Admin verification for all other admin routes:
+  const allowedAdminIds = getAuthorizedAdminTelegramIds();
+  const authRes = verifyAdminTelegramRequest(req, botToken, allowedAdminIds);
+  if (!authRes.ok) {
+    res.status(authRes.status || 401).json({ error: authRes.error, message: authRes.message });
     return;
   }
 
