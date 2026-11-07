@@ -998,43 +998,41 @@ module.exports = async (req, res) => {
           try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
         };
 
-        // If no manual TxHash provided, try automated TON payout dispatcher
-        if (!finalTx) {
-          let autoPayRes;
+        // STRICT ON-CHAIN REQUIREMENT: Payout MUST be executed and confirmed on-chain. Manual unverified approval is blocked.
+        let autoPayRes;
+        try {
+          const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
+          autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
+        } catch (payErr) {
+          await releasePayoutClaim();
           try {
-            const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
-            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
-          } catch (payErr) {
-            await releasePayoutClaim();
-            try {
-              await withdrawalsCol.updateOne(
-                wQuery,
-                { $set: { lastAutoPayError: payErr && payErr.message ? payErr.message : String(payErr), lastAutoPayAttemptAt: now } }
-              );
-            } catch (_) {}
-            res.status(500).json({ error: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` });
-            return;
-          }
-          if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success) {
-            await releasePayoutClaim();
-            const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent)";
-            try {
-              await withdrawalsCol.updateOne(
-                wQuery,
-                { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
-              );
-            } catch (_) {}
-            res.status(400).json({
-              error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
-              isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
-              autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
-            });
-            return;
-          }
-          finalTx = autoPayRes.txHash;
-          autoPaySuccess = true;
-          autoPayMsg = autoPayRes.message || "On-chain transfer confirmed";
+            await withdrawalsCol.updateOne(
+              wQuery,
+              { $set: { lastAutoPayError: payErr && payErr.message ? payErr.message : String(payErr), lastAutoPayAttemptAt: now } }
+            );
+          } catch (_) {}
+          res.status(500).json({ error: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` });
+          return;
         }
+        if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success) {
+          await releasePayoutClaim();
+          const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent)";
+          try {
+            await withdrawalsCol.updateOne(
+              wQuery,
+              { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
+            );
+          } catch (_) {}
+          res.status(400).json({
+            error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
+            isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
+            autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
+          });
+          return;
+        }
+        finalTx = autoPayRes.txHash;
+        autoPaySuccess = true;
+        autoPayMsg = autoPayRes.message || "On-chain transfer confirmed";
 
         // Finalize: PROCESSING (claimed above by this request) -> APPROVED
         const approveUpdateRes = await withdrawalsCol.updateOne(
