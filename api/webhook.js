@@ -339,7 +339,8 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   let autoPayRes;
   try {
-    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
+    const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
+            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
   } catch (payErr) {
     try {
       await withdrawalsCol.updateOne(

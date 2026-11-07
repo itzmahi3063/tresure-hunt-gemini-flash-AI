@@ -966,7 +966,8 @@ module.exports = async (req, res) => {
         if (!finalTx) {
           let autoPayRes;
           try {
-            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, `TREASURE Payout UID ${w.telegramId}`, db);
+            const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
+            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
           } catch (payErr) {
             await releasePayoutClaim();
             res.status(500).json({ error: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` });
