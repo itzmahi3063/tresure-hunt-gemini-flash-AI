@@ -1833,6 +1833,11 @@ module.exports = async (req, res) => {
               autoPay: autoPay !== false,
               walletAddress: derivedAddr,
               updatedAt: Date.now()
+            },
+            $unset: {
+              lastSeqno: "",
+              lastBroadcastAt: "",
+              lastTxHash: ""
             }
           },
           { upsert: true }
