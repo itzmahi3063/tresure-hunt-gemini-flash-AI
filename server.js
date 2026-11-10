@@ -154,6 +154,10 @@ const apiHandlers = {
 
 // Route Aliases
 app.all("/api/adsgram-reward", apiHandlers.ads);
+app.all("/api/adsgram-task-reward", apiHandlers.ads);
+app.all("/api/s2s-reward", apiHandlers.ads);
+app.all("/api/adsgram", apiHandlers.ads);
+app.all("/api/reward", apiHandlers.ads);
 app.all("/api/verify-channel", apiHandlers.tasks);
 app.all("/api/setup-indexes", apiHandlers.admin);
 
