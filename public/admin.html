@@ -636,6 +636,22 @@
         </div>
       </div>
 
+      <!-- Payout Logs Channel Card -->
+      <div id="payoutChannelBar" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 240px;">
+          <span style="font-size: 18px;">📢</span>
+          <div>
+            <div style="font-size: 13px; font-weight: 700; color: #fff;">Payout Proof Telegram Channel</div>
+            <div style="font-size: 11.5px; color: var(--text-dim);" id="payoutChannelSubtitle">Active Channel: Loading...</div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <input type="text" id="payoutChannelInput" class="form-input" placeholder="@your_channel" style="width: 190px; padding: 6px 10px; font-size: 12px; margin: 0;">
+          <button type="button" class="btn-primary" id="savePayoutChannelBtn" style="font-size: 11.5px; padding: 6px 12px; cursor: pointer;">💾 Set Channel</button>
+          <button type="button" class="btn-secondary" id="testPayoutChannelBtn" style="font-size: 11.5px; padding: 6px 12px; cursor: pointer;">🧪 Test Post</button>
+        </div>
+      </div>
+
       <div class="filter-row">
         <button class="pill-filter active" data-filter="PENDING">Pending (Clean Only)</button>
         <button class="pill-filter" data-filter="SUSPICIOUS" id="susFilterBtn" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
@@ -1640,6 +1656,60 @@
       withdrawalsList.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--danger);">Failed to load withdrawals.</td></tr>';
     }
   }
+
+  // Payout Channel Manager
+  var payoutChannelInput = document.getElementById("payoutChannelInput");
+  var payoutChannelSubtitle = document.getElementById("payoutChannelSubtitle");
+  var savePayoutChannelBtn = document.getElementById("savePayoutChannelBtn");
+  var testPayoutChannelBtn = document.getElementById("testPayoutChannelBtn");
+
+  async function loadPayoutChannel() {
+    try {
+      var res = await apiAdmin("GET", { action: "app_settings" });
+      if (res && res.payoutChannelId) {
+        if (payoutChannelInput) payoutChannelInput.value = res.payoutChannelId;
+        if (payoutChannelSubtitle) payoutChannelSubtitle.innerHTML = 'Active Channel: <strong style="color:#10b981;">' + res.payoutChannelId + '</strong>';
+      }
+    } catch(e) {}
+  }
+
+  if (savePayoutChannelBtn) {
+    savePayoutChannelBtn.addEventListener("click", async function() {
+      var val = (payoutChannelInput.value || "").trim();
+      if (!val) return alert("Please enter your channel username (e.g. @mychannel)");
+      try {
+        var res = await apiAdmin("POST", null, { action: "save_payout_channel", channelId: val });
+        if (res.ok) {
+          alert("✅ " + res.message);
+          loadPayoutChannel();
+        } else {
+          alert("❌ " + (res.error || "Failed to save channel"));
+        }
+      } catch(e) {
+        alert("❌ " + (e.message || e));
+      }
+    });
+  }
+
+  if (testPayoutChannelBtn) {
+    testPayoutChannelBtn.addEventListener("click", async function() {
+      var val = (payoutChannelInput.value || "").trim();
+      showToast("⏳ Sending test post to channel...");
+      try {
+        var res = await apiAdmin("POST", null, { action: "test_payout_channel", channelId: val });
+        if (res.ok) {
+          alert("🎉 " + res.message + "\n\nCheck your channel now to verify!");
+        } else {
+          alert("⚠️ " + (res.message || res.error) + "\n\nCRITICAL STEP: Go to your channel in Telegram -> Manage Channel -> Administrators -> Add Administrator -> Search for @treasure_hunt12_bot -> Enable 'Post Messages' -> Click Save!");
+        }
+      } catch(e) {
+        alert("❌ " + (e.message || e));
+      }
+    });
+  }
+
+  // Load channel on initial load
+  setTimeout(loadPayoutChannel, 1200);
 
   // Hot Wallet Auto-Pay Status Manager
   var hotWalletDot = document.getElementById("hotWalletDot");

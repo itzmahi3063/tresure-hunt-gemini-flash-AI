@@ -813,7 +813,8 @@ module.exports = async (req, res) => {
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
         const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
-        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit });
+        const payoutChannelId = (appSetting && appSetting.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit, payoutChannelId });
         return;
       }
 
@@ -1041,7 +1042,8 @@ module.exports = async (req, res) => {
             const txLinkHtml = `<a href="${txUrl}">View Transaction</a>`;
 
             // Post to Payout Logs Channel
-            const channelId = process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+            const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+            const channelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
             const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
 `👤 <b>User:</b> ${displayName}\n` +
@@ -1984,6 +1986,61 @@ module.exports = async (req, res) => {
           adexiumEnabled: isEnabled,
           message: `Adexium ads successfully ${isEnabled ? "ENABLED" : "DISABLED"}!`
         });
+        return;
+      }
+
+      // 13.6. Save and Test Payout Logs Channel
+      if (action === "save_payout_channel" || action === "set_payout_channel") {
+        const { channelId } = req.body || {};
+        let clean = String(channelId || "").trim();
+        if (clean && !clean.startsWith("@") && !clean.startsWith("-100")) {
+          clean = "@" + clean;
+        }
+        await db.collection("settings").updateOne(
+          { key: "app_settings" },
+          { $set: { payoutChannelId: clean, updatedAt: Date.now() } },
+          { upsert: true }
+        );
+        res.status(200).json({ ok: true, payoutChannelId: clean, message: `Payout channel updated to: ${clean}` });
+        return;
+      }
+
+      if (action === "test_payout_channel") {
+        const { channelId } = req.body || {};
+        const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const targetCh = channelId ? String(channelId).trim() : ((appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs");
+        if (!botToken) {
+          res.status(500).json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured" });
+          return;
+        }
+        const testMsg = 
+`🎉 <b>Payout Channel Connection Verified!</b> 🎉\n\n` +
+`✅ <b>Status:</b> @treasure_hunt12_bot is successfully connected and has Administrator permissions!\n` +
+`📢 <b>Channel:</b> ${targetCh}\n` +
+`⏱ <b>Timestamp:</b> ${new Date().toISOString()}\n\n` +
+`<i>Automatic payout proofs will be posted directly to this channel when withdrawals are approved!</i>`;
+        try {
+          const chRes = await sendTelegramMsg(botToken, targetCh, testMsg, {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
+              ]
+            }
+          });
+          if (chRes && chRes.ok) {
+            res.status(200).json({ ok: true, channelTarget: targetCh, message: `Test message posted successfully to ${targetCh}!` });
+          } else {
+            const errDesc = chRes ? (chRes.description || JSON.stringify(chRes)) : "Unknown Telegram error";
+            res.status(400).json({
+              ok: false,
+              channelTarget: targetCh,
+              error: errDesc,
+              message: `Failed to post to ${targetCh}: ${errDesc}. Make sure @treasure_hunt12_bot is added as an Administrator with 'Post Messages' permission in ${targetCh}!`
+            });
+          }
+        } catch (e) {
+          res.status(500).json({ ok: false, channelTarget: targetCh, error: e.message });
+        }
         return;
       }
 

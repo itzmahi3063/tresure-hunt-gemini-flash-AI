@@ -406,7 +406,8 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       const txUrl = `https://tonviewer.com/transaction/${encodeURIComponent(finalTx)}`;
       const txLinkHtml = `<a href="${txUrl}">View Transaction</a>`;
 
-      const channelId = process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+      const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+      const channelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
       const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
 `👤 <b>User:</b> ${displayName}\n` +
