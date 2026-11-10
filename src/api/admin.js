@@ -407,6 +407,21 @@ module.exports = async (req, res) => {
         // Auto-purge any excess withdrawal history older than the 5 latest per user
         purgeAllExcessWithdrawals(withdrawalsCol).catch(() => {});
 
+        // Auto-recover any withdrawal stuck in PROCESSING (>30s) back to PENDING so they NEVER disappear!
+        await withdrawalsCol.updateMany(
+          {
+            status: "PROCESSING",
+            $or: [
+              { processingAt: { $lt: Date.now() - 30 * 1000 } },
+              { processingAt: { $exists: false } }
+            ]
+          },
+          {
+            $set: { status: "PENDING" },
+            $unset: { processingAt: "" }
+          }
+        ).catch(() => {});
+
         const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
         if (reqStatus === "PENDING") {
@@ -936,6 +951,12 @@ module.exports = async (req, res) => {
           return;
         }
 
+        // Auto-recover stale PROCESSING lock (>30s old)
+        if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 30000)) {
+          await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
+          w.status = "PENDING";
+        }
+
         if (w.status !== "PENDING") {
           res.status(400).json({ error: `Withdrawal has already been processed (Current status: ${w.status}). Cannot approve again.` });
           return;
@@ -947,9 +968,7 @@ module.exports = async (req, res) => {
         let autoPaySuccess = false;
         let autoPayMsg = "";
 
-        // ATOMIC CLAIM BEFORE PAYING: move PENDING -> PROCESSING first. Only ONE request can win this.
-        // Previously the real TON payout was sent first and the status changed afterwards, so a double
-        // click / two admins / a retry could send the same payout twice.
+        // ATOMIC CLAIM: move PENDING -> PROCESSING
         const claimPayoutRes = await withdrawalsCol.updateOne(
           { ...wQuery, status: "PENDING" },
           { $set: { status: "PROCESSING", processingAt: now } }
@@ -962,72 +981,56 @@ module.exports = async (req, res) => {
           try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
         };
 
-        // STRICT ON-CHAIN REQUIREMENT: Payout MUST be executed and confirmed on-chain. Manual unverified approval is blocked.
+        // 1. STRICT ON-CHAIN REQUIREMENT: Payout MUST be executed and confirmed on-chain FIRST!
         let autoPayRes;
         try {
           const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
           autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
         } catch (payErr) {
           await releasePayoutClaim();
-          res.status(500).json({ error: `Auto-pay error: ${payErr && payErr.message ? payErr.message : payErr}` });
+          const errText = payErr && payErr.message ? payErr.message : String(payErr);
+          try {
+            await withdrawalsCol.updateOne(
+              wQuery,
+              { $set: { lastAutoPayError: errText, lastAutoPayAttemptAt: now } }
+            );
+          } catch (_) {}
+          res.status(500).json({ error: `Auto-pay error: ${errText}` });
           return;
         }
-        if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success) {
+
+        // Strictly check if payment actually left wallet on-chain
+        if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success || !autoPayRes.txHash) {
           await releasePayoutClaim();
-          const haltReason = autoPayRes ? (autoPayRes.message || autoPayRes.error) : "Auto-pay failed (TON was NOT sent)";
+          const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent on-chain)";
+          try {
+            await withdrawalsCol.updateOne(
+              wQuery,
+              { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
+            );
+          } catch (_) {}
           res.status(400).json({
-            error: `Auto-Pay failed (TON NOT sent): ${haltReason}`
+            error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
+            isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
+            autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
           });
           return;
         }
+
         finalTx = autoPayRes.txHash;
         autoPaySuccess = true;
         autoPayMsg = autoPayRes.message || "On-chain transfer confirmed";
 
-        // Finalize: PROCESSING (claimed above by this request) -> APPROVED
-        const approveUpdateRes = await withdrawalsCol.updateOne(
-          { ...wQuery, status: "PROCESSING" },
-          {
-            $set: {
-              status: "APPROVED",
-              tonAmount: tonVal,
-              txHash: finalTx,
-              approvedAt: now
-            }
-          }
-        );
-
-        if (approveUpdateRes.matchedCount === 0 || approveUpdateRes.modifiedCount === 0) {
-          res.status(400).json({ error: "Withdrawal has already been processed or is no longer pending." });
-          return;
-        }
-
-        // 5% Referral Commission Crediting:
-        // Automatically credits 5% referral commission to the recruit's inviter upon approved withdrawal
+        // 2. POST TO PAYOUT LOGS CHANNEL & NOTIFY USER FIRST (Only after wallet payment succeeded!)
         let userDoc = null;
-        try {
-          userDoc = await usersCol.findOne({
-            $or: [
-              { telegramId: String(w.telegramId) },
-              { telegramId: Number(w.telegramId) }
-            ]
-          });
-          await creditReferralWithdrawalCommission(db, botToken, w, userDoc);
-        } catch (comErr) {
-          console.error("Referral commission error in admin.js:", comErr);
-        }
-
-        // Notify Payout Channel (@hoocoohpaylogs) and User via Telegram Bot
         if (botToken) {
           try {
-            if (!userDoc) {
-              userDoc = await usersCol.findOne({
-                $or: [
-                  { telegramId: String(w.telegramId) },
-                  { telegramId: Number(w.telegramId) }
-                ]
-              });
-            }
+            userDoc = await usersCol.findOne({
+              $or: [
+                { telegramId: String(w.telegramId) },
+                { telegramId: Number(w.telegramId) }
+              ]
+            });
 
             const rawName = userDoc?.username 
               ? `@${userDoc.username}` 
@@ -1037,7 +1040,7 @@ module.exports = async (req, res) => {
             const txUrl = `https://tonviewer.com/transaction/${encodeURIComponent(finalTx)}`;
             const txLinkHtml = `<a href="${txUrl}">View Transaction</a>`;
 
-            // 1. Post to Payout Logs Channel (with BOT ---> @treasure_hunt12_bot appended)
+            // Post to Payout Logs Channel
             const channelId = process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
             const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
@@ -1054,9 +1057,9 @@ module.exports = async (req, res) => {
                   [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
                 ]
               }
-            });
+            }).catch(e => console.warn("Channel post warning:", e.message));
 
-            // 2. Send 1:1 exact notification to the withdrawing user (matching media_1791525638939.png)
+            // Send 1:1 notification to withdrawing user
             if (w.telegramId) {
               const userMsg = 
 `✅ <b>Withdrawal Approved!</b>\n\n` +
@@ -1066,11 +1069,46 @@ module.exports = async (req, res) => {
               await sendTelegramMsg(botToken, w.telegramId, userMsg, {
                 buttonText: "🔗 View Transaction",
                 buttonUrl: txUrl
-              });
+              }).catch(e => console.warn("User notification warning:", e.message));
             }
           } catch (notifErr) {
             console.error("Payout notification error:", notifErr);
           }
+        }
+
+        // 3. FINALIZE IN DATABASE: Mark APPROVED ONLY AFTER payment and channel post!
+        const approveUpdateRes = await withdrawalsCol.updateOne(
+          { ...wQuery, status: "PROCESSING" },
+          {
+            $set: {
+              status: "APPROVED",
+              tonAmount: tonVal,
+              txHash: finalTx,
+              approvedAt: now,
+              channelPosted: true
+            },
+            $unset: { processingAt: "" }
+          }
+        );
+
+        if (approveUpdateRes.matchedCount === 0 || approveUpdateRes.modifiedCount === 0) {
+          res.status(400).json({ error: "Withdrawal has already been processed or is no longer pending." });
+          return;
+        }
+
+        // 4. Referral Commission Crediting (5%)
+        try {
+          if (!userDoc) {
+            userDoc = await usersCol.findOne({
+              $or: [
+                { telegramId: String(w.telegramId) },
+                { telegramId: Number(w.telegramId) }
+              ]
+            });
+          }
+          await creditReferralWithdrawalCommission(db, botToken, w, userDoc);
+        } catch (comErr) {
+          console.error("Referral commission error in admin.js:", comErr);
         }
 
         res.status(200).json({ 
@@ -1084,7 +1122,6 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 2. Reject Withdrawal (Refunds coins back to user balance exactly once!)
       if (action === "reject_withdrawal") {
         const { withdrawalId, reason } = req.body || {};
         if (!withdrawalId) {
