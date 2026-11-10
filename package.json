@@ -4,12 +4,14 @@
   "private": true,
   "description": "TREASURE Mine Telegram Mini App - Vercel serverless API + MongoDB storage",
   "scripts": {
+    "start": "node server.js",
     "dev": "vercel dev",
     "build": "node scripts/build.js"
   },
   "dependencies": {
     "@ton/crypto": "^3.3.0",
     "@ton/ton": "^16.3.0",
+    "express": "^5.3.0",
     "mongodb": "^6.8.0"
   },
   "devDependencies": {

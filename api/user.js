@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser, findUserById, purgeExpiredBannedUsers } = require("../lib/userHelper");
@@ -58,7 +59,7 @@ async function getCachedAppSettings(db) {
   }
 }
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "GET" && req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -579,4 +580,4 @@ module.exports = async (req, res) => {
     console.error("user.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

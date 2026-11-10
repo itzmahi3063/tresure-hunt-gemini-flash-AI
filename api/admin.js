@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
@@ -214,7 +215,7 @@ function calculateFraudRiskScore(u) {
   return Math.min(100, Math.max(0, score));
 }
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   // CORS / Options preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -1992,4 +1993,4 @@ module.exports = async (req, res) => {
     console.error("admin.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

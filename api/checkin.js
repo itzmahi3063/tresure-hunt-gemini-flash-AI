@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
@@ -6,7 +7,7 @@ const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -146,4 +147,4 @@ module.exports = async (req, res) => {
     console.error("checkin.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

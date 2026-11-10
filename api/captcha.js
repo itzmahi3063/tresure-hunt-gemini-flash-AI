@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const crypto = require("crypto");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
@@ -7,7 +8,7 @@ const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 const CHALLENGE_EXPIRY_MS = 120 * 1000; // 2 minutes
 const TOKEN_EXPIRY_MS = 90 * 1000;      // 90 seconds
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -231,4 +232,4 @@ module.exports = async (req, res) => {
     console.error("captcha.js error:", err);
     res.status(500).json({ error: err.message || "Internal server error" });
   }
-};
+});

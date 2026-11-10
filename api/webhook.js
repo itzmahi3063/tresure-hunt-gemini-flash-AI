@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const fs = require("fs");
 const path = require("path");
 const { ObjectId } = require("mongodb");
@@ -964,7 +965,7 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   }
 }
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   // CORS / Preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -2374,4 +2375,4 @@ module.exports = async (req, res) => {
   }
 
   res.status(405).json({ error: "Method not allowed" });
-};
+});

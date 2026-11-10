@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
@@ -11,7 +12,7 @@ const MILESTONES_CONFIG = [
   { id: 4, required: 50, reward: 1500, title: "Invite 50 Friends" }
 ];
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured" });
@@ -229,4 +230,4 @@ module.exports = async (req, res) => {
     console.error("referral.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

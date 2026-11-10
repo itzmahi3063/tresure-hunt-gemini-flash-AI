@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser, purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("../lib/userHelper");
@@ -9,7 +10,7 @@ const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured" });
@@ -678,4 +679,4 @@ module.exports = async (req, res) => {
     console.error("tasks.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

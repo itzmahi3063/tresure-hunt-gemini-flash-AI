@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser, purgeExcessUserWithdrawals } = require("../lib/userHelper");
@@ -94,7 +95,7 @@ function calculateCoinsUsdt(coins, rate = COIN_RATE) {
 // TON per USD = 0.019 / 0.03 = 19 / 30 (~0.63333333 TON per $1 USDT)
 const TON_PER_USD = 0.019 / 0.03;
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured" });
@@ -428,4 +429,4 @@ module.exports = async (req, res) => {
     console.error("wallet.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});
