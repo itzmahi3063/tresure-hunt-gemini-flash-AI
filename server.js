@@ -228,6 +228,8 @@ try {
   const { getDb } = require("./lib/mongodb");
   const { processMiningReminders } = require("./lib/miningReminder");
   const { processBroadcastQueue } = require("./lib/broadcastQueue");
+  const { purgeExpiredCompletedTasks, purgeAllExcessWithdrawals } = require("./lib/userHelper");
+  const { checkTonDeposit, notifyUserTaskActivated } = require("./lib/tonDeposit");
 
   // Pre-warm DB connection and welcome banner file_id into RAM for sub-100ms instant /start bot replies
   (async () => {
@@ -247,14 +249,54 @@ try {
     try {
       const db = await getDb();
       if (!db) return;
-      await processMiningReminders(db, null).catch(() => {});
-      await processBroadcastQueue(db).catch(() => {});
-    } catch (_) {}
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+      // 1. Process 2-hour completed mining reminders
+      await processMiningReminders(db, botToken).catch(() => {});
+
+      // 2. Process large broadcast batches
+      await processBroadcastQueue(db, botToken).catch(() => {});
+
+      // 3. Maintenance purges
+      await purgeExpiredCompletedTasks(db.collection("tasks")).catch(() => {});
+      await purgeAllExcessWithdrawals(db.collection("withdrawals")).catch(() => {});
+
+      // 4. Check pending on-chain TON deposits for user-promoted tasks
+      const tasksCol = db.collection("tasks");
+      const pendingTasks = await tasksCol.find({ status: "pending_payment" }).limit(20).toArray().catch(() => []);
+      const now = Date.now();
+      for (const t of pendingTasks) {
+        if (!t.depositAddress || !t.memo) continue;
+        const taskExpiry = t.expiresAt || (t.createdAt ? t.createdAt + 30 * 60 * 1000 : 0);
+        try {
+          const resCheck = await checkTonDeposit(t.depositAddress, t.tonCost, t.memo);
+          if (resCheck.verified) {
+            await tasksCol.updateOne(
+              { _id: t._id },
+              { $set: { status: "active", paid: true, paidAt: now, txHash: resCheck.txHash } }
+            );
+            if (t.creatorId && botToken) {
+              await notifyUserTaskActivated(botToken, t.creatorId, t, resCheck.txHash).catch(() => {});
+            }
+            continue;
+          }
+          if (taskExpiry && now > taskExpiry) {
+            await tasksCol.updateOne(
+              { _id: t._id },
+              { $set: { status: "declined", declinedReason: "Unpaid within 30 minutes" } }
+            );
+          }
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn("[VPS Worker] Error during background cycle:", err.message);
+    }
   };
 
-  // Run initial worker after 10s, then repeat every 5 minutes
+  // Run initial worker after 10s, then repeat every 5 minutes 24/7
   setTimeout(runVpsBackgroundTasks, 10000);
   setInterval(runVpsBackgroundTasks, 5 * 60 * 1000);
+  console.log(" ⏰ VPS Native 24/7 Background Cron Worker: Active (Interval: 5m)");
 } catch (workerErr) {
   console.warn("[VPS Worker] Notice:", workerErr.message);
 }
