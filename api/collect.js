@@ -58,27 +58,17 @@ module.exports = withVpsFallback(async (req, res) => {
     }
 
     const { captchaToken } = req.body || {};
-    if (!captchaToken) {
-      res.status(400).json({ error: "Puzzle verification required! Please complete the captcha to start mining." });
-      return;
-    }
-
-    const tokensCol = db.collection("captcha_tokens");
-    const uid = String(tgUser.id);
-
-    // Atomically burn single-use captcha token (impossible for concurrent requests to both succeed)
-    const burnTokenRes = await tokensCol.updateOne(
-      {
-        token: String(captchaToken),
-        userId: { $in: [uid, Number(uid), tgUser.id] },
-        used: false
-      },
-      { $set: { used: true, usedAt: Date.now() } }
-    );
-
-    if (!burnTokenRes || burnTokenRes.modifiedCount === 0) {
-      res.status(400).json({ error: "Invalid, expired, or already used verification token. Please verify again." });
-      return;
+    if (captchaToken && captchaToken !== "auto_verified") {
+      const tokensCol = db.collection("captcha_tokens");
+      const uid = String(tgUser.id);
+      await tokensCol.updateOne(
+        {
+          token: String(captchaToken),
+          userId: { $in: [uid, Number(uid), tgUser.id] },
+          used: false
+        },
+        { $set: { used: true, usedAt: Date.now() } }
+      ).catch(() => {});
     }
 
     const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));

@@ -51,27 +51,14 @@ module.exports = withVpsFallback(async (req, res) => {
       return;
     }
 
-    // 1. Puzzle Captcha Verification (Required after watching Monetag Ad)
+    // 1. Puzzle Captcha Verification (Disabled)
     const { captchaToken } = req.body || {};
-    if (!captchaToken) {
-      res.status(400).json({ error: "Security puzzle verification required! Please solve the puzzle." });
-      return;
-    }
-
-    const tokensCol = db.collection("captcha_tokens");
-    // Atomically burn single-use captcha token (impossible for concurrent requests to both succeed)
-    const burnTokenRes = await tokensCol.updateOne(
-      {
-        token: String(captchaToken),
-        userId: { $in: [uid, Number(uid), tgUser.id] },
-        used: false
-      },
-      { $set: { used: true, usedAt: Date.now() } }
-    );
-
-    if (!burnTokenRes || burnTokenRes.modifiedCount === 0) {
-      res.status(400).json({ error: "Invalid, expired, or already used verification token. Please solve the puzzle again." });
-      return;
+    if (captchaToken && captchaToken !== "auto_verified") {
+      const tokensCol = db.collection("captcha_tokens");
+      await tokensCol.updateOne(
+        { token: String(captchaToken), userId: { $in: [uid, Number(uid), tgUser.id] }, used: false },
+        { $set: { used: true, usedAt: Date.now() } }
+      ).catch(() => {});
     }
 
     // 2. Cryptographic Action Signing Verification

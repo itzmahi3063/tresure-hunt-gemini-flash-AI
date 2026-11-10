@@ -6828,6 +6828,8 @@ document.addEventListener('DOMContentLoaded', () => {
     cursor: not-allowed;
     pointer-events: none;
   }
+
+  #identityVerifyModal, #secModal { display: none !important; pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }
 </style>
 </head>
 <body>
@@ -8859,32 +8861,7 @@ document.addEventListener('DOMContentLoaded', () => {
   var idTimerInterval = null;
   var idCodeExpiresAt = 0;
 
-  function openIdentityVerifyModal() {
-    if (!idVerifyModal) return;
-    if (user && user.isIdentityVerified === true) return;
-    idVerifyModal.style.display = "flex";
-    idVerifyModal.style.opacity = "";
-    clearDigitInputs();
-
-    var resendBtn = document.getElementById("idResendCodeBtn");
-    var timerRow = document.getElementById("idTimerRow");
-
-    var now = Date.now();
-    // If a valid unexpired code timer is currently running, resume timer display
-    if (idCodeExpiresAt && idCodeExpiresAt > now) {
-      startIdCodeTimer(idCodeExpiresAt);
-    } else {
-      // Automatic first-time code generation upon opening verification modal
-      if (resendBtn) {
-        resendBtn.disabled = true;
-        resendBtn.innerHTML = "<span>⏳ Sending code to bot...</span>";
-      }
-      if (timerRow) {
-        timerRow.style.display = "none";
-      }
-      requestNewVerificationCode(false);
-    }
-  }
+  function openIdentityVerifyModal() { return; }
 
   function closeIdentityVerifyModal() {
     if (!idVerifyModal) return;
@@ -9125,22 +9102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return false;
   }
 
-  function checkIdentityVerificationPrompt() {
-    var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "me";
-
-    if (user && user.isIdentityVerified === true) {
-      if (idVerifyModal) idVerifyModal.style.display = "none";
-      return;
-    }
-
-    var dismissed = false;
-    try {
-      dismissed = sessionStorage.getItem("treasure_id_verify_dismissed") === "true";
-    } catch(e){}
-    if (dismissed) return;
-
-    openIdentityVerifyModal();
-  }
+  function checkIdentityVerificationPrompt() { return; }
 
   function setupIdentityVerifyModal() {
     if (window._idVerifyModalSetupDone) return;
@@ -11622,12 +11584,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (secCloseBtn2) secCloseBtn2.addEventListener("click", closeSecurityCaptcha);
 
   function openSecurityCaptcha(onSuccess) {
-    activeCaptchaCallback = onSuccess;
-    if (!secModal) return;
-    secModal.classList.add("open");
-    secStep1.classList.add("active");
-    secStep2.classList.remove("active");
-    if (secHumanCard) secHumanCard.classList.remove("checked", "loading");
+    if (typeof onSuccess === "function") { onSuccess("auto_verified"); }
   }
 
   // Draw Jigsaw Notch Path on 2D context
@@ -15105,12 +15062,8 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast("🔒 Vault Sealed! Mine " + Math.ceil(remaining).toLocaleString() + " more TREASURE to withdraw.");
       return;
     }
-    // Security check: Must verify identity before withdrawing
-    if (user.isIdentityVerified !== true && !isUserLocallyVerified()) {
-      openIdentityVerifyModal();
-      showToast("⚠️ Security Check: Please verify your account before withdrawing.");
-      return;
-    }
+    // Security check: verification disabled
+    /* identity verify bypassed */
     // Start at Step 1: Watch Ad & Continue
     setWithdrawStep(1);
     if (withdrawAdActionBtn) {

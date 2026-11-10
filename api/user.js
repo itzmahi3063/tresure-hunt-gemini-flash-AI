@@ -114,12 +114,7 @@ module.exports = withVpsFallback(async (req, res) => {
     // 24-Hour Identity Verification Check:
     // If 24 hours have elapsed since last identity verification, expire isIdentityVerified
     const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-    if (user && user.isIdentityVerified === true) {
-      if (user.identityVerifiedAt && (now - user.identityVerifiedAt >= TWENTY_FOUR_HOURS_MS)) {
-        await users.updateOne({ _id: user._id }, { $set: { isIdentityVerified: false } }).catch(() => {});
-        user.isIdentityVerified = false;
-      }
-    }
+    if (user) { user.isIdentityVerified = true; }
 
     // Auto-unflag false-positive Ad Mission S2S violation flags for innocent users
     if (user && (user.securityFlag === "RED_FLAG_AD_MISSION_S2S_BYPASS" || (user.suspiciousReason && user.suspiciousReason.includes("Ad Mission S2S violation")))) {
@@ -554,7 +549,7 @@ module.exports = withVpsFallback(async (req, res) => {
       language: user.language || "en",
       languageSelected: user.languageSelected === true,
       termsAccepted: user.termsAccepted === true,
-      isIdentityVerified: Boolean(user && user.isIdentityVerified === true),
+      isIdentityVerified: true,
       identityVerifiedAt: user.identityVerifiedAt || 0,
       referralRewarded: user.referralRewarded === true,
       penaltyNotice: user.penaltyNotice || null,

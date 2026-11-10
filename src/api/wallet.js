@@ -204,11 +204,6 @@ module.exports = async (req, res) => {
         const { captchaToken } = req.body || {};
         const cleanCaptchaToken = String(captchaToken || "").trim();
 
-        if (!cleanCaptchaToken) {
-          res.status(403).json({ error: "Security verification required! Please complete the verification puzzle." });
-          return;
-        }
-
         const numAmount = parseInt(amount, 10);
         if (isNaN(numAmount) || numAmount < 1000) {
           res.status(400).json({ error: "Minimum withdrawal amount is 1,000 TREASURE Coins" });
