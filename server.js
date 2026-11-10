@@ -223,11 +223,25 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`=======================================================`);
 });
 
-// 11. VPS 24/7 Automated Background Worker (Mining reminders & Ton queue)
+// 11. VPS 24/7 Automated Background Worker & Startup Cache Pre-warming
 try {
   const { getDb } = require("./lib/mongodb");
   const { processMiningReminders } = require("./lib/miningReminder");
   const { processBroadcastQueue } = require("./lib/broadcastQueue");
+
+  // Pre-warm DB connection and welcome banner file_id into RAM for sub-100ms instant /start bot replies
+  (async () => {
+    try {
+      const db = await getDb();
+      if (db) {
+        const bDoc = await db.collection("settings").findOne({ key: "welcome_banner_file_id" });
+        if (bDoc && bDoc.fileId && typeof apiHandlers.webhook?.setCachedWelcomeBannerFileId === "function") {
+          apiHandlers.webhook.setCachedWelcomeBannerFileId(bDoc.fileId);
+          console.log("[VPS Startup] Pre-warmed welcome banner file_id:", bDoc.fileId);
+        }
+      }
+    } catch (_) {}
+  })();
 
   const runVpsBackgroundTasks = async () => {
     try {

@@ -85,7 +85,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       basePayload.reply_markup = options.reply_markup;
     }
 
-    // 0. Instant sendPhoto by Telegram file_id (~50ms JSON request!)
+    // 0. Super-fast: sendPhoto by Telegram file_id (<50ms JSON request!)
     const photoFileId = options.photoFileId || (typeof options.photo === "string" && !options.photo.startsWith("http") ? options.photo : null);
     if (photoFileId) {
       try {
@@ -100,55 +100,13 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
         });
         const data = await res.json();
         if (data && data.ok) return data;
-        console.warn("sendPhoto by file_id was not ok, falling back to buffer/url:", data);
+        console.warn("sendPhoto by file_id was not ok, falling back to url/buffer:", data);
       } catch (fileIdErr) {
         console.warn("sendPhoto by file_id error, falling back:", fileIdErr.message);
       }
     }
 
-    // 1. If photoBuffer is provided, send as multipart photo & cache the resulting file_id
-    if (options.photoBuffer) {
-      try {
-        const formData = new FormData();
-        formData.append("chat_id", String(chatId));
-        const mimeType = options.photoMime || "image/jpeg";
-        const ext = mimeType.includes("png") ? "png" : "jpg";
-        const blob = new Blob([options.photoBuffer], { type: mimeType });
-        formData.append("photo", blob, `treasure_${Date.now()}.${ext}`);
-        formData.append("caption", text);
-        formData.append("parse_mode", "HTML");
-        if (options.reply_markup) {
-          formData.append("reply_markup", JSON.stringify(options.reply_markup));
-        }
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-          method: "POST",
-          body: formData
-        });
-        const data = await res.json();
-        if (data && data.ok) {
-          // Cache file_id for subsequent sends
-          if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
-            const largest = data.result.photo[data.result.photo.length - 1];
-            if (largest && largest.file_id) {
-              cachedWelcomeBannerFileId = largest.file_id;
-              if (options.cacheFileIdKey && options.db) {
-                options.db.collection("settings").updateOne(
-                  { key: options.cacheFileIdKey },
-                  { $set: { fileId: largest.file_id, updatedAt: Date.now() } },
-                  { upsert: true }
-                ).catch(() => {});
-              }
-            }
-          }
-          return data;
-        }
-        console.warn("sendPhoto buffer was not ok, falling back to sendMessage:", data);
-      } catch (photoErr) {
-        console.warn("sendPhoto buffer error, falling back to sendMessage:", photoErr.message);
-      }
-    }
-
-    // 2. If photoUrl is provided, send as photo with caption & cache resulting file_id
+    // 1. Ultra-fast sendPhoto by public CDN URL (<100ms JSON request - zero binary upload from server!)
     if (options.photoUrl) {
       try {
         const photoPayload = Object.assign({}, basePayload, {
@@ -177,9 +135,50 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           }
           return data;
         }
-        console.warn("sendPhoto was not ok, falling back to sendMessage:", data);
+        console.warn("sendPhoto by url was not ok, falling back to buffer:", data);
       } catch (photoErr) {
-        console.warn("sendPhoto error, falling back to sendMessage:", photoErr);
+        console.warn("sendPhoto by url error, falling back to buffer:", photoErr.message);
+      }
+    }
+
+    // 2. Fallback: If URL not provided or failed, upload raw buffer via multipart
+    if (options.photoBuffer) {
+      try {
+        const formData = new FormData();
+        formData.append("chat_id", String(chatId));
+        const mimeType = options.photoMime || "image/jpeg";
+        const ext = mimeType.includes("png") ? "png" : "jpg";
+        const blob = new Blob([options.photoBuffer], { type: mimeType });
+        formData.append("photo", blob, `treasure_${Date.now()}.${ext}`);
+        formData.append("caption", text);
+        formData.append("parse_mode", "HTML");
+        if (options.reply_markup) {
+          formData.append("reply_markup", JSON.stringify(options.reply_markup));
+        }
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
+            const largest = data.result.photo[data.result.photo.length - 1];
+            if (largest && largest.file_id) {
+              cachedWelcomeBannerFileId = largest.file_id;
+              if (options.cacheFileIdKey && options.db) {
+                options.db.collection("settings").updateOne(
+                  { key: options.cacheFileIdKey },
+                  { $set: { fileId: largest.file_id, updatedAt: Date.now() } },
+                  { upsert: true }
+                ).catch(() => {});
+              }
+            }
+          }
+          return data;
+        }
+        console.warn("sendPhoto buffer was not ok, falling back to sendMessage:", data);
+      } catch (photoErr) {
+        console.warn("sendPhoto buffer error, falling back to sendMessage:", photoErr.message);
       }
     }
 
@@ -965,7 +964,7 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   }
 }
 
-module.exports = withVpsFallback(async (req, res) => {
+const handler = withVpsFallback(async (req, res) => {
   // CORS / Preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -1620,12 +1619,15 @@ module.exports = withVpsFallback(async (req, res) => {
       try {
         db = await getDb();
         if (db) {
-          triggerBackgroundPurge(db);
+          // Asynchronous non-blocking background purge
+          setImmediate(() => triggerBackgroundPurge(db));
+
           if (!cachedWelcomeBannerFileId) {
-            try {
-              const bDoc = await db.collection("settings").findOne({ key: "welcome_banner_file_id" });
-              if (bDoc && bDoc.fileId) cachedWelcomeBannerFileId = bDoc.fileId;
-            } catch(e){}
+            db.collection("settings").findOne({ key: "welcome_banner_file_id" })
+              .then(bDoc => {
+                if (bDoc && bDoc.fileId) cachedWelcomeBannerFileId = bDoc.fileId;
+              })
+              .catch(() => {});
           }
 
           u = await db.collection("users").findOne({
@@ -1654,22 +1656,25 @@ module.exports = withVpsFallback(async (req, res) => {
       const startParam = parts[1] || "";
       if (startParam) {
         appUrl += `&tgWebAppStartParam=${encodeURIComponent(startParam)}`;
-        try {
-          if (db) {
-            const inviterId = String(startParam).replace(/^ref_/, "").trim();
-            if (inviterId && /^\d+$/.test(inviterId) && String(inviterId) !== String(senderId)) {
-              const inviter = await db.collection("users").findOne({
-                $or: [{ telegramId: inviterId }, { telegramId: Number(inviterId) }]
-              });
-              if (inviter && String(inviter.telegramId) !== String(senderId)) {
-                await db.collection("users").updateOne(
-                  { telegramId: String(senderId), referredBy: { $in: [null, undefined] } },
-                  { $set: { referredBy: String(inviter.telegramId) } }
-                );
+        // Asynchronous non-blocking referral binding: never blocks the instant /start greeting!
+        if (db) {
+          (async () => {
+            try {
+              const inviterId = String(startParam).replace(/^ref_/, "").trim();
+              if (inviterId && /^\d+$/.test(inviterId) && String(inviterId) !== String(senderId)) {
+                const inviter = await db.collection("users").findOne({
+                  $or: [{ telegramId: inviterId }, { telegramId: Number(inviterId) }]
+                });
+                if (inviter && String(inviter.telegramId) !== String(senderId)) {
+                  await db.collection("users").updateOne(
+                    { telegramId: String(senderId), referredBy: { $in: [null, undefined] } },
+                    { $set: { referredBy: String(inviter.telegramId) } }
+                  );
+                }
               }
-            }
-          }
-        } catch(refErr){}
+            } catch(refErr){}
+          })();
+        }
       }
 
       const langDict = WELCOME_MESSAGES[userLang] || WELCOME_MESSAGES.en;
@@ -1696,15 +1701,7 @@ module.exports = withVpsFallback(async (req, res) => {
       if (cachedWelcomeBannerFileId) {
         sendOptions.photoFileId = cachedWelcomeBannerFileId;
       } else {
-        let welcomePhotoBuf = null;
-        try {
-          const p = path.join(process.cwd(), "public/assets/welcome_banner.jpg");
-          if (fs.existsSync(p)) {
-            welcomePhotoBuf = fs.readFileSync(p);
-          }
-        } catch(e){}
-        sendOptions.photoBuffer = welcomePhotoBuf;
-        sendOptions.photoMime = "image/jpeg";
+        // Fast URL delivery via CDN - avoids heavy multipart binary upload
         sendOptions.photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=6`;
         sendOptions.cacheFileIdKey = "welcome_banner_file_id";
         sendOptions.db = db;
@@ -1713,18 +1710,20 @@ module.exports = withVpsFallback(async (req, res) => {
       await sendTelegramMsg(botToken, chatId, langDict.text, sendOptions);
 
       if (startParam === "verify" && db) {
-        try {
-          const codesCol = db.collection("verification_codes");
-          const recentCode = await codesCol.findOne({
-            userId: String(senderId),
-            used: false,
-            expiresAt: { $gt: Date.now() }
-          }, { sort: { createdAt: -1 } });
+        (async () => {
+          try {
+            const codesCol = db.collection("verification_codes");
+            const recentCode = await codesCol.findOne({
+              userId: String(senderId),
+              used: false,
+              expiresAt: { $gt: Date.now() }
+            }, { sort: { createdAt: -1 } });
 
-          if (recentCode) {
-            await sendTelegramMsg(botToken, chatId, `🔐 <b>Your Verification Code:</b> <code>${recentCode.code}</code>\n\n⏱ Validity: 2 minutes.\nEnter this 4-digit code in the app to complete verification.`);
-          }
-        } catch(e){}
+            if (recentCode) {
+              await sendTelegramMsg(botToken, chatId, `🔐 <b>Your Verification Code:</b> <code>${recentCode.code}</code>\n\n⏱ Validity: 2 minutes.\nEnter this 4-digit code in the app to complete verification.`);
+            }
+          } catch(e){}
+        })();
       }
 
       res.status(200).json({ ok: true, sent: true });
@@ -2376,3 +2375,6 @@ module.exports = withVpsFallback(async (req, res) => {
 
   res.status(405).json({ error: "Method not allowed" });
 });
+
+handler.setCachedWelcomeBannerFileId = function(fileId) { cachedWelcomeBannerFileId = fileId; };
+module.exports = handler;
