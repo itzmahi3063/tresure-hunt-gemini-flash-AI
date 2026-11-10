@@ -43,7 +43,7 @@ async function getCachedAppSettings(db) {
     cachedAppSettingsTime = now;
     return cachedAppSettings;
   } catch(e) {
-    return { watchAdReward: 10, coinRate: 0.00003, adMissionReward: 20 };
+    return { watchAdReward: 10, coinRate: 0.00003, adMissionReward: 20, adexiumEnabled: true };
   }
 }
 
@@ -504,6 +504,8 @@ module.exports = async (req, res) => {
 
     users.updateOne({ _id: user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
 
+    const appSettings = await getCachedAppSettings(db);
+
     res.status(200).json({
       telegramId: user.telegramId,
       firstName: user.firstName || tgUser.first_name || "Miner",
@@ -546,14 +548,9 @@ module.exports = async (req, res) => {
       boundWalletAddress: user.boundWalletAddress || null,
       adexiumEnabled: appSettings.adexiumEnabled !== false,
       botUsername: botUsername,
-      ...(await (async () => {
-        const s = await getCachedAppSettings(db);
-        return {
-          watchAdReward: s.watchAdReward,
-          coinRate: s.coinRate,
-          adMissionReward: s.adMissionReward
-        };
-      })())
+      watchAdReward: appSettings.watchAdReward,
+      coinRate: appSettings.coinRate,
+      adMissionReward: appSettings.adMissionReward
     });
   } catch (err) {
     console.error("user.js error:", err);
