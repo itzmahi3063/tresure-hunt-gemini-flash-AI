@@ -1845,9 +1845,9 @@ const handler = withVpsFallback(async (req, res) => {
           {
             message: broadcastText,
             buttonText: "🏹 Play Treasure Hunt",
-            buttonUrl: `${baseUrl}/index.html`
+            buttonUrl: "https://tresure-hunt-gemini-flash-ai.vercel.app/index.html"
           },
-          5500
+          12000
         );
 
         const summaryMsg = 
@@ -2143,9 +2143,9 @@ const handler = withVpsFallback(async (req, res) => {
           {
             message: text.trim(),
             buttonText: "🏹 Play Treasure Hunt",
-            buttonUrl: `${baseUrl}/index.html`
+            buttonUrl: "https://tresure-hunt-gemini-flash-ai.vercel.app/index.html"
           },
-          5500
+          12000
         );
 
         const summaryMsg = 

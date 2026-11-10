@@ -255,7 +255,11 @@ try {
       await processMiningReminders(db, botToken).catch(() => {});
 
       // 2. Process large broadcast batches
-      await processBroadcastQueue(db, botToken).catch(() => {});
+      const bRes = await processBroadcastQueue(db, botToken, 8000).catch(() => null);
+      if (bRes && bRes.active && !bRes.completed && bRes.remainingUsers > 0) {
+        // Fast drain loop: if broadcast is actively running, trigger next batch in 2s
+        setTimeout(runVpsBackgroundTasks, 2000);
+      }
 
       // 3. Maintenance purges
       await purgeExpiredCompletedTasks(db.collection("tasks")).catch(() => {});
