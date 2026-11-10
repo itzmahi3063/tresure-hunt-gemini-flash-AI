@@ -37,7 +37,8 @@ async function getCachedAppSettings(db) {
     cachedAppSettings = {
       watchAdReward: (s && typeof s.watchAdReward === "number" && s.watchAdReward > 0) ? s.watchAdReward : 10,
       coinRate: (s && typeof s.coinPriceUsd === "number" && s.coinPriceUsd > 0) ? s.coinPriceUsd : 0.00003,
-      adMissionReward: (s && typeof s.adMissionReward === "number" && s.adMissionReward > 0) ? s.adMissionReward : 20
+      adMissionReward: (s && typeof s.adMissionReward === "number" && s.adMissionReward > 0) ? s.adMissionReward : 20,
+      adexiumEnabled: (s && typeof s.adexiumEnabled === "boolean") ? s.adexiumEnabled : true
     };
     cachedAppSettingsTime = now;
     return cachedAppSettings;
@@ -543,6 +544,7 @@ module.exports = async (req, res) => {
         checkin: createActionToken(telegramId, "checkin")
       },
       boundWalletAddress: user.boundWalletAddress || null,
+      adexiumEnabled: appSettings.adexiumEnabled !== false,
       botUsername: botUsername,
       ...(await (async () => {
         const s = await getCachedAppSettings(db);

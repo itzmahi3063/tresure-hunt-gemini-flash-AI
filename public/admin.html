@@ -921,6 +921,29 @@
       </div>
     </div>
 
+    
+    <!-- Adexium Ads Toggle Setting -->
+    <div class="panel-card" style="margin-bottom: 24px; border-left: 4px solid #8b5cf6;">
+      <div class="panel-title">
+        <span>📢 Adexium Interstitial Ads Control</span>
+      </div>
+      <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px; line-height: 1.5;">
+        Turn Adexium interstitial popup ads ON or OFF at any time. When disabled, Adexium will never display any ads to users.
+      </p>
+      <div style="display: flex; gap: 12px; align-items: center; max-width: 480px; flex-wrap: wrap;">
+        <select id="adexiumStatusSelect" class="form-input" style="flex: 1; min-width: 200px;">
+          <option value="true">🟢 ENABLED (Show Adexium Ads)</option>
+          <option value="false">🔴 DISABLED (Block All Adexium Ads)</option>
+        </select>
+        <button class="btn-primary" id="saveAdexiumStatusBtn" style="white-space: nowrap; height: 42px; background: #8b5cf6; border-color: #8b5cf6;">
+          <span>💾 Save Status</span>
+        </button>
+      </div>
+      <div id="currentAdexiumStatusText" style="font-size: 12.5px; color: #8b5cf6; margin-top: 10px; font-weight: 700;">
+        Current Status: Loading...
+      </div>
+    </div>
+
     <!-- Ad Mission Reward Setting -->
     <div class="panel-card" style="margin-bottom: 24px; border-left: 4px solid #14b8a6;">
       <div class="panel-title">
@@ -2967,6 +2990,12 @@
         if (missionInput) missionInput.value = currentMissionRew;
         if (missionText) missionText.textContent = "Current Reward: " + currentMissionRew + " TREASURE Coins per mission";
 
+        
+        var adexiumSel = document.getElementById("adexiumStatusSelect");
+        var adexiumTxt = document.getElementById("currentAdexiumStatusText");
+        var isAdexiumOn = data.adexiumEnabled !== false;
+        if (adexiumSel) adexiumSel.value = isAdexiumOn ? "true" : "false";
+        if (adexiumTxt) adexiumTxt.textContent = "Current Status: " + (isAdexiumOn ? "🟢 ENABLED (Showing Ads)" : "🔴 DISABLED (Blocked)");
         if (!data.tasks || data.tasks.length === 0) {
           box.innerHTML = '<p style="text-align: center; color: var(--text-dim); padding: 20px;">No custom tasks posted yet.</p>';
           return;
@@ -3050,6 +3079,28 @@
         alert(e.message);
       } finally {
         saveCoinPriceBtn.disabled = false;
+      }
+    });
+  }
+
+  
+  var saveAdexiumStatusBtn = document.getElementById("saveAdexiumStatusBtn");
+  if (saveAdexiumStatusBtn) {
+    saveAdexiumStatusBtn.addEventListener("click", async function(){
+      var sel = document.getElementById("adexiumStatusSelect");
+      var isEnabled = (sel && sel.value === "true");
+      saveAdexiumStatusBtn.disabled = true;
+      try {
+        var res = await apiAdmin("POST", null, { action: "update_adexium_status", enabled: isEnabled });
+        if (res.ok) {
+          showToast("🎉 Adexium Ads " + (isEnabled ? "ENABLED" : "DISABLED") + " successfully!");
+          var txt = document.getElementById("currentAdexiumStatusText");
+          if (txt) txt.textContent = "Current Status: " + (isEnabled ? "🟢 ENABLED (Showing Ads)" : "🔴 DISABLED (Blocked)");
+        }
+      } catch(e) {
+        alert(e.message);
+      } finally {
+        saveAdexiumStatusBtn.disabled = false;
       }
     });
   }

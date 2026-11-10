@@ -5,7 +5,7 @@ const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
-const MAX_ADS_PER_DAY = 10;
+const MAX_ADS_PER_DAY = 12;
 const AD_REWARD = 15;
 const MAX_SPIN_ADS_PER_DAY = 6;
 const CYCLE_MS = 24 * 60 * 60 * 1000; // 24 hours for daily ads
@@ -794,7 +794,7 @@ module.exports = async (req, res) => {
       };
       await usersCol.updateOne({ _id: user._id }, { $set: updateFlag });
       res.status(403).json({
-        error: `🚨 Security Warning: Daily 10-ad limit exceeded! You have already claimed all ${MAX_ADS_PER_DAY} ads (${earnedToday} coins) for this 24-hour cycle. Your account has been flagged as suspicious.`,
+        error: `🚨 Security Warning: Daily 12-ad limit exceeded! You have already claimed all ${MAX_ADS_PER_DAY} ads (${earnedToday} coins) for this 24-hour cycle. Your account has been flagged as suspicious.`,
         isSuspicious: true,
         remainingMs,
         adsWatchedToday: watchedToday,

@@ -12,6 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script src="https://ad.gigapub.tech/script?id=8782"></script>
 <script type="text/javascript" src="https://cdn.tgads.space/assets/js/adexium-widget.min.js"></script>
 <script src="https://uslads.com/sdk/tower-ads-v4.js"></script>
 <script type="text/javascript">
@@ -29,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof adexiumWidget.canShowAds === "function") {
       const origCanShowAds = adexiumWidget.canShowAds.bind(adexiumWidget);
       adexiumWidget.canShowAds = function() {
+        if (window._adexiumDisabled === true || localStorage.getItem("th_adexium_disabled") === "true") return false;
         if (window.AdBarrier && window.AdBarrier.isBusy()) {
           console.warn("[AdBarrier] Blocked Adexium ad because another ad is currently active.");
           return false;
@@ -66,6 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
           console.warn("[AdBarrier] Blocked Adexium displayAd because an ad is currently playing!");
           return;
         }
+        if (window._adexiumDisabled === true || localStorage.getItem("th_adexium_disabled") === "true") return;
         if (window.AdBarrier && !window.AdBarrier.acquire("adexium_interstitial")) {
           console.warn("[AdBarrier] Failed to acquire lock for Adexium ad!");
           return;
@@ -6830,6 +6833,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   #identityVerifyModal, #secModal { display: none !important; pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }
+
+  /* Low-End Devices (< 4GB RAM) Optimization: disable lag-causing blurs, heavy shadows, and animations */
+  .low-end-device *,
+  .low-end-device *::before,
+  .low-end-device *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.05s !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    text-shadow: none !important;
+  }
+  .low-end-device .coin-float,
+  .low-end-device .particle-canvas,
+  .low-end-device .floating-orb,
+  .low-end-device .sec-sparkle,
+  .low-end-device .pulse-glow,
+  .low-end-device .mine-glow-ring,
+  .low-end-device .shine-effect {
+    display: none !important;
+    animation: none !important;
+  }
+
 </style>
 </head>
 <body>
@@ -11440,6 +11466,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Watch & Earn Logic
+  
+      if (user && user.adexiumEnabled === false) {
+        window._adexiumDisabled = true;
+        try { localStorage.setItem("th_adexium_disabled", "true"); } catch(e){}
+      } else if (user && user.adexiumEnabled === true) {
+        window._adexiumDisabled = false;
+        try { localStorage.removeItem("th_adexium_disabled"); } catch(e){}
+      }
+
   window.WATCH_AD_REWARD = 10;
   function updateWatchAdReward(reward) {
     var val = parseInt(reward, 10);
@@ -11496,7 +11531,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderAds() {
     var watched = Number(user.adsWatchedToday) || 0;
-    var maxAds = 10;
+    var maxAds = 12;
     var remaining = Math.max(0, maxAds - watched);
     var earned = Number(user.adsEarnedToday) || 0;
     var percent = Math.min(100, Math.max(0, (watched / maxAds) * 100));
@@ -11529,6 +11564,27 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ===================================================
+  
+  // Gigapub Ads Helper
+  function showGigapubAd() {
+    return new Promise(function(resolve, reject) {
+      if (typeof window.showGiga !== "function") {
+        return reject(new Error("Gigapub ad is loading. Please try again in a few moments."));
+      }
+      try {
+        window.showGiga()
+          .then(function(res) {
+            resolve(res);
+          })
+          .catch(function(err) {
+            reject(err || new Error("Gigapub ad was closed before finishing."));
+          });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
   // SECURITY VERIFICATION & PUZZLE CAPTCHA (Images 1 & 2)
   // ===================================================
   var secModal = document.getElementById("securityCaptchaModal");
@@ -12623,7 +12679,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateWatchSheetView1() {
     var watched = Number(user.adsWatchedToday) || 0;
-    var maxAds = 10;
+    var maxAds = 12;
     var remaining = Math.max(0, maxAds - watched);
     if (sheetWatchedTodayEl) sheetWatchedTodayEl.textContent = watched;
     if (sheetRemainingEl) sheetRemainingEl.textContent = remaining;
@@ -12682,8 +12738,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sheetStartAdBtn) {
     sheetStartAdBtn.addEventListener("click", function() {
       var watched = Number(user.adsWatchedToday) || 0;
-      if (watched >= 10) {
-        showToast("🎉 Daily limit of 10 ads reached! Next ads in 24 hours.");
+      if (watched >= 12) {
+        showToast("🎉 Daily limit of 12 ads reached! Next ads in 24 hours.");
         return;
       }
 
@@ -13137,7 +13193,8 @@ document.addEventListener('DOMContentLoaded', () => {
           spinAdsProgressFill.style.width = pct + "%";
         }
 
-        if (watchSpinAdActionBtn) {
+        updateSpinAdBtnLabel(watchedAds);
+      if (watchSpinAdActionBtn) {
           watchSpinAdActionBtn.disabled = false;
           watchSpinAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("watch_ad_ticket_btn") : "🎬 Watch Ad (+1 Ticket)") + '</span>';
         }

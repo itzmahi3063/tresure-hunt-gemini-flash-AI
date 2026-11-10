@@ -1984,7 +1984,24 @@ module.exports = withVpsFallback(async (req, res) => {
         return;
       }
 
-      res.status(400).json({ error: "Unknown POST action" });
+            // 13.5. Update Adexium Status
+      if (action === "update_adexium_status") {
+        const { enabled } = req.body || {};
+        const isEnabled = (enabled === true || enabled === "true" || enabled === 1 || enabled === "1");
+        await db.collection("settings").updateOne(
+          { key: "app_settings" },
+          { $set: { adexiumEnabled: isEnabled, updatedAt: Date.now() } },
+          { upsert: true }
+        );
+        res.status(200).json({
+          ok: true,
+          adexiumEnabled: isEnabled,
+          message: `Adexium ads successfully ${isEnabled ? "ENABLED" : "DISABLED"}!`
+        });
+        return;
+      }
+
+res.status(400).json({ error: "Unknown POST action" });
       return;
     }
 
