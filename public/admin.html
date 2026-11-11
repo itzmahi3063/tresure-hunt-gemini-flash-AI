@@ -1609,8 +1609,8 @@
             var approveBtnText = isProcessing ? "⚡ Retry Approve" : "Approve";
             actions = `
               <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${tonValStr}', '${w.walletAddress}')">${approveBtnText}</button>
-                <button class="btn-secondary" onclick="rejectWithdrawal('${w.id}')">Reject</button>
+                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${tonValStr}', '${w.walletAddress}', this)">${approveBtnText}</button>
+                <button class="btn-secondary" onclick="rejectWithdrawal('${w.id}', this)">Reject</button>
                 <button class="btn-danger" onclick="banUserFromW('${w.telegramId}', '${w.id}')">Ban</button>
               </div>
             `;
@@ -1810,12 +1810,21 @@
   // Withdrawal Actions attached to window
   var isActionProcessing = false;
 
-  window.approveWithdrawal = async function(id, tonAmount, walletAddr) {
-    if (isActionProcessing) return;
+  window.approveWithdrawal = async function(id, tonAmount, walletAddr, btnEl) {
+    if (isActionProcessing) {
+      showToast("⏳ Another payout is currently being processed. Please wait...");
+      return;
+    }
     var confirmMsg = `⚡ Confirm Auto-Payout & Approval?\n\n💎 Amount: ${tonAmount ? tonAmount + ' TON' : ''}\n📍 Destination: ${walletAddr || ''}\n\nClick OK to automatically pay & confirm on-chain!`;
     if (!confirm(confirmMsg)) return;
 
     isActionProcessing = true;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerText = "⏳ Paying...";
+      btnEl.style.opacity = "0.5";
+      btnEl.style.cursor = "not-allowed";
+    }
     showToast("⏳ Processing Auto-Pay...");
     try {
       var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
@@ -1839,6 +1848,12 @@
       alert("❌ " + (e.message || e));
     } finally {
       isActionProcessing = false;
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.innerText = "Approve";
+        btnEl.style.opacity = "1";
+        btnEl.style.cursor = "pointer";
+      }
     }
   };
 
