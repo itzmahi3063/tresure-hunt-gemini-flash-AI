@@ -1667,12 +1667,25 @@
   var savePayoutChannelBtn = document.getElementById("savePayoutChannelBtn");
   var testPayoutChannelBtn = document.getElementById("testPayoutChannelBtn");
 
+  function cleanChannelInput(v) {
+    var s = String(v || "").trim();
+    if (!s) return "";
+    s = s.replace(/^@+/, "").trim();
+    if (/^-?\d+$/.test(s)) return s;
+    s = s.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "").trim();
+    s = s.replace(/^@+/, "").trim();
+    s = s.split(/[?#/]/)[0].trim();
+    if (!s) return "";
+    return s.startsWith("-") ? s : ("@" + s);
+  }
+
   async function loadPayoutChannel() {
     try {
       var res = await apiAdmin("GET", { action: "app_settings" });
       if (res && res.payoutChannelId) {
-        if (payoutChannelInput) payoutChannelInput.value = res.payoutChannelId;
-        if (payoutChannelSubtitle) payoutChannelSubtitle.innerHTML = 'Active Channel: <strong style="color:#10b981;">' + res.payoutChannelId + '</strong>';
+        var clean = cleanChannelInput(res.payoutChannelId) || res.payoutChannelId;
+        if (payoutChannelInput) payoutChannelInput.value = clean;
+        if (payoutChannelSubtitle) payoutChannelSubtitle.innerHTML = 'Active Channel: <strong style="color:#10b981;">' + clean + '</strong>';
       }
     } catch(e) {}
   }
@@ -1680,9 +1693,11 @@
   if (savePayoutChannelBtn) {
     savePayoutChannelBtn.addEventListener("click", async function() {
       var val = (payoutChannelInput.value || "").trim();
-      if (!val) return alert("Please enter your channel username (e.g. @mychannel)");
+      var clean = cleanChannelInput(val);
+      if (!clean) return alert("Please enter your channel username (e.g. @hoocoohpaylogs)");
+      payoutChannelInput.value = clean;
       try {
-        var res = await apiAdmin("POST", null, { action: "save_payout_channel", channelId: val });
+        var res = await apiAdmin("POST", null, { action: "save_payout_channel", channelId: clean });
         if (res.ok) {
           alert("✅ " + res.message);
           loadPayoutChannel();
@@ -1698,9 +1713,11 @@
   if (testPayoutChannelBtn) {
     testPayoutChannelBtn.addEventListener("click", async function() {
       var val = (payoutChannelInput.value || "").trim();
+      var clean = cleanChannelInput(val);
+      if (clean) payoutChannelInput.value = clean;
       showToast("⏳ Sending test post to channel...");
       try {
-        var res = await apiAdmin("POST", null, { action: "test_payout_channel", channelId: val });
+        var res = await apiAdmin("POST", null, { action: "test_payout_channel", channelId: clean || val });
         if (res.ok) {
           alert("🎉 " + res.message + "\n\nCheck your channel now to verify!");
         } else {

@@ -89,12 +89,13 @@ function escapeHtml(str) {
 function normalizeChannelUsername(ch) {
   let s = String(ch || "").trim();
   if (!s) return "@hoocoohpaylogs";
-  s = s.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "");
-  s = s.replace(/^\/+|\/+$/g, "");
-  if (!s.startsWith("@") && !s.startsWith("-")) {
-    s = "@" + s;
-  }
-  return s;
+  s = s.replace(/^@+/, "").trim();
+  if (/^-?\d+$/.test(s)) return s;
+  s = s.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "").trim();
+  s = s.replace(/^@+/, "").trim();
+  s = s.split(/[?#/]/)[0].trim();
+  if (!s) return "@hoocoohpaylogs";
+  return s.startsWith("-") ? s : ("@" + s);
 }
 
 async function sendTelegramMsg(botToken, chatId, text, options = {}) {
@@ -888,7 +889,11 @@ module.exports = withVpsFallback(async (req, res) => {
         const coinPriceUsd = (appSetting && typeof appSetting.coinPriceUsd === "number" && appSetting.coinPriceUsd > 0) ? appSetting.coinPriceUsd : 0.00003;
         const adMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
         const dailyRequestLimit = (appSetting && typeof appSetting.dailyRequestLimit === "number" && appSetting.dailyRequestLimit > 0) ? appSetting.dailyRequestLimit : 2500;
-        const payoutChannelId = (appSetting && appSetting.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+        const rawPayoutChannelId = (appSetting && appSetting.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+        const payoutChannelId = normalizeChannelUsername(rawPayoutChannelId);
+        if (appSetting && appSetting.payoutChannelId && appSetting.payoutChannelId !== payoutChannelId) {
+          await db.collection("settings").updateOne({ key: "app_settings" }, { $set: { payoutChannelId } }).catch(() => {});
+        }
         res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit, payoutChannelId });
         return;
       }

@@ -424,9 +424,12 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
       let rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
       let channelId = String(rawChannelId || "").trim();
-      channelId = channelId.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "").replace(/^\/+|\/+$/g, "");
-      if (!channelId.startsWith("@") && !channelId.startsWith("-")) {
-        channelId = "@" + channelId;
+      channelId = channelId.replace(/^@+/, "").trim();
+      if (!/^-?\d+$/.test(channelId)) {
+        channelId = channelId.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "").trim();
+        channelId = channelId.replace(/^@+/, "").trim();
+        channelId = channelId.split(/[?#/]/)[0].trim();
+        channelId = channelId ? (channelId.startsWith("-") ? channelId : ("@" + channelId)) : "@hoocoohpaylogs";
       }
 
       const channelMsg = 
