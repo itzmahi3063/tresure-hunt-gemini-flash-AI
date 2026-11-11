@@ -337,10 +337,24 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   const w = await withdrawalsCol.findOne(wQuery);
   if (!w) return { ok: false, message: "Withdrawal request not found." };
 
-  // Auto-recover stale PROCESSING lock (>8s old)
-  if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 8000)) {
-    await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
-    w.status = "PENDING";
+  // If this withdrawal ALREADY has a confirmed on-chain txHash, finalize it to APPROVED immediately!
+  if (w.txHash && String(w.txHash).trim()) {
+    const paidTx = String(w.txHash).trim();
+    await withdrawalsCol.updateOne(wQuery, {
+      $set: { status: "APPROVED", approvedAt: Date.now() },
+      $unset: { processingAt: "", channelPosting: "" }
+    }).catch(() => {});
+    return { ok: true, message: `Already paid on-chain (${paidTx.slice(0, 8)}...) and is now APPROVED!`, tonAmount: w.tonAmount, txHash: paidTx };
+  }
+
+  // Auto-recover stale PROCESSING lock (>60s old)
+  if (w.status === "PROCESSING") {
+    if (Date.now() - (w.processingAt || 0) > 60000) {
+      await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
+      w.status = "PENDING";
+    } else {
+      return { ok: false, message: "Payout transaction is currently processing on-chain. Please wait for block confirmation." };
+    }
   }
 
   if (w.status !== "PENDING") return { ok: false, message: `Already processed (${w.status}).` };
@@ -467,7 +481,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
 
   // 3. FINALIZE IN DATABASE: Mark APPROVED ONLY AFTER payment and channel post!
   const approveUpdateRes = await withdrawalsCol.updateOne(
-    { ...wQuery, status: "PROCESSING" },
+    { ...wQuery, status: { $in: ["PROCESSING", "PENDING"] } },
     {
       $set: {
         status: "APPROVED",
@@ -480,7 +494,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
     }
   );
 
-  if (approveUpdateRes.matchedCount === 0 || approveUpdateRes.modifiedCount === 0) {
+  if (approveUpdateRes.matchedCount === 0) {
     return { ok: false, message: "Already processed or no longer pending." };
   }
 

@@ -447,12 +447,12 @@ module.exports = withVpsFallback(async (req, res) => {
         // Auto-purge any excess withdrawal history older than the 5 latest per user
         purgeAllExcessWithdrawals(withdrawalsCol).catch(() => {});
 
-        // Auto-recover any withdrawal stuck in PROCESSING (>8s) back to PENDING so they NEVER disappear!
+        // Auto-recover any withdrawal stuck in PROCESSING (>60s) back to PENDING so they NEVER disappear!
         await withdrawalsCol.updateMany(
           {
             status: "PROCESSING",
             $or: [
-              { processingAt: { $lt: Date.now() - 8 * 1000 } },
+              { processingAt: { $lt: Date.now() - 60 * 1000 } },
               { processingAt: { $exists: false } }
             ]
           },
@@ -1032,13 +1032,24 @@ module.exports = withVpsFallback(async (req, res) => {
           return;
         }
 
-        // Auto-recover stale PROCESSING lock (>8s old)
+        // If this withdrawal ALREADY has a confirmed on-chain txHash, finalize it to APPROVED immediately!
+        if (w.txHash && String(w.txHash).trim()) {
+          const paidTx = String(w.txHash).trim();
+          await withdrawalsCol.updateOne(wQuery, {
+            $set: { status: "APPROVED", approvedAt: Date.now() },
+            $unset: { processingAt: "", channelPosting: "" }
+          }).catch(() => {});
+          res.status(200).json({ ok: true, message: `Withdrawal has already been paid on-chain (${paidTx.slice(0, 8)}...) and is now APPROVED!`, tonAmount: w.tonAmount, txHash: paidTx });
+          return;
+        }
+
+        // Auto-recover stale PROCESSING lock (>60s old)
         if (w.status === "PROCESSING") {
-          if (Date.now() - (w.processingAt || 0) > 8000) {
+          if (Date.now() - (w.processingAt || 0) > 60000) {
             await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
             w.status = "PENDING";
           } else {
-            res.status(400).json({ error: "Payout transaction is currently processing on-chain. Please wait 5 seconds and refresh." });
+            res.status(400).json({ error: "Payout transaction is currently processing on-chain. Please wait a few moments for block confirmation." });
             return;
           }
         }
@@ -1261,7 +1272,7 @@ module.exports = withVpsFallback(async (req, res) => {
 
         // 3. FINALIZE IN DATABASE: Mark APPROVED ONLY AFTER payment and channel post attempt!
         const approveUpdateRes = await withdrawalsCol.updateOne(
-          { ...wQuery, status: "PROCESSING" },
+          { ...wQuery, status: { $in: ["PROCESSING", "PENDING"] } },
           {
             $set: {
               status: "APPROVED",
@@ -1276,7 +1287,7 @@ module.exports = withVpsFallback(async (req, res) => {
           }
         );
 
-        if (approveUpdateRes.matchedCount === 0 || approveUpdateRes.modifiedCount === 0) {
+        if (approveUpdateRes.matchedCount === 0) {
           res.status(400).json({ error: "Withdrawal has already been processed or is no longer pending." });
           return;
         }
@@ -1329,7 +1340,7 @@ module.exports = withVpsFallback(async (req, res) => {
           return;
         }
 
-        if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 8000)) {
+        if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 60000)) {
           await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
           w.status = "PENDING";
         }

@@ -1819,15 +1819,22 @@
     if (!confirm(confirmMsg)) return;
 
     isActionProcessing = true;
+    var timerSec = 0;
+    var progressInterval = null;
     if (btnEl) {
       btnEl.disabled = true;
-      btnEl.innerText = "⏳ Paying...";
+      btnEl.innerText = "⏳ Paying (1s)...";
       btnEl.style.opacity = "0.5";
       btnEl.style.cursor = "not-allowed";
+      progressInterval = setInterval(function() {
+        timerSec++;
+        if (btnEl) btnEl.innerText = `⏳ Paying (${timerSec}s)...`;
+      }, 1000);
     }
-    showToast("⏳ Processing Auto-Pay...");
+    showToast("⏳ Confirming on-chain payout (~15s)...");
     try {
       var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
+      if (progressInterval) clearInterval(progressInterval);
       if (res.ok) {
         if (res.channelPosted) {
           showToast(`💎 Sent ${res.tonAmount} TON on-chain! Approved & posted to channel.`);
@@ -1845,8 +1852,10 @@
         loadStats();
       }
     } catch(e) {
+      if (progressInterval) clearInterval(progressInterval);
       alert("❌ " + (e.message || e));
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       isActionProcessing = false;
       if (btnEl) {
         btnEl.disabled = false;
