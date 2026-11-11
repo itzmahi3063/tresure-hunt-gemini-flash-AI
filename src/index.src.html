@@ -8547,6 +8547,14 @@
           <span class="lang-name">English</span>
           <span class="lang-check">✓</span>
         </div>
+        <div class="lang-option-pill" data-lang="bn">
+          <span class="lang-name">বাংলা (Bengali)</span>
+          <span class="lang-check">✓</span>
+        </div>
+        <div class="lang-option-pill" data-lang="hi">
+          <span class="lang-name">हिन्दी (Hindi)</span>
+          <span class="lang-check">✓</span>
+        </div>
         <div class="lang-option-pill" data-lang="ru">
           <span class="lang-name">Русский</span>
           <span class="lang-check">✓</span>
@@ -9525,6 +9533,8 @@
       sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "GO",
       claim_reward: "Claim Reward",
+      ad_mission_wait_warning: "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)",
+      ad_mission_start_first: "⚠️ Please click Start and explore the ad for at least 10 seconds first!",
 
       // Lucky Wheel / Spin Modal
       spin_modal_title: "🎡 Lucky Spin & Earn",
@@ -9738,6 +9748,8 @@
       sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "ВПЕРЕД",
       claim_reward: "Забрать награду",
+      ad_mission_wait_warning: "⚠️ Пожалуйста, побудьте в рекламе не менее 10 секунд перед получением награды! (Подождите {s} сек)",
+      ad_mission_start_first: "⚠️ Пожалуйста, нажмите «Старт» и побудьте в рекламе не менее 10 секунд!",
 
       // Lucky Wheel / Spin Modal
       spin_modal_title: "🎡 Колесо удачи",
@@ -9951,6 +9963,8 @@
       sponsor_mission_title: "1ST.GAME",
       mission_go_btn: "انطلق",
       claim_reward: "المطالبة بالمكافأة",
+      ad_mission_wait_warning: "⚠️ يرجى استكشاف الإعلان لمدة 10 ثوانٍ على الأقل قبل المطالبة بالمكافأة! (انتظر {s} ثوانٍ)",
+      ad_mission_start_first: "⚠️ يرجى النقر فوق «ابدأ» واستكشاف الإعلان لمدة 10 ثوانٍ أولاً!",
 
       // Lucky Wheel / Spin Modal
       spin_modal_title: "🎡 عجلة الحظ واربح",
@@ -10084,6 +10098,22 @@
       feature_update_badge: "تحديث النظام · 24 ساعة",
       feature_update_toast: "🛠️ يتم تحديث التطبيق. ستكون هذه الميزة متاحة بعد 24 ساعة.",
       ad_missions_updating: "🛠️ تحديث النظام قيد التنفيذ. ستعود مهام الإعلانات بعد 24 ساعة."
+    },
+    bn: {
+      ad_missions_title: "🎬 বিজ্ঞাপন মিশন",
+      ad_missions_empty: "বর্তমানে কোনো বিজ্ঞাপন মিশন উপলব্ধ নেই",
+      mission_go_btn: "শুরু করুন",
+      claim_reward: "পুরস্কার নিন",
+      ad_mission_wait_warning: "⚠️ রিওয়ার্ড ক্লেইম করার আগে অন্তত ১০ সেকেন্ড বিজ্ঞাপনে অপেক্ষা করুন! ({s} সেকেন্ড বাকি)",
+      ad_mission_start_first: "⚠️ অনুগ্রহ করে আগে Start-এ ক্লিক করে অন্তত ১০ সেকেন্ড বিজ্ঞাপনে অপেক্ষা করুন!"
+    },
+    hi: {
+      ad_missions_title: "🎬 विज्ञापन मिशन",
+      ad_missions_empty: "वर्तमान में कोई विज्ञापन मिशन उपलब्ध नहीं है",
+      mission_go_btn: "शुरू करें",
+      claim_reward: "इनाम प्राप्त करें",
+      ad_mission_wait_warning: "⚠️ रिवॉर्ड क्लेम करने से पहले कम से कम 10 सेकंड विज्ञापन में रुकें! ({s} सेकंड बाकी)",
+      ad_mission_start_first: "⚠️ कृपया पहले Start पर क्लिक करें और कम से कम 10 सेकंड विज्ञापन देखें!"
     }
   };
 
@@ -12297,27 +12327,70 @@
       var isClaimingMission = false;
       var missionGoClickedAt = 0;
 
+      // Intercept and enforce strict 10-second wait on ad mission
       container.addEventListener("click", function(e) {
-        var btn = e.target && e.target.closest(".ad-mission-btn");
-        if (btn && !btn.classList.contains("ad-mission-btn-done")) {
+        var claimBtn = e.target && e.target.closest(".ad-mission-btn-claim");
+        var startBtn = e.target && e.target.closest(".ad-mission-btn:not(.ad-mission-btn-claim):not(.ad-mission-btn-done)");
+
+        if (startBtn) {
           missionGoClickedAt = Date.now();
+          console.log("[Ad Mission] Start clicked at:", missionGoClickedAt);
         }
-      });
+
+        if (claimBtn) {
+          if (!missionGoClickedAt) {
+            var msgFirst = t("ad_mission_start_first", "⚠️ Please click Start and explore the ad for at least 10 seconds first!");
+            showToast(msgFirst);
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+
+          var elapsed = Date.now() - missionGoClickedAt;
+          if (elapsed < 10000) {
+            var waitSec = Math.max(1, Math.ceil((10000 - elapsed) / 1000));
+            var warnMsg = t("ad_mission_wait_warning", "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)");
+            warnMsg = warnMsg.replace("{s}", waitSec);
+            showToast(warnMsg);
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+
+          // User waited >= 10s: trigger verification & reward claim
+          triggerAdMissionS2sVerification();
+        }
+      }, true);
 
       function triggerAdMissionS2sVerification() {
         if (isClaimingMission) return;
+
+        if (!missionGoClickedAt) {
+          var msgFirst = t("ad_mission_start_first", "⚠️ Please click Start and explore the ad for at least 10 seconds first!");
+          showToast(msgFirst);
+          return;
+        }
+
+        var elapsed = Date.now() - missionGoClickedAt;
+        if (elapsed < 10000) {
+          var waitSec = Math.max(1, Math.ceil((10000 - elapsed) / 1000));
+          var warnMsg = t("ad_mission_wait_warning", "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)");
+          warnMsg = warnMsg.replace("{s}", waitSec);
+          showToast(warnMsg);
+          return;
+        }
+
         isClaimingMission = true;
 
         openS2sWaitingModal(
           "Verifying ad mission with Adsgram server...",
           "Waiting for server confirmation...",
-          3,
+          2,
           function(isVerified) {
-            var elapsed = missionGoClickedAt ? (Date.now() - missionGoClickedAt) : 10000;
             adsApiPost({
               action: "claim_ad_mission",
               missionId: ADSGRAM_TASK_BLOCK_ID,
-              missionDurationMs: Math.max(elapsed, 5000),
+              missionDurationMs: elapsed,
               isVerified: (isVerified === true || isVerified === undefined)
             })
               .then(function(claimRes) {
@@ -12325,6 +12398,7 @@
                 closeS2sWaitingModal();
                 var resData = (claimRes && claimRes.data) ? claimRes.data : claimRes;
                 if (resData && (resData.ok || claimRes.ok)) {
+                  missionGoClickedAt = 0; // successfully claimed, reset timer
                   var earnedReward = Number(resData.reward || window.AD_MISSION_REWARD || (user && user.adMissionReward) || 20);
                   if (resData.newBalance !== undefined) {
                     user.balance = resData.newBalance;
@@ -12352,8 +12426,21 @@
       }
 
       if (taskEl) {
-        // User completed Adsgram task -> verify via S2S modal (10s countdown)
+        // User completed Adsgram task -> verify via S2S modal
         taskEl.addEventListener("reward", function(event) {
+          if (!missionGoClickedAt) {
+            var msgFirst = t("ad_mission_start_first", "⚠️ Please click Start and explore the ad for at least 10 seconds first!");
+            showToast(msgFirst);
+            return;
+          }
+          var elapsed = Date.now() - missionGoClickedAt;
+          if (elapsed < 10000) {
+            var waitSec = Math.max(1, Math.ceil((10000 - elapsed) / 1000));
+            var warnMsg = t("ad_mission_wait_warning", "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)");
+            warnMsg = warnMsg.replace("{s}", waitSec);
+            showToast(warnMsg);
+            return;
+          }
           triggerAdMissionS2sVerification();
         });
 
@@ -12368,18 +12455,29 @@
         });
       }
 
-      // Check return from external ad when app regains visibility / focus
+      // Check return from external ad when app regains visibility / focus:
+      // If user returned before 10 seconds, warn them with remaining time!
       window.addEventListener("focus", function() {
-        if (missionGoClickedAt > 0 && (Date.now() - missionGoClickedAt < 180000) && !isClaimingMission) {
-          missionGoClickedAt = 0;
-          setTimeout(triggerAdMissionS2sVerification, 400);
+        if (missionGoClickedAt > 0 && !isClaimingMission) {
+          var elapsed = Date.now() - missionGoClickedAt;
+          if (elapsed < 10000) {
+            var waitSec = Math.max(1, Math.ceil((10000 - elapsed) / 1000));
+            var warnMsg = t("ad_mission_wait_warning", "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)");
+            warnMsg = warnMsg.replace("{s}", waitSec);
+            showToast(warnMsg);
+          }
         }
       });
       document.addEventListener("visibilitychange", function() {
         if (document.visibilityState === "visible") {
-          if (missionGoClickedAt > 0 && (Date.now() - missionGoClickedAt < 180000) && !isClaimingMission) {
-            missionGoClickedAt = 0;
-            setTimeout(triggerAdMissionS2sVerification, 400);
+          if (missionGoClickedAt > 0 && !isClaimingMission) {
+            var elapsed = Date.now() - missionGoClickedAt;
+            if (elapsed < 10000) {
+              var waitSec = Math.max(1, Math.ceil((10000 - elapsed) / 1000));
+              var warnMsg = t("ad_mission_wait_warning", "⚠️ Please explore the ad for at least 10 seconds before claiming! (Wait {s}s)");
+              warnMsg = warnMsg.replace("{s}", waitSec);
+              showToast(warnMsg);
+            }
           }
         }
       });

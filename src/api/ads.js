@@ -364,10 +364,17 @@ module.exports = async (req, res) => {
       // 1. Either verified by server-to-server Adsgram callback (isTaskS2sConfirmed)
       // 2. OR verified by client task completion event with valid task duration
       const missionDurationMs = Number(req.body && req.body.missionDurationMs) || 0;
+      if (missionDurationMs > 0 && missionDurationMs < 10000 && !isTaskS2sConfirmed) {
+        res.status(400).json({
+          ok: false,
+          error: "You must explore the ad for at least 10 seconds before claiming the reward."
+        });
+        return;
+      }
       // Optional strict mode: set AD_MISSION_REQUIRE_S2S=true in Vercel once the Adsgram S2S postback is
       // confirmed working for block task-53937. Then client-reported flags are no longer trusted at all.
       const requireS2s = String(process.env.AD_MISSION_REQUIRE_S2S || "").toLowerCase() === "true";
-      const isClientConfirmed = !requireS2s && ((req.body && req.body.isVerified === true) || (missionDurationMs >= 3000));
+      const isClientConfirmed = !requireS2s && (missionDurationMs >= 10000 || ((req.body && req.body.isVerified === true) && missionDurationMs >= 10000));
 
       // Hacker Detection & Anti-Brute-Force:
       // Only flag as suspicious if someone sends 5+ rapid zero-duration API calls in under 60 seconds (automated bot script)
