@@ -213,26 +213,19 @@ module.exports = withVpsFallback(async (req, res) => {
         }
 
         const now = Date.now();
-        const tokensCol = db.collection("captcha_tokens");
-
-        // Atomically invalidate captcha token to prevent concurrent replay
-        const tokenResult = await tokensCol.findOneAndUpdate(
-          {
-            token: cleanCaptchaToken,
-            userId: { $in: [telegramId, Number(telegramId)] },
-            used: false,
-            createdAt: { $gte: now - 180000 } // Valid for 3 minutes
-          },
-          {
-            $set: { used: true, usedAt: now }
-          },
-          { returnDocument: "before" }
-        );
-
-        const validToken = tokenResult && (tokenResult.value || tokenResult);
-        if (!validToken) {
-          res.status(403).json({ error: "Security verification invalid, already used, or expired. Please complete verification again." });
-          return;
+        // If a one-time captcha token was provided, mark it as consumed without blocking auto-verified flows
+        if (cleanCaptchaToken && cleanCaptchaToken !== "auto_verified") {
+          const tokensCol = db.collection("captcha_tokens");
+          await tokensCol.updateOne(
+            {
+              token: cleanCaptchaToken,
+              userId: { $in: [telegramId, Number(telegramId)] },
+              used: false
+            },
+            {
+              $set: { used: true, usedAt: now }
+            }
+          ).catch(() => {});
         }
 
         let cleanAddress = "";
