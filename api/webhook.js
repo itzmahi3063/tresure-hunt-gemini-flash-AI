@@ -192,6 +192,22 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       body: JSON.stringify(textPayload)
     });
     const data = await res.json();
+    if (!data.ok && data.description && (
+      data.description.toLowerCase().includes("parse") ||
+      data.description.toLowerCase().includes("entity") ||
+      data.description.toLowerCase().includes("tag")
+    )) {
+      const plainPayload = Object.assign({}, basePayload, {
+        text: String(text).replace(/<[^>]+>/g, "")
+      });
+      delete plainPayload.parse_mode;
+      const retryRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(plainPayload)
+      });
+      return await retryRes.json();
+    }
     return data;
   } catch (e) {
     console.error("sendTelegramMsg error:", e);
@@ -407,15 +423,21 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       const txLinkHtml = `<a href="${txUrl}">View Transaction</a>`;
 
       const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
-      const channelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+      let rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+      let channelId = String(rawChannelId || "").trim();
+      channelId = channelId.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "").replace(/^\/+|\/+$/g, "");
+      if (!channelId.startsWith("@") && !channelId.startsWith("-")) {
+        channelId = "@" + channelId;
+      }
+
       const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
 `👤 <b>User:</b> ${displayName}\n` +
 `🔘 <b>Amount:</b> ${Number(w.amount).toLocaleString()} TREASURE (${Number(w.usdtAmount).toFixed(2)} USDT)\n` +
 `💳 <b>Wallet address:</b>\n` +
-`<code>${w.walletAddress}</code>\n` +
+`<code>${escapeHtml(w.walletAddress)}</code>\n` +
 `🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
-`BOT ---> @treasure_hunt12_bot`;
+`🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
       await sendTelegramMsg(botToken, channelId, channelMsg, {
         reply_markup: {

@@ -85,11 +85,22 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;");
 }
 
+function normalizeChannelUsername(ch) {
+  let s = String(ch || "").trim();
+  if (!s) return "@hoocoohpaylogs";
+  s = s.replace(/^(?:https?:\/\/)?(?:www\.)?t\.me\//i, "");
+  s = s.replace(/^\/+|\/+$/g, "");
+  if (!s.startsWith("@") && !s.startsWith("-")) {
+    s = "@" + s;
+  }
+  return s;
+}
+
 async function sendTelegramMsg(botToken, chatId, text, options = {}) {
   const token = (botToken || process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || "").trim();
   if (!token || !chatId) {
     console.error("sendTelegramMsg: Missing bot token or chatId", { hasToken: !!token, chatId });
-    return false;
+    return { ok: false, error: "Missing bot token or chatId" };
   }
   try {
     const payload = {
@@ -124,17 +135,44 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!data.ok) {
-      console.error("sendTelegramMsg: Telegram API error:", {
-        chatId,
-        description: data.description,
-        error_code: data.error_code
-      });
+    if (data.ok) {
+      return { ok: true, result: data.result };
     }
-    return data.ok;
+
+    console.warn("sendTelegramMsg: Telegram API rejected request:", {
+      chatId,
+      description: data.description,
+      error_code: data.error_code
+    });
+
+    // Fallback: If Telegram rejected due to HTML parse / entity issue, retry immediately with plain text!
+    if (data.description && (
+      data.description.toLowerCase().includes("parse") ||
+      data.description.toLowerCase().includes("entity") ||
+      data.description.toLowerCase().includes("tag")
+    )) {
+      console.log("sendTelegramMsg: Retrying with clean plain text fallback...");
+      const plainPayload = Object.assign({}, payload);
+      delete plainPayload.parse_mode;
+      plainPayload.text = String(text).replace(/<[^>]+>/g, "");
+      if (options.photoUrl) plainPayload.caption = plainPayload.text;
+
+      const fallbackRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(plainPayload)
+      });
+      const fallbackData = await fallbackRes.json();
+      if (fallbackData.ok) {
+        return { ok: true, result: fallbackData.result };
+      }
+      return { ok: false, error: fallbackData.description || data.description, errorCode: fallbackData.error_code };
+    }
+
+    return { ok: false, error: data.description, errorCode: data.error_code };
   } catch (e) {
     console.error("sendTelegramMsg: Network exception:", e && e.message ? e.message : e);
-    return false;
+    return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
 
@@ -1058,23 +1096,37 @@ module.exports = async (req, res) => {
 
             // Post to Payout Logs Channel
             const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
-            const channelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+            const rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+            const channelId = normalizeChannelUsername(rawChannelId);
+
             const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
 `👤 <b>User:</b> ${displayName}\n` +
 `🔘 <b>Amount:</b> ${Number(w.amount).toLocaleString()} TREASURE (${Number(w.usdtAmount).toFixed(2)} USDT)\n` +
 `💳 <b>Wallet address:</b>\n` +
-`<code>${w.walletAddress}</code>\n` +
+`<code>${escapeHtml(w.walletAddress)}</code>\n` +
 `🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
-`BOT ---> @treasure_hunt12_bot`;
+`🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
-            await sendTelegramMsg(botToken, channelId, channelMsg, {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
-                ]
+            let channelPostSuccess = false;
+            let channelPostErr = null;
+            try {
+              const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
+                  ]
+                }
+              });
+              channelPostSuccess = !!(chSendRes && chSendRes.ok);
+              if (!channelPostSuccess) {
+                channelPostErr = chSendRes?.error || "Unknown channel posting error";
+                console.warn("[Payout Channel] Could not post to", channelId, ":", channelPostErr);
               }
-            }).catch(e => console.warn("Channel post warning:", e.message));
+            } catch (postEx) {
+              channelPostErr = postEx && postEx.message ? postEx.message : String(postEx);
+              console.warn("[Payout Channel] Exception posting to", channelId, ":", channelPostErr);
+            }
 
             // Send 1:1 notification to withdrawing user
             if (w.telegramId) {
@@ -1093,7 +1145,7 @@ module.exports = async (req, res) => {
           }
         }
 
-        // 3. FINALIZE IN DATABASE: Mark APPROVED ONLY AFTER payment and channel post!
+        // 3. FINALIZE IN DATABASE: Mark APPROVED ONLY AFTER payment and channel post attempt!
         const approveUpdateRes = await withdrawalsCol.updateOne(
           { ...wQuery, status: "PROCESSING" },
           {
@@ -1102,7 +1154,9 @@ module.exports = async (req, res) => {
               tonAmount: tonVal,
               txHash: finalTx,
               approvedAt: now,
-              channelPosted: true
+              channelPosted: channelPostSuccess,
+              channelTarget: channelId || "@hoocoohpaylogs",
+              channelPostError: channelPostErr
             },
             $unset: { processingAt: "" }
           }
@@ -1130,9 +1184,14 @@ module.exports = async (req, res) => {
 
         res.status(200).json({ 
           ok: true, 
-          message: `Withdrawal of ${tonVal} TON approved successfully!`, 
+          message: channelPostSuccess 
+            ? `Withdrawal of ${tonVal} TON approved and posted to channel successfully!`
+            : `Withdrawal of ${tonVal} TON approved!` + (channelPostErr ? ` (Channel post note: ${channelPostErr})` : ""), 
           tonAmount: tonVal, 
           txHash: finalTx,
+          channelPosted: channelPostSuccess,
+          channelTarget: channelId || "@hoocoohpaylogs",
+          channelPostError: channelPostErr,
           autoPaySuccess,
           autoPayMsg
         });
@@ -2012,10 +2071,7 @@ module.exports = async (req, res) => {
       // 13.6. Save and Test Payout Logs Channel
       if (action === "save_payout_channel" || action === "set_payout_channel") {
         const { channelId } = req.body || {};
-        let clean = String(channelId || "").trim();
-        if (clean && !clean.startsWith("@") && !clean.startsWith("-100")) {
-          clean = "@" + clean;
-        }
+        let clean = normalizeChannelUsername(channelId);
         await db.collection("settings").updateOne(
           { key: "app_settings" },
           { $set: { payoutChannelId: clean, updatedAt: Date.now() } },
@@ -2028,7 +2084,8 @@ module.exports = async (req, res) => {
       if (action === "test_payout_channel") {
         const { channelId } = req.body || {};
         const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
-        const targetCh = channelId ? String(channelId).trim() : ((appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs");
+        const rawCh = channelId ? String(channelId).trim() : ((appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs");
+        const targetCh = normalizeChannelUsername(rawCh);
         if (!botToken) {
           res.status(500).json({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured" });
           return;
@@ -2050,7 +2107,7 @@ module.exports = async (req, res) => {
           if (chRes && chRes.ok) {
             res.status(200).json({ ok: true, channelTarget: targetCh, message: `Test message posted successfully to ${targetCh}!` });
           } else {
-            const errDesc = chRes ? (chRes.description || JSON.stringify(chRes)) : "Unknown Telegram error";
+            const errDesc = (chRes && (chRes.error || chRes.description)) || "Unknown Telegram error";
             res.status(400).json({
               ok: false,
               channelTarget: targetCh,

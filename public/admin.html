@@ -1803,8 +1803,10 @@
     try {
       var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
       if (res.ok) {
-        if (res.autoPaySuccess) {
-          showToast(`💎 Sent ${res.tonAmount} TON on-chain! Approved.`);
+        if (res.channelPosted) {
+          showToast(`💎 Sent ${res.tonAmount} TON on-chain! Approved & posted to channel.`);
+        } else if (res.channelPostError) {
+          alert(`💎 Sent ${res.tonAmount} TON on-chain! Approved.\n\n⚠️ Channel Post Warning: ${res.channelPostError}\n\nPlease check your channel settings: Make sure @treasure_hunt12_bot is added as an Administrator with 'Post Messages' permission in your channel!`);
         } else {
           showToast(`✅ Approved! ${res.tonAmount ? '(' + res.tonAmount + ' TON)' : ''}`);
         }
