@@ -12022,7 +12022,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (s2sWaitingModal) s2sWaitingModal.classList.add("open");
 
     clearInterval(s2sTimerInterval);
-    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 10;
+    var remaining = (typeof countdownSec === "number" && countdownSec > 0) ? countdownSec : 2;
     if (s2sCountdownTimer) {
       s2sCountdownTimer.style.display = "block";
       s2sCountdownTimer.style.color = "#f59e0b";
@@ -12289,7 +12289,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!loaded || !window.Adsgram) {
         throw new Error("Ad network is still loading. Please check your internet connection and try again.");
       }
-      var AdController = window.Adsgram.init({ blockId: finalBlockId });
+      var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "";
+      var AdController = window.Adsgram.init({ blockId: finalBlockId, userId: String(currentUid) });
       return AdController.show();
     }).then(function(result) {
       if (result && result.error) {
@@ -12387,7 +12388,7 @@ document.addEventListener('DOMContentLoaded', () => {
         openS2sWaitingModal(
           "Verifying ad mission with Adsgram server...",
           "Waiting for server confirmation...",
-          10,
+          3,
           function(isVerified) {
             var elapsed = missionGoClickedAt ? (Date.now() - missionGoClickedAt) : 10000;
             adsApiPost({
@@ -12827,7 +12828,7 @@ document.addEventListener('DOMContentLoaded', () => {
               openS2sWaitingModal(
                 "Verifying ad view with Adsgram server...",
                 "Waiting for server confirmation...",
-                10,
+                2,
                 function(isEarlyVerified) {
                   doClaim();
                 }
@@ -13193,10 +13194,14 @@ document.addEventListener('DOMContentLoaded', () => {
           spinAdsProgressFill.style.width = pct + "%";
         }
 
-        updateSpinAdBtnLabel(watchedAds);
-      if (watchSpinAdActionBtn) {
-          watchSpinAdActionBtn.disabled = false;
-          watchSpinAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("watch_ad_ticket_btn") : "🎬 Watch Ad (+1 Ticket)") + '</span>';
+        if (watchSpinAdActionBtn) {
+          if (watched >= maxAds) {
+            watchSpinAdActionBtn.disabled = true;
+            watchSpinAdActionBtn.innerHTML = '<span>🔒 Daily Limit Reached (' + watched + '/' + maxAds + ')</span>';
+          } else {
+            watchSpinAdActionBtn.disabled = false;
+            watchSpinAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("watch_ad_ticket_btn") : "🎬 Watch Ad (+1 Ticket)") + '</span>';
+          }
         }
 
         if (spinAdsResetCountdown && sp.nextResetMs > 0 && watched >= maxAds) {
@@ -13401,6 +13406,10 @@ document.addEventListener('DOMContentLoaded', () => {
                   currentSpinTickets = Number(res.data.spinTickets !== undefined ? res.data.spinTickets : (currentSpinTickets + 1));
                   if (spinTicketsCount) spinTicketsCount.textContent = currentSpinTickets;
                   loadSpinStatus();
+                  if (watchSpinAdActionBtn) {
+                    watchSpinAdActionBtn.disabled = false;
+                    watchSpinAdActionBtn.innerHTML = '<span>🎬 Watch Ad (+1 Ticket)</span>';
+                  }
                   showToast(res.data.message || "🎟️ +1 Spin Ticket added!");
                   if (tg && tg.HapticFeedback) {
                     try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
@@ -13424,7 +13433,7 @@ document.addEventListener('DOMContentLoaded', () => {
           openS2sWaitingModal(
             "Verifying spin ad view with Adsgram server...",
             "Waiting for server confirmation...",
-            10,
+            2,
             function(isEarlyVerified) {
               doSpinClaim();
             }

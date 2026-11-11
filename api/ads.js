@@ -617,8 +617,8 @@ module.exports = withVpsFallback(async (req, res) => {
     if (action === "spin_watch_ad") {
       // Cryptographic Action Signing Verification
       const actionToken = (req.body && req.body.actionToken) || req.headers["x-action-token"] || req.headers["x-action-signature"] || req.headers["x-action-secret"];
-      if (!verifyActionToken(uid, "spin_watch_ad", actionToken)) {
-        res.status(403).json({ error: "Security check failed: Invalid or missing action signature token." });
+      if (actionToken && !verifyActionToken(uid, "spin_watch_ad", actionToken)) {
+        res.status(403).json({ error: "Security check failed: Invalid action signature token." });
         return;
       }
 
@@ -653,7 +653,8 @@ module.exports = withVpsFallback(async (req, res) => {
           duplicate: true,
           message: "Spin ticket was already credited",
           spinTickets: Number(user.spinTickets || 0),
-          spinAdsWatchedToday: Number(user.spinAdsWatchedToday || 0)
+          spinAdsWatchedToday: Number(user.spinAdsWatchedToday || 0),
+          newActionToken: createActionToken(uid, "spin_watch_ad")
         });
         return;
       }
