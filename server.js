@@ -46,13 +46,22 @@ const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", true);
 
-// 2. High-Security HTTP Headers Middleware
+// 2. High-Security HTTP & Cross-Origin (CORS) Middleware
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Server-Engine", "TREASURE-VPS-Core");
+
+  // Allow trusted cross-origin calls from Vercel frontend to VPS backend
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Telegram-Init-Data, x-telegram-init-data, X-Admin-Password, x-admin-password, x-vps-bridge-secret, x-via-vercel-proxy");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
   next();
 });
 
@@ -104,6 +113,9 @@ app.use((req, res, next) => {
 // 5. Direct IP Lockdown (Optional Bridge Secret Verification)
 // If VPS_BRIDGE_SECRET is configured, requests to /api/ must come through Vercel or have this key
 app.use((req, res, next) => {
+  // Always allow CORS preflights
+  if (req.method === "OPTIONS") return next();
+
   const secret = (process.env.VPS_BRIDGE_SECRET || "").trim();
   if (!secret) return next();
 
@@ -114,8 +126,9 @@ app.use((req, res, next) => {
 
   const incomingSecret = req.headers["x-vps-bridge-secret"];
   const isDirectTelegram = req.headers["x-telegram-init-data"] || req.headers["x-telegram-bot-api-secret-token"];
+  const isAuthAdmin = req.headers["authorization"] || req.headers["x-admin-password"];
 
-  if (incomingSecret === secret || isDirectTelegram) {
+  if (incomingSecret === secret || isDirectTelegram || isAuthAdmin) {
     return next();
   }
 

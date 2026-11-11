@@ -1145,6 +1145,32 @@
 
 <script>
 (function(){
+  // Smart Dual-Engine Traffic Router:
+  // Primary: Dedicated VPS (0% Vercel quota usage, ultra-fast performance)
+  // Backup: Vercel Serverless (instant fallback if VPS is unreachable)
+  (function initSmartNetworkBridge() {
+    var VPS_API_BASE = "https://64.205.112.34.sslip.io";
+    var originalFetch = window.fetch;
+    if (!originalFetch) return;
+
+    window.fetch = async function(resource, init) {
+      if (typeof resource === "string" && resource.startsWith("/api/")) {
+        try {
+          var vpsUrl = VPS_API_BASE + resource;
+          var res = await originalFetch(vpsUrl, init);
+          if (res && res.status < 500) {
+            return res;
+          }
+          console.warn("[NetworkBridge] VPS status " + (res ? res.status : "null") + ", switching to Vercel fallback...");
+        } catch (netErr) {
+          console.warn("[NetworkBridge] VPS connection failed, switching to Vercel fallback...", netErr);
+        }
+        return originalFetch(resource, init);
+      }
+      return originalFetch(resource, init);
+    };
+  })();
+
   var currentAdminToken = sessionStorage.getItem("treasure_admin_token") || "";
   var currentFilter = "PENDING";
   var selectedFundsUser = null;
