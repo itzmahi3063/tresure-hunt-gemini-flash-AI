@@ -12520,12 +12520,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     var startTime = Date.now();
+    // Priority 1: Adsgram Interstitial (int-49020)
     showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
+      .catch(function(err) {
+        console.warn("[Fullscreen Ad] Interstitial unfilled, trying Rewarded Ad fallback...", err);
+        // Priority 2: Adsgram Rewarded (49079)
+        return showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID);
+      })
+      .catch(function(err2) {
+        console.warn("[Fullscreen Ad] Adsgram unfilled, trying Gigapub fallback...", err2);
+        // Priority 3: Gigapub fallback
+        return showGigapubAd();
+      })
       .then(function() {
         var elapsed = Date.now() - startTime;
         window.AdBarrier.release("adsgram_fullscreen");
-        if (elapsed < 9000) {
-          showToast("⚠️ Ad skipped early (< 9s). Watch at least 9 seconds to receive reward!");
+        if (elapsed < 4500) {
+          showToast("⚠️ Ad closed early. Please watch the full ad to continue!");
           if (typeof onSkippedOrFailed === "function") onSkippedOrFailed("too_short");
           return;
         }
@@ -12535,7 +12546,7 @@ document.addEventListener('DOMContentLoaded', () => {
       })
       .catch(function(err) {
         window.AdBarrier.release("adsgram_fullscreen");
-        var msg = (err && (err.description || err.message)) || "Ad closed early. Watch at least 9 seconds to receive reward!";
+        var msg = (err && (err.description || err.message)) || "Ad failed to load. Please try again.";
         showToast("⚠️ " + msg);
         if (typeof onSkippedOrFailed === "function") onSkippedOrFailed(err);
       });
@@ -15289,13 +15300,22 @@ document.addEventListener('DOMContentLoaded', () => {
       withdrawAdActionBtn.innerHTML = '<span>⏳ Loading Ad...</span>';
 
       playFullscreenAd(function onAdWatched() {
+        // ONLY advance to Step 2 when ad was successfully watched!
         withdrawAdActionBtn.disabled = false;
         withdrawAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("withdraw_step1_btn") : "▶ Watch Ad & Continue") + '</span>';
         setWithdrawStep(2);
-      }, function onAdFailed() {
+      }, function onAdFailed(err) {
+        // If ad failed, was skipped, or could not load: DO NOT advance to Step 2!
         withdrawAdActionBtn.disabled = false;
         withdrawAdActionBtn.innerHTML = '<span>' + (typeof t === "function" ? t("withdraw_step1_btn") : "▶ Watch Ad & Continue") + '</span>';
-        setWithdrawStep(2);
+        if (err === "busy") {
+          showToast("⚠️ Another ad is currently active. Please wait a moment and try again.");
+        } else if (err === "too_short") {
+          showToast("⚠️ You must watch the full ad to continue to withdrawal.");
+        } else {
+          showToast("⚠️ Ad could not be loaded. Please check your internet connection and try again.");
+        }
+        // Remains strictly on Step 1!
       });
     });
   }
