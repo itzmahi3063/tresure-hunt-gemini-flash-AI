@@ -1583,14 +1583,17 @@
         }
 
         withdrawalsList.innerHTML = data.withdrawals.map(function(w){
-          var isPending = w.status === "PENDING";
-          var statusClass = w.status === "APPROVED" ? "approved" : (w.status === "REJECTED" ? "rejected" : "pending");
+          var isPending = (w.status === "PENDING" || w.status === "PROCESSING");
+          var isProcessing = (w.status === "PROCESSING");
+          var statusClass = w.status === "APPROVED" ? "approved" : (w.status === "REJECTED" ? "rejected" : (isProcessing ? "suspicious" : "pending"));
           var dateStr = new Date(w.createdAt).toLocaleString();
           var isBannedTag = w.isBanned ? '<span class="status-tag banned" style="margin-left: 4px;">BANNED</span>' : '';
           var tonValStr = (w.tonAmount !== undefined ? Number(w.tonAmount).toFixed(4) : "0.0000");
 
           var securityBadge = '';
-          if (w.isHighRiskHacker) {
+          if (isProcessing) {
+            securityBadge = `<div style="margin-top: 4px;"><span class="status-tag suspicious" style="font-size: 10px; padding: 2px 7px; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);">⏳ IN-PROGRESS / RETRYABLE</span></div>`;
+          } else if (w.isHighRiskHacker) {
             securityBadge = `<div style="margin-top: 4px;"><span class="status-tag high-risk" style="font-size: 10px; padding: 2px 7px;">🚨 HIGH RISK (HACKER)</span> ${w.suspiciousReason ? `<div style="font-size: 10px; color: #ef4444; margin-top: 2px;">${w.suspiciousReason}</div>` : ''}</div>`;
           } else if (w.isSuspicious) {
             securityBadge = `<div style="margin-top: 4px;"><span class="status-tag suspicious" style="font-size: 10px; padding: 2px 7px;">⚠️ SUSPICIOUS</span> ${w.suspiciousReason ? `<div style="font-size: 10px; color: #f59e0b; margin-top: 2px;">${w.suspiciousReason}</div>` : ''}</div>`;
@@ -1603,9 +1606,10 @@
 
           var actions = '';
           if (isPending) {
+            var approveBtnText = isProcessing ? "⚡ Retry Approve" : "Approve";
             actions = `
               <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${tonValStr}', '${w.walletAddress}')">Approve</button>
+                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${tonValStr}', '${w.walletAddress}')">${approveBtnText}</button>
                 <button class="btn-secondary" onclick="rejectWithdrawal('${w.id}')">Reject</button>
                 <button class="btn-danger" onclick="banUserFromW('${w.telegramId}', '${w.id}')">Ban</button>
               </div>
@@ -1808,7 +1812,7 @@
         loadStats();
       } else {
         var errMsg = res.error || "Approval failed";
-        alert("⚠️ " + errMsg + "\n\nWithdrawal remains PENDING because TON payout was not confirmed on-chain.");
+        alert("⚠️ " + errMsg);
         loadWithdrawals();
         loadStats();
       }

@@ -322,8 +322,8 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   const w = await withdrawalsCol.findOne(wQuery);
   if (!w) return { ok: false, message: "Withdrawal request not found." };
 
-  // Auto-recover stale PROCESSING lock (>30s old)
-  if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 30000)) {
+  // Auto-recover stale PROCESSING lock (>8s old)
+  if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 8000)) {
     await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
     w.status = "PENDING";
   }

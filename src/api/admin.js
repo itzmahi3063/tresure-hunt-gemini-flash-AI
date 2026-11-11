@@ -407,12 +407,12 @@ module.exports = async (req, res) => {
         // Auto-purge any excess withdrawal history older than the 5 latest per user
         purgeAllExcessWithdrawals(withdrawalsCol).catch(() => {});
 
-        // Auto-recover any withdrawal stuck in PROCESSING (>30s) back to PENDING so they NEVER disappear!
+        // Auto-recover any withdrawal stuck in PROCESSING (>8s) back to PENDING so they NEVER disappear!
         await withdrawalsCol.updateMany(
           {
             status: "PROCESSING",
             $or: [
-              { processingAt: { $lt: Date.now() - 30 * 1000 } },
+              { processingAt: { $lt: Date.now() - 8 * 1000 } },
               { processingAt: { $exists: false } }
             ]
           },
@@ -425,11 +425,11 @@ module.exports = async (req, res) => {
         const reqStatus = (req.query.status || "PENDING").toUpperCase();
         const filter = {};
         if (reqStatus === "PENDING") {
-          filter.status = "PENDING";
+          filter.status = { $in: ["PENDING", "PROCESSING"] };
           filter.isSuspicious = { $ne: true };
           filter.isSuspiciousWithdrawalDistance = { $ne: true };
         } else if (reqStatus === "SUSPICIOUS") {
-          filter.status = "PENDING";
+          filter.status = { $in: ["PENDING", "PROCESSING"] };
         } else if (reqStatus !== "ALL") {
           filter.status = reqStatus;
         }
@@ -952,10 +952,25 @@ module.exports = async (req, res) => {
           return;
         }
 
-        // Auto-recover stale PROCESSING lock (>30s old)
-        if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 30000)) {
-          await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
-          w.status = "PENDING";
+        // Auto-recover stale PROCESSING lock (>8s old)
+        if (w.status === "PROCESSING") {
+          if (Date.now() - (w.processingAt || 0) > 8000) {
+            await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
+            w.status = "PENDING";
+          } else {
+            res.status(400).json({ error: "Payout transaction is currently processing on-chain. Please wait 5 seconds and refresh." });
+            return;
+          }
+        }
+
+        if (w.status === "APPROVED") {
+          res.status(400).json({ error: "Withdrawal has already been APPROVED. Cannot approve again." });
+          return;
+        }
+
+        if (w.status === "REJECTED") {
+          res.status(400).json({ error: "Withdrawal has already been REJECTED. Cannot approve again." });
+          return;
         }
 
         if (w.status !== "PENDING") {
@@ -1139,6 +1154,11 @@ module.exports = async (req, res) => {
         if (!w) {
           res.status(404).json({ error: "Withdrawal not found" });
           return;
+        }
+
+        if (w.status === "PROCESSING" && (Date.now() - (w.processingAt || 0) > 8000)) {
+          await withdrawalsCol.updateOne(wQuery, { $set: { status: "PENDING" }, $unset: { processingAt: "" } });
+          w.status = "PENDING";
         }
 
         if (w.status !== "PENDING") {
