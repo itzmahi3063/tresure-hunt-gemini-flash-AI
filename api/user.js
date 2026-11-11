@@ -545,6 +545,7 @@ module.exports = withVpsFallback(async (req, res) => {
       adsWatchedToday: watchedToday,
       adsEarnedToday: earnedToday,
       adsCycleStartedAt: cycleStart,
+      spinTickets: Number(user.spinTickets || 0),
       recruitsCount: user.recruitsCount || 0,
       refEarnings: user.refEarnings || 0,
       refCommissionEarned: Number(user.refCommissionEarned || 0),
