@@ -1027,61 +1027,96 @@ module.exports = async (req, res) => {
         let autoPaySuccess = false;
         let autoPayMsg = "";
 
+        // Check if this withdrawal was ALREADY paid on-chain (prevent duplicate send)
+        if (!finalTx && w.txHash && String(w.txHash).trim()) {
+          finalTx = String(w.txHash).trim();
+          autoPaySuccess = true;
+          autoPayMsg = "Already confirmed on-chain (re-using txHash)";
+        }
+
+        // Anti-Duplicate Recovery: If on-chain payout succeeded within the last 15 minutes for this exact withdrawal
+        if (!finalTx) {
+          const lastAutoPay = await db.collection("settings").findOne({ key: "ton_autopay" }).catch(() => null);
+          if (lastAutoPay && lastAutoPay.lastTxHash && (now - (lastAutoPay.lastBroadcastAt || 0) < 15 * 60 * 1000)) {
+            if (w.status === "PROCESSING" || (w.processingAt && (now - w.processingAt < 15 * 60 * 1000)) || (w.lastAutoPayAttemptAt && (now - w.lastAutoPayAttemptAt < 15 * 60 * 1000))) {
+              finalTx = String(lastAutoPay.lastTxHash).trim();
+              autoPaySuccess = true;
+              autoPayMsg = "Recovered confirmed on-chain transaction";
+            }
+          }
+        }
+
         // ATOMIC CLAIM: move PENDING -> PROCESSING
         const claimPayoutRes = await withdrawalsCol.updateOne(
           { ...wQuery, status: "PENDING" },
           { $set: { status: "PROCESSING", processingAt: now } }
         );
         if (!claimPayoutRes || claimPayoutRes.modifiedCount === 0) {
-          res.status(400).json({ error: "Withdrawal has already been processed or is being processed right now." });
-          return;
+          if (!(w.status === "PROCESSING" && finalTx)) {
+            res.status(400).json({ error: "Withdrawal has already been processed or is being processed right now." });
+            return;
+          }
         }
         const releasePayoutClaim = async () => {
           try { await withdrawalsCol.updateOne({ ...wQuery, status: "PROCESSING" }, { $set: { status: "PENDING" }, $unset: { processingAt: "" } }); } catch (e) {}
         };
 
         // 1. STRICT ON-CHAIN REQUIREMENT: Payout MUST be executed and confirmed on-chain FIRST!
-        let autoPayRes;
-        try {
-          const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
-          autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
-        } catch (payErr) {
-          await releasePayoutClaim();
-          const errText = payErr && payErr.message ? payErr.message : String(payErr);
+        if (!finalTx) {
+          let autoPayRes;
           try {
-            await withdrawalsCol.updateOne(
-              wQuery,
-              { $set: { lastAutoPayError: errText, lastAutoPayAttemptAt: now } }
-            );
-          } catch (_) {}
-          res.status(500).json({ error: `Auto-pay error: ${errText}` });
-          return;
-        }
+            const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
+            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
+          } catch (payErr) {
+            await releasePayoutClaim();
+            const errText = payErr && payErr.message ? payErr.message : String(payErr);
+            try {
+              await withdrawalsCol.updateOne(
+                wQuery,
+                { $set: { lastAutoPayError: errText, lastAutoPayAttemptAt: now } }
+              );
+            } catch (_) {}
+            res.status(500).json({ error: `Auto-pay error: ${errText}` });
+            return;
+          }
 
-        // Strictly check if payment actually left wallet on-chain
-        if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success || !autoPayRes.txHash) {
-          await releasePayoutClaim();
-          const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent on-chain)";
-          try {
-            await withdrawalsCol.updateOne(
-              wQuery,
-              { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
-            );
-          } catch (_) {}
-          res.status(400).json({
-            error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
-            isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
-            autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
-          });
-          return;
-        }
+          // Strictly check if payment actually left wallet on-chain
+          if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success || !autoPayRes.txHash) {
+            await releasePayoutClaim();
+            const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent on-chain)";
+            try {
+              await withdrawalsCol.updateOne(
+                wQuery,
+                { $set: { lastAutoPayError: haltReason, lastAutoPayAttemptAt: now } }
+              );
+            } catch (_) {}
+            res.status(400).json({
+              error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
+              isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
+              autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
+            });
+            return;
+          }
 
-        finalTx = autoPayRes.txHash;
-        autoPaySuccess = true;
-        autoPayMsg = autoPayRes.message || "On-chain transfer confirmed";
+          finalTx = autoPayRes.txHash;
+          autoPaySuccess = true;
+          autoPayMsg = autoPayRes.message || "On-chain transfer confirmed";
+
+          // Persist txHash immediately in database to guarantee single payout
+          await withdrawalsCol.updateOne(wQuery, {
+            $set: { txHash: finalTx, tonAmount: tonVal, paidOnChainAt: now }
+          }).catch(() => {});
+        } else {
+          autoPaySuccess = true;
+          if (!autoPayMsg) autoPayMsg = "Using confirmed on-chain transaction";
+        }
 
         // 2. POST TO PAYOUT LOGS CHANNEL & NOTIFY USER FIRST (Only after wallet payment succeeded!)
         let userDoc = null;
+        let channelPostSuccess = false;
+        let channelPostErr = null;
+        let channelId = "@hoocoohpaylogs";
+
         if (botToken) {
           try {
             userDoc = await usersCol.findOne({
@@ -1102,7 +1137,7 @@ module.exports = async (req, res) => {
             // Post to Payout Logs Channel
             const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
             const rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
-            const channelId = normalizeChannelUsername(rawChannelId);
+            channelId = normalizeChannelUsername(rawChannelId);
 
             const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
@@ -1113,8 +1148,6 @@ module.exports = async (req, res) => {
 `🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
 `🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
-            let channelPostSuccess = false;
-            let channelPostErr = null;
             try {
               const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
                 reply_markup: {
