@@ -1154,6 +1154,21 @@ module.exports = withVpsFallback(async (req, res) => {
         let channelPostErr = null;
         let channelId = "@hoocoohpaylogs";
 
+        // Check if channel post was ALREADY sent for this withdrawal OR for this transaction hash:
+        let alreadyChannelPosted = Boolean(w.channelPosted || w.channelPostMessageId);
+        if (!alreadyChannelPosted && finalTx) {
+          const existingPosted = await withdrawalsCol.findOne({
+            txHash: finalTx,
+            channelPosted: true
+          });
+          if (existingPosted) {
+            alreadyChannelPosted = true;
+          }
+        }
+        if (alreadyChannelPosted) {
+          channelPostSuccess = true;
+        }
+
         if (botToken) {
           try {
             userDoc = await usersCol.findOne({
@@ -1171,12 +1186,20 @@ module.exports = withVpsFallback(async (req, res) => {
             const txUrl = `https://tonviewer.com/transaction/${encodeURIComponent(finalTx)}`;
             const txLinkHtml = `<a href="${txUrl}">View Transaction</a>`;
 
-            // Post to Payout Logs Channel
+            // Post to Payout Logs Channel ONLY if not already posted
             const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
             const rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
             channelId = normalizeChannelUsername(rawChannelId);
 
-            const channelMsg = 
+            if (!alreadyChannelPosted) {
+              // Atomic claim on channel posting for this specific withdrawal
+              const channelClaim = await withdrawalsCol.updateOne(
+                { ...wQuery, channelPosted: { $ne: true }, channelPosting: { $ne: true } },
+                { $set: { channelPosting: true, channelPostingAt: now } }
+              );
+
+              if (channelClaim && channelClaim.modifiedCount > 0) {
+                const channelMsg = 
 `🎉 <b>New payout paid</b> 🎉\n\n` +
 `👤 <b>User:</b> ${displayName}\n` +
 `🔘 <b>Amount:</b> ${Number(w.amount).toLocaleString()} TREASURE (${Number(w.usdtAmount).toFixed(2)} USDT)\n` +
@@ -1185,26 +1208,38 @@ module.exports = withVpsFallback(async (req, res) => {
 `🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
 `🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
-            try {
-              const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
-                reply_markup: {
-                  inline_keyboard: [
-                    [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
-                  ]
+                try {
+                  const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
+                    reply_markup: {
+                      inline_keyboard: [
+                        [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
+                      ]
+                    }
+                  });
+                  channelPostSuccess = !!(chSendRes && chSendRes.ok);
+                  const channelMsgId = chSendRes?.result?.message_id || null;
+                  if (channelPostSuccess) {
+                    await withdrawalsCol.updateOne(wQuery, {
+                      $set: { channelPosted: true, channelPostMessageId: channelMsgId, channelTarget: channelId },
+                      $unset: { channelPosting: "" }
+                    }).catch(() => {});
+                  } else {
+                    channelPostErr = chSendRes?.error || "Unknown channel posting error";
+                    await withdrawalsCol.updateOne(wQuery, { $unset: { channelPosting: "" } }).catch(() => {});
+                    console.warn("[Payout Channel] Could not post to", channelId, ":", channelPostErr);
+                  }
+                } catch (postEx) {
+                  channelPostErr = postEx && postEx.message ? postEx.message : String(postEx);
+                  await withdrawalsCol.updateOne(wQuery, { $unset: { channelPosting: "" } }).catch(() => {});
+                  console.warn("[Payout Channel] Exception posting to", channelId, ":", channelPostErr);
                 }
-              });
-              channelPostSuccess = !!(chSendRes && chSendRes.ok);
-              if (!channelPostSuccess) {
-                channelPostErr = chSendRes?.error || "Unknown channel posting error";
-                console.warn("[Payout Channel] Could not post to", channelId, ":", channelPostErr);
+              } else {
+                channelPostSuccess = true;
               }
-            } catch (postEx) {
-              channelPostErr = postEx && postEx.message ? postEx.message : String(postEx);
-              console.warn("[Payout Channel] Exception posting to", channelId, ":", channelPostErr);
             }
 
-            // Send 1:1 notification to withdrawing user
-            if (w.telegramId) {
+            // Send 1:1 notification to withdrawing user ONLY if not already notified
+            if (w.telegramId && !w.userNotified) {
               const userMsg = 
 `✅ <b>Withdrawal Approved!</b>\n\n` +
 `🪙 <b>${Number(w.amount).toLocaleString()} TREASURE Coins ($${Number(w.usdtAmount).toFixed(2)} USDT) sent!</b>\n` +
@@ -1213,6 +1248,10 @@ module.exports = withVpsFallback(async (req, res) => {
               await sendTelegramMsg(botToken, w.telegramId, userMsg, {
                 buttonText: "🔗 View Transaction",
                 buttonUrl: txUrl
+              }).then(res => {
+                if (res && res.ok) {
+                  withdrawalsCol.updateOne(wQuery, { $set: { userNotified: true } }).catch(() => {});
+                }
               }).catch(e => console.warn("User notification warning:", e.message));
             }
           } catch (notifErr) {
@@ -1229,11 +1268,11 @@ module.exports = withVpsFallback(async (req, res) => {
               tonAmount: tonVal,
               txHash: finalTx,
               approvedAt: now,
-              channelPosted: channelPostSuccess,
+              channelPosted: Boolean(channelPostSuccess || alreadyChannelPosted),
               channelTarget: channelId || "@hoocoohpaylogs",
               channelPostError: channelPostErr
             },
-            $unset: { processingAt: "" }
+            $unset: { processingAt: "", channelPosting: "" }
           }
         );
 
