@@ -13827,22 +13827,60 @@
   }
 
   var _lastTasksLoadTime = 0;
+  var _cachedTasksKey = "treasure_cached_tasks_v1";
+
   function loadTasks(force) {
     var now = Date.now();
-    if (!force && tasksData && tasksData.length > 0 && (now - _lastTasksLoadTime < 60000)) {
+    // 1. Instant 0ms Render from localStorage if memory is empty
+    if (!tasksData || tasksData.length === 0) {
+      try {
+        var savedTasks = localStorage.getItem(_cachedTasksKey);
+        if (savedTasks) {
+          var parsedTasks = JSON.parse(savedTasks);
+          if (Array.isArray(parsedTasks) && parsedTasks.length > 0) {
+            tasksData = parsedTasks;
+            renderTasks();
+          }
+        }
+      } catch(e) {}
+    }
+
+    // 2. If container has no tasks yet, display a smooth loading indicator
+    var container = document.getElementById("tasksListContainer");
+    if (container && (!tasksData || tasksData.length === 0)) {
+      container.innerHTML = 
+        '<div style="padding: 24px 12px; text-align: center; color: var(--text-dim);">' +
+          '<div class="spinner-small" style="margin: 0 auto 10px auto; width: 22px; height: 22px; border: 2.5px solid rgba(255,255,255,0.15); border-top-color: #00b4d8; border-radius: 50%; animation: spin 0.7s linear infinite;"></div>' +
+          '<div style="font-size: 11.5px; letter-spacing: 0.3px;">Loading tasks...</div>' +
+        '</div>';
+    }
+
+    if (!force && tasksData && tasksData.length > 0 && (now - _lastTasksLoadTime < 15000)) {
       renderTasks();
       return;
     }
     _lastTasksLoadTime = now;
+
     fetchTasksApi().then(function(res) {
-      if (res.ok && res.data && res.data.tasks) {
+      if (res && res.ok && res.data && res.data.tasks) {
         tasksData = res.data.tasks;
+        try {
+          localStorage.setItem(_cachedTasksKey, JSON.stringify(tasksData));
+        } catch(e) {}
         renderTasks();
       }
     }).catch(function(e) {
       console.error("fetchTasksApi error:", e);
+      if (tasksData && tasksData.length > 0) {
+        renderTasks();
+      }
     });
   }
+
+  // Pre-load tasks in background right after app opens for zero-lag Earn tab!
+  setTimeout(function() {
+    loadTasks(false);
+  }, 1000);
 
   // Filter Chips listeners
   var filterChips = document.querySelectorAll(".filter-chip");

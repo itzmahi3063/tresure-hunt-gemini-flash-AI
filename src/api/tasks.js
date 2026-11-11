@@ -9,6 +9,33 @@ const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
+let _activeTasksCache = null;
+let _activeTasksCacheAt = 0;
+let _lastTasksPurgeAt = 0;
+
+function triggerBackgroundTasksPurge(tasksCol) {
+  const now = Date.now();
+  if (now - _lastTasksPurgeAt > 30 * 60 * 1000) {
+    _lastTasksPurgeAt = now;
+    purgeExpiredCompletedTasks(tasksCol).catch(() => {});
+  }
+}
+
+async function getCachedActiveTasks(tasksCol) {
+  const now = Date.now();
+  if (_activeTasksCache && (now - _activeTasksCacheAt < 6000)) {
+    return _activeTasksCache;
+  }
+  const customTasks = await tasksCol.find(
+    { status: "active" },
+    { projection: { title: 1, link: 1, type: 1, targetCount: 1, isUnlimited: 1, completedBy: 1, createdAt: 1 } }
+  ).sort({ createdAt: -1 }).limit(100).toArray();
+
+  _activeTasksCache = customTasks;
+  _activeTasksCacheAt = now;
+  return customTasks;
+}
+
 module.exports = async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
@@ -47,7 +74,7 @@ module.exports = async (req, res) => {
 
       // 2. Auto-purge tasks that reached 100% completion 24 hours ago
       const tasksCol = db.collection("tasks");
-      await purgeExpiredCompletedTasks(tasksCol);
+      triggerBackgroundTasksPurge(tasksCol);
 
       // 3. Auto-purge any excess withdrawal history older than the 5 latest per user
       const withdrawalsCol = db.collection("withdrawals");
@@ -136,7 +163,7 @@ module.exports = async (req, res) => {
     // GET: list tasks or user's task history
     if (req.method === "GET") {
       // Auto-purge any tasks that reached 100% completion 24 hours ago
-      await purgeExpiredCompletedTasks(tasksCol);
+      triggerBackgroundTasksPurge(tasksCol);
 
       // 1. User's own task history
       if (req.query && (req.query.my === "1" || req.query.action === "history")) {
@@ -211,7 +238,7 @@ module.exports = async (req, res) => {
       const userCompleted = (user && user.completedTasks) || [];
 
       // Find active tasks from database
-      const customTasks = await tasksCol.find({ status: "active" }).sort({ createdAt: -1 }).toArray();
+      const customTasks = await getCachedActiveTasks(tasksCol);
 
       // Filter out tasks already completed/claimed by this user OR target limit reached
       const activeTasks = customTasks.filter(t => {
@@ -478,6 +505,7 @@ module.exports = async (req, res) => {
 
         const updatedUser = await usersCol.findOne({ _id: user._id });
         const newBal = Number(updatedUser ? updatedUser.balance : (Number(user.balance || 0) + 10));
+        _activeTasksCache = null;
 
         res.status(200).json({
           ok: true,
