@@ -11487,7 +11487,7 @@
 
   function renderAds() {
     var watched = Number(user.adsWatchedToday) || 0;
-    var maxAds = 12;
+    var maxAds = 10;
     var remaining = Math.max(0, maxAds - watched);
     var earned = Number(user.adsEarnedToday) || 0;
     var percent = Math.min(100, Math.max(0, (watched / maxAds) * 100));
@@ -12738,7 +12738,7 @@
 
   function updateWatchSheetView1() {
     var watched = Number(user.adsWatchedToday) || 0;
-    var maxAds = 12;
+    var maxAds = 10;
     var remaining = Math.max(0, maxAds - watched);
     if (sheetWatchedTodayEl) sheetWatchedTodayEl.textContent = watched;
     if (sheetRemainingEl) sheetRemainingEl.textContent = remaining;
@@ -12793,12 +12793,12 @@
     });
   }
 
-  // Watch & Earn Primary Button -> Plays Adsgram Reward Ad (Block 49079) + S2S Verification
+  // Watch & Earn Primary Button -> Plays Adsgram Reward Ad (Block 49079) for Ad #1, then Adsgram Interstitial (int-49020) for Ads #2-10
   if (sheetStartAdBtn) {
     sheetStartAdBtn.addEventListener("click", function() {
       var watched = Number(user.adsWatchedToday) || 0;
-      if (watched >= 12) {
-        showToast("🎉 Daily limit of 12 ads reached! Next ads in 24 hours.");
+      if (watched >= 10) {
+        showToast("🎉 Daily limit of 10 ads reached! Next ads in 24 hours.");
         return;
       }
 
@@ -12807,25 +12807,27 @@
         return;
       }
 
-      var isGigapub = (watched >= 6);
-      var adNetName = isGigapub ? "Gigapub" : "Adsgram";
+      var isReward = (watched === 0);
+      var adNetName = isReward ? "Adsgram Reward" : "Adsgram Interstitial";
 
       sheetStartAdBtn.disabled = true;
       sheetStartAdBtn.innerHTML = '<span>⏳ Loading ' + adNetName + ' Ad...</span>';
 
       var startedAt = Date.now();
       var minWatchMs = 9000;
-      var playWatchPromise = isGigapub ? showGigapubAd() : showAdsgramAd((watched === 0) ? ADSGRAM_REWARD_BLOCK_ID : ADSGRAM_INTERSTITIAL_BLOCK_ID);
+      var playWatchPromise = isReward 
+        ? showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID) 
+        : showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID);
 
       playWatchPromise
         .then(function() {
           var elapsed = Date.now() - startedAt;
           window.AdBarrier.release("adsgram_watch");
 
-          var reportedDuration = isGigapub ? Math.max(elapsed, 9500) : elapsed;
+          var reportedDuration = Math.max(elapsed, 9500);
 
           // Strict minimum 9-second watch duration requirement for Adsgram
-          if (!isGigapub && elapsed < minWatchMs) {
+          if (elapsed < minWatchMs) {
             sheetStartAdBtn.disabled = false;
             sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
             showToast("⚠️ Ad was watched under 9 seconds! Watch at least 9 seconds to receive reward.");
