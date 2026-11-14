@@ -607,7 +607,7 @@ module.exports = async (req, res) => {
           username: u.username ? ("@" + u.username) : "N/A",
           photoUrl: u.photoUrl || "",
           balance: Number(u.balance || 0),
-          minerLevel: u.minerLevel || 1,
+          minerLevel: u.minerLevel || u.level || 1,
           recruitsCount: Number(u.recruitsCount || 0),
           refEarnings: Number(u.refEarnings || 0),
           totalAdsWatched: Number(u.totalAdsWatched || 0),
@@ -693,7 +693,7 @@ module.exports = async (req, res) => {
           username: u.username ? ("@" + u.username) : "N/A",
           photoUrl: u.photoUrl || "",
           balance: Number(u.balance || 0),
-          minerLevel: u.minerLevel || 1,
+          minerLevel: u.minerLevel || u.level || 1,
           totalAdsWatched: Number(u.totalAdsWatched || 0),
           isBanned: !!u.isBanned,
           isIdentityVerified: !!u.isIdentityVerified,
@@ -741,7 +741,7 @@ module.exports = async (req, res) => {
           username: u.username ? ("@" + u.username) : "N/A",
           photoUrl: u.photoUrl || "",
           balance: Number(u.balance || 0),
-          minerLevel: u.minerLevel || 1,
+          minerLevel: u.minerLevel || u.level || 1,
           recruitsCount: Number(u.recruitsCount || 0),
           refEarnings: Number(u.refEarnings || 0),
           totalAdsWatched: Number(u.totalAdsWatched || 0),
@@ -1694,7 +1694,79 @@ module.exports = async (req, res) => {
         return;
       }
 
-      // 5b. 1-Time Wallet Unlock (Allows specific user to change withdrawal address once, then auto-locks)
+      // 5b. Update Miner Level (Increase / Decrease / Set Level 1 to 10)
+      if (action === "update_miner_level" || action === "set_miner_level") {
+        const { telegramId, level, delta } = req.body || {};
+        if (!telegramId) {
+          res.status(400).json({ error: "telegramId is required" });
+          return;
+        }
+
+        const tid = String(telegramId).trim();
+        const numId = Number(tid);
+
+        const targetUser = await usersCol.findOne({
+          $or: [{ telegramId: tid }, ...(numId ? [{ telegramId: numId }] : [])]
+        });
+
+        if (!targetUser) {
+          res.status(404).json({ error: `User with ID ${tid} not found.` });
+          return;
+        }
+
+        const currentLvl = Math.max(1, Math.min(10, parseInt(targetUser.minerLevel || targetUser.level || 1, 10)));
+        let newLvl = currentLvl;
+
+        if (level !== undefined && level !== null && level !== "") {
+          newLvl = parseInt(level, 10);
+        } else if (delta !== undefined && delta !== null) {
+          newLvl = currentLvl + parseInt(delta, 10);
+        } else {
+          res.status(400).json({ error: "Either level or delta must be provided" });
+          return;
+        }
+
+        if (isNaN(newLvl)) {
+          res.status(400).json({ error: "Invalid level value" });
+          return;
+        }
+
+        // Enforce valid level boundaries: 1 to 10
+        newLvl = Math.max(1, Math.min(10, newLvl));
+
+        await usersCol.updateOne(
+          { _id: targetUser._id },
+          { 
+            $set: { 
+              minerLevel: newLvl, 
+              level: newLvl 
+            } 
+          }
+        );
+
+        const LEVEL_NAMES_LIST = [
+          "Starter", "Developed", "Refined", "Vanguard", "Apex",
+          "Celestial", "Quantum", "Mythic", "Sovereign", "Transcendent"
+        ];
+        const lvlName = LEVEL_NAMES_LIST[newLvl - 1] || "Miner";
+
+        // Notify user via Telegram Bot if available
+        if (botToken) {
+          const notifyMsg = `⚙️ <b>Miner Level Adjusted by Admin</b>\n\nYour Miner Level is now: <b>Level ${newLvl} (${lvlName})</b>\nMining rate & rewards have been updated.`;
+          sendTelegramMsg(botToken, tid, notifyMsg);
+        }
+
+        res.status(200).json({
+          ok: true,
+          previousLevel: currentLvl,
+          newLevel: newLvl,
+          levelName: lvlName,
+          message: `Miner Level successfully updated to Lv.${newLvl} (${lvlName}) for user ${tid}.`
+        });
+        return;
+      }
+
+      // 5c. 1-Time Wallet Unlock (Allows specific user to change withdrawal address once, then auto-locks)
       if (action === "unlock_user_wallet" || action === "unlock_wallet") {
         const { telegramId } = req.body || {};
         if (!telegramId) {

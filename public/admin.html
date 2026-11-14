@@ -798,6 +798,49 @@
             </div>
           </div>
 
+          <!-- Miner Level Management Panel (Level 1 to 10) -->
+          <div style="background: rgba(245, 158, 11, 0.08); border: 1.5px solid rgba(245, 158, 11, 0.3); padding: 16px; border-radius: 14px; margin-top: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 13.5px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
+                <span>⛏️ Miner Level Management</span>
+              </div>
+              <div id="fundsLvlBadgeBox">
+                <span class="status-tag" id="fundsLvlBadge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700;">Lv.1 Starter</span>
+              </div>
+            </div>
+
+            <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4;">
+              Quickly increase (+), decrease (-), or set this user's Miner Level (1 to 10). Mining reward multiplier updates immediately.
+            </div>
+
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button type="button" class="btn-danger" id="fundsLvlMinusBtn" style="padding: 9px 14px; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer;">
+                ➖ Decrease (-1)
+              </button>
+
+              <select id="fundsLvlSelect" class="form-input" style="flex: 1; min-width: 170px; background: #0f172a; color: #fff; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.4); padding: 8px 10px;">
+                <option value="1">Level 1 - Starter (1x)</option>
+                <option value="2">Level 2 - Developed (1.2x)</option>
+                <option value="3">Level 3 - Refined (1.5x)</option>
+                <option value="4">Level 4 - Vanguard (2x)</option>
+                <option value="5">Level 5 - Apex (2.5x)</option>
+                <option value="6">Level 6 - Celestial (3x)</option>
+                <option value="7">Level 7 - Quantum (4x)</option>
+                <option value="8">Level 8 - Mythic (5x)</option>
+                <option value="9">Level 9 - Sovereign (7x)</option>
+                <option value="10">Level 10 - Transcendent (10x)</option>
+              </select>
+
+              <button type="button" class="btn-success" id="fundsLvlPlusBtn" style="padding: 9px 14px; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer;">
+                ➕ Increase (+1)
+              </button>
+
+              <button type="button" class="btn-primary" id="fundsLvlSetBtn" style="background: linear-gradient(135deg, #f59e0b, #d97706); padding: 9px 16px; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer;">
+                ⚡ Set Level
+              </button>
+            </div>
+          </div>
+
           <!-- TON Wallet Address & 1-Time Unlock Panel -->
           <div style="background: rgba(14, 165, 233, 0.08); border: 1.5px solid rgba(14, 165, 233, 0.3); padding: 16px; border-radius: 14px; margin-top: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -2376,7 +2419,15 @@
     document.getElementById("fundsNameTxt").textContent = u.name + (u.username !== "N/A" ? " (" + u.username + ")" : "");
     document.getElementById("fundsUidTxt").textContent = "UID: " + u.telegramId;
     document.getElementById("fundsBalTxt").textContent = Number(u.balance).toLocaleString() + " Coins";
-    document.getElementById("fundsLvlTxt").textContent = "Lv." + u.minerLevel;
+    var currentLvl = u.minerLevel || 1;
+    document.getElementById("fundsLvlTxt").textContent = "Lv." + currentLvl;
+    var lvlSelect = document.getElementById("fundsLvlSelect");
+    if (lvlSelect) lvlSelect.value = String(currentLvl);
+    var lvlBadge = document.getElementById("fundsLvlBadge");
+    if (lvlBadge) {
+      var levelNames = ["Starter", "Developed", "Refined", "Vanguard", "Apex", "Celestial", "Quantum", "Mythic", "Sovereign", "Transcendent"];
+      lvlBadge.textContent = "Lv." + currentLvl + " " + (levelNames[currentLvl - 1] || "");
+    }
     document.getElementById("fundsRecruitsTxt").textContent = u.recruitsCount;
 
     var avatarBox = document.getElementById("fundsAvatarTxt");
@@ -2500,6 +2551,163 @@
       }
     } catch(e){ alert(e.message); }
   }
+
+  // Miner Level Adjustment Handlers (Level 1 to 10)
+  var fundsLvlMinusBtn = document.getElementById("fundsLvlMinusBtn");
+  if (fundsLvlMinusBtn) {
+    fundsLvlMinusBtn.addEventListener("click", function(){ adjustMinerLevel(-1, true); });
+  }
+
+  var fundsLvlPlusBtn = document.getElementById("fundsLvlPlusBtn");
+  if (fundsLvlPlusBtn) {
+    fundsLvlPlusBtn.addEventListener("click", function(){ adjustMinerLevel(1, true); });
+  }
+
+  var fundsLvlSetBtn = document.getElementById("fundsLvlSetBtn");
+  if (fundsLvlSetBtn) {
+    fundsLvlSetBtn.addEventListener("click", function(){
+      var sel = document.getElementById("fundsLvlSelect");
+      if (sel) adjustMinerLevel(parseInt(sel.value, 10), false);
+    });
+  }
+
+  var LEVEL_NAMES_GLOBAL = [
+    "Starter", "Developed", "Refined", "Vanguard", "Apex",
+    "Celestial", "Quantum", "Mythic", "Sovereign", "Transcendent"
+  ];
+
+  async function adjustMinerLevel(targetLevelOrDelta, isDelta) {
+    if (!selectedFundsUser) return;
+    var currentLvl = parseInt(selectedFundsUser.minerLevel || 1, 10);
+    var targetLvl;
+    if (isDelta) {
+      targetLvl = currentLvl + targetLevelOrDelta;
+    } else {
+      targetLvl = parseInt(targetLevelOrDelta, 10);
+    }
+
+    if (isNaN(targetLvl)) {
+      alert("Invalid level selected");
+      return;
+    }
+    targetLvl = Math.max(1, Math.min(10, targetLvl));
+
+    if (targetLvl === currentLvl) {
+      alert(`User is already Level ${currentLvl} (${LEVEL_NAMES_GLOBAL[currentLvl - 1] || ""})`);
+      return;
+    }
+
+    var lvlTitle = LEVEL_NAMES_GLOBAL[targetLvl - 1] || "";
+    var actionWord = targetLvl > currentLvl ? "increase" : "decrease";
+
+    if (!confirm(`Are you sure you want to ${actionWord} ${selectedFundsUser.name}'s Miner Level from Lv.${currentLvl} to Lv.${targetLvl} (${lvlTitle})?`)) return;
+
+    try {
+      var res = await apiAdmin("POST", null, {
+        action: "update_miner_level",
+        telegramId: selectedFundsUser.telegramId,
+        level: targetLvl
+      });
+      if (res.ok) {
+        showToast(`⛏️ Miner Level updated to Lv.${res.newLevel} (${lvlTitle})`);
+        selectedFundsUser.minerLevel = res.newLevel;
+        document.getElementById("fundsLvlTxt").textContent = "Lv." + res.newLevel;
+        var lvlSelect = document.getElementById("fundsLvlSelect");
+        if (lvlSelect) lvlSelect.value = String(res.newLevel);
+        var lvlBadge = document.getElementById("fundsLvlBadge");
+        if (lvlBadge) lvlBadge.textContent = "Lv." + res.newLevel + " " + lvlTitle;
+
+        // Also sync any card in User Search tab if rendered
+        var cardLvlTxt = document.getElementById("userCardLvlTxt_" + selectedFundsUser.telegramId);
+        if (cardLvlTxt) cardLvlTxt.textContent = "Lv." + res.newLevel;
+      } else {
+        alert(res.error || "Failed to update miner level");
+      }
+    } catch(e) { alert(e.message); }
+  }
+
+  // Quick Level Change Handlers for User Search List cards
+  window.quickChangeUserLevel = async function(telegramId, delta, userName, currentLvl) {
+    var txtEl = document.getElementById("userCardLvlTxt_" + telegramId);
+    if (txtEl) {
+      var match = txtEl.textContent.match(/\d+/);
+      if (match) currentLvl = parseInt(match[0], 10);
+    }
+    currentLvl = currentLvl || 1;
+    var targetLvl = Math.max(1, Math.min(10, currentLvl + delta));
+    if (targetLvl === currentLvl) {
+      alert(`User is already at the ${delta > 0 ? "maximum (Lv.10)" : "minimum (Lv.1)"} level.`);
+      return;
+    }
+
+    var lvlTitle = LEVEL_NAMES_GLOBAL[targetLvl - 1] || "";
+    var actionWord = delta > 0 ? "increase" : "decrease";
+
+    if (!confirm(`Are you sure you want to ${actionWord} ${userName || telegramId}'s Miner Level to Lv.${targetLvl} (${lvlTitle})?`)) return;
+
+    try {
+      var res = await apiAdmin("POST", null, {
+        action: "update_miner_level",
+        telegramId: telegramId,
+        level: targetLvl
+      });
+      if (res.ok) {
+        showToast(`⛏️ Miner Level updated to Lv.${res.newLevel} (${lvlTitle})`);
+        if (txtEl) txtEl.textContent = "Lv." + res.newLevel;
+        if (selectedFundsUser && String(selectedFundsUser.telegramId) === String(telegramId)) {
+          selectedFundsUser.minerLevel = res.newLevel;
+          document.getElementById("fundsLvlTxt").textContent = "Lv." + res.newLevel;
+          var lvlSelect = document.getElementById("fundsLvlSelect");
+          if (lvlSelect) lvlSelect.value = String(res.newLevel);
+          var lvlBadge = document.getElementById("fundsLvlBadge");
+          if (lvlBadge) lvlBadge.textContent = "Lv." + res.newLevel + " " + lvlTitle;
+        }
+      } else {
+        alert(res.error || "Failed to update miner level");
+      }
+    } catch(e) { alert(e.message); }
+  };
+
+  window.promptSetUserLevel = async function(telegramId, currentLvl, userName) {
+    var txtEl = document.getElementById("userCardLvlTxt_" + telegramId);
+    if (txtEl) {
+      var match = txtEl.textContent.match(/\d+/);
+      if (match) currentLvl = parseInt(match[0], 10);
+    }
+    currentLvl = currentLvl || 1;
+    var input = prompt(`Enter new Miner Level (1 to 10) for ${userName || telegramId}:\n(Current: Level ${currentLvl})`, currentLvl);
+    if (input === null) return;
+    var targetLvl = parseInt(input.trim(), 10);
+    if (isNaN(targetLvl) || targetLvl < 1 || targetLvl > 10) {
+      alert("Invalid level! Must be a number between 1 and 10.");
+      return;
+    }
+    if (targetLvl === currentLvl) return;
+
+    var lvlTitle = LEVEL_NAMES_GLOBAL[targetLvl - 1] || "";
+
+    try {
+      var res = await apiAdmin("POST", null, {
+        action: "update_miner_level",
+        telegramId: telegramId,
+        level: targetLvl
+      });
+      if (res.ok) {
+        showToast(`⛏️ Miner Level updated to Lv.${res.newLevel} (${lvlTitle})`);
+        if (txtEl) txtEl.textContent = "Lv." + res.newLevel;
+        if (selectedFundsUser && String(selectedFundsUser.telegramId) === String(telegramId)) {
+          selectedFundsUser.minerLevel = res.newLevel;
+          document.getElementById("fundsLvlTxt").textContent = "Lv." + res.newLevel;
+          var lvlSelect = document.getElementById("fundsLvlSelect");
+          if (lvlSelect) lvlSelect.value = String(res.newLevel);
+          var lvlBadge = document.getElementById("fundsLvlBadge");
+          if (lvlBadge) lvlBadge.textContent = "Lv." + res.newLevel + " " + lvlTitle;
+        }
+      } else {
+        alert(res.error || "Failed to update miner level");
+      }
+    } catch(e) { alert(e.message); }
+  };
 
   // 5. Users Search & Anti-Cheat Ban/Unban & High Fraud Risk (80%-100%) Management
   var usersSearchBtn = document.getElementById("usersSearchBtn");
@@ -2637,9 +2845,16 @@
             <div class="s-lbl">Balance</div>
             <div class="s-val accent" style="color: ${u.balance < 0 ? '#ef4444' : 'inherit'};">${Number(u.balance).toLocaleString()} Coins</div>
           </div>
-          <div class="u-stat-box">
-            <div class="s-lbl">Miner Level</div>
-            <div class="s-val">Lv.${u.minerLevel}</div>
+          <div class="u-stat-box" style="border: 1.5px solid rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.05);">
+            <div class="s-lbl" style="color: #f59e0b; font-weight: 700;">⛏️ Miner Level</div>
+            <div class="s-val" id="userCardLvlVal_${u.telegramId}" style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+              <span id="userCardLvlTxt_${u.telegramId}" style="color: #f59e0b; font-weight: 800;">Lv.${u.minerLevel || 1}</span>
+              <div style="display: inline-flex; gap: 3px;">
+                <button type="button" class="btn-copy-tag" onclick="quickChangeUserLevel('${u.telegramId}', -1, '${escapeHtml(u.name || '')}', ${u.minerLevel || 1})" title="Decrease Level (-1)" style="padding: 2px 6px; font-size: 11px; font-weight: 800; background: rgba(239, 68, 68, 0.25); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); cursor: pointer; border-radius: 4px;">-1</button>
+                <button type="button" class="btn-copy-tag" onclick="quickChangeUserLevel('${u.telegramId}', 1, '${escapeHtml(u.name || '')}', ${u.minerLevel || 1})" title="Increase Level (+1)" style="padding: 2px 6px; font-size: 11px; font-weight: 800; background: rgba(34, 197, 94, 0.25); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.5); cursor: pointer; border-radius: 4px;">+1</button>
+                <button type="button" class="btn-copy-tag" onclick="promptSetUserLevel('${u.telegramId}', ${u.minerLevel || 1}, '${escapeHtml(u.name || '')}')" title="Set Level (1-10)" style="padding: 2px 6px; font-size: 11px; font-weight: 800; background: rgba(245, 158, 11, 0.25); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.5); cursor: pointer; border-radius: 4px;">✏️</button>
+              </div>
+            </div>
           </div>
           <div class="u-stat-box" style="border: 1px solid rgba(16, 185, 129, 0.35);">
             <div class="s-lbl" style="color: #10b981;">⛏️ Mines Completed</div>
