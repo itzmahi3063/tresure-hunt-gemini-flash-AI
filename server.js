@@ -16,6 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const zlib = require("zlib");
 const express = require("express");
 
 // Set environment flag so handlers know they are running natively on VPS
@@ -194,8 +195,65 @@ app.all("/api/:endpoint", async (req, res) => {
   }
 });
 
-// 8. Serve Static Game Frontend & Assets
+// 8. Serve Static Game Frontend & Assets with High-Speed In-Memory Gzip
 const publicDir = path.join(__dirname, "public");
+
+let cachedIndexHtml = null;
+let cachedIndexGzip = null;
+let cachedAdminHtml = null;
+let cachedAdminGzip = null;
+
+function reloadRamHtmlCache() {
+  try {
+    const indexPath = path.join(publicDir, "index.html");
+    if (fs.existsSync(indexPath)) {
+      cachedIndexHtml = fs.readFileSync(indexPath);
+      cachedIndexGzip = zlib.gzipSync(cachedIndexHtml, { level: 9 });
+      console.log(`[RAM Cache] Preloaded index.html into RAM (Raw: ${cachedIndexHtml.length}B, Gzip: ${cachedIndexGzip.length}B)`);
+    }
+    const adminPath = path.join(publicDir, "admin.html");
+    if (fs.existsSync(adminPath)) {
+      cachedAdminHtml = fs.readFileSync(adminPath);
+      cachedAdminGzip = zlib.gzipSync(cachedAdminHtml, { level: 9 });
+      console.log(`[RAM Cache] Preloaded admin.html into RAM (Raw: ${cachedAdminHtml.length}B, Gzip: ${cachedAdminGzip.length}B)`);
+    }
+  } catch (err) {
+    console.error("[RAM Cache] Error preloading HTML into memory:", err);
+  }
+}
+reloadRamHtmlCache();
+
+function sendFastHtml(req, res, isIndex = true) {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+
+  const acceptEncoding = req.headers["accept-encoding"] || "";
+  const gzipBuf = isIndex ? cachedIndexGzip : cachedAdminGzip;
+  const rawBuf = isIndex ? cachedIndexHtml : cachedAdminHtml;
+
+  if (gzipBuf && acceptEncoding.includes("gzip")) {
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Content-Length", gzipBuf.length);
+    res.setHeader("Vary", "Accept-Encoding");
+    return res.end(gzipBuf);
+  }
+
+  if (rawBuf) {
+    res.setHeader("Content-Length", rawBuf.length);
+    return res.end(rawBuf);
+  }
+
+  res.sendFile(path.join(publicDir, isIndex ? "index.html" : "admin.html"));
+}
+
+app.get("/", (req, res) => sendFastHtml(req, res, true));
+app.get("/index.html", (req, res) => sendFastHtml(req, res, true));
+app.get("/admin", (req, res) => sendFastHtml(req, res, false));
+app.get("/admin.html", (req, res) => sendFastHtml(req, res, false));
+
 app.use(express.static(publicDir, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
@@ -209,22 +267,10 @@ app.use(express.static(publicDir, {
   }
 }));
 
-app.get("/admin", (req, res) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
-  res.sendFile(path.join(publicDir, "admin.html"));
-});
-
 // Fallback route for SPA (Express v4 & v5 compatible)
 app.use((req, res) => {
   if (req.method === "GET") {
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    res.setHeader("Surrogate-Control", "no-store");
-    res.sendFile(path.join(publicDir, "index.html"));
+    sendFastHtml(req, res, true);
   } else {
     res.status(404).json({ error: "Not Found" });
   }

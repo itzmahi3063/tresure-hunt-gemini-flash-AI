@@ -526,7 +526,7 @@ module.exports = withVpsFallback(async (req, res) => {
     const appSettings = await getCachedAppSettings(db);
 
     res.status(200).json({
-      appBuild: "20261114_1850",
+      appBuild: "20261114_2145",
       telegramId: user.telegramId,
       firstName: user.firstName || tgUser.first_name || "Miner",
       username: user.username || tgUser.username || "",
