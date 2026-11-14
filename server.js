@@ -49,8 +49,9 @@ app.set("trust proxy", true);
 // 2. High-Security HTTP & Cross-Origin (CORS) Middleware
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  // Allow Telegram Mini App inside Telegram iframes (Web/Desktop/Mobile)
-  res.setHeader("Content-Security-Policy", "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org https://*.t.me telegram:;");
+  // Allow Telegram Mini App inside all Telegram environments (Web, Desktop, Android, iOS)
+  res.removeHeader("X-Frame-Options");
+  res.setHeader("Content-Security-Policy", "frame-ancestors *;");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Server-Engine", "TREASURE-VPS-Core");
@@ -195,15 +196,27 @@ app.all("/api/:endpoint", async (req, res) => {
 
 // 8. Serve Static Game Frontend & Assets
 const publicDir = path.join(__dirname, "public");
-app.use(express.static(publicDir, { maxAge: "7d" }));
+app.use(express.static(publicDir, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    } else {
+      res.setHeader("Cache-Control", "public, max-age=86400");
+    }
+  }
+}));
 
 app.get("/admin", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.sendFile(path.join(publicDir, "admin.html"));
 });
 
 // Fallback route for SPA (Express v4 & v5 compatible)
 app.use((req, res) => {
   if (req.method === "GET") {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(publicDir, "index.html"));
   } else {
     res.status(404).json({ error: "Not Found" });

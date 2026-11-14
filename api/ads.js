@@ -53,7 +53,7 @@ module.exports = withVpsFallback(async (req, res) => {
 
   // ========================================================
   // 0. ADSGRAM SERVER-TO-SERVER (S2S) REWARD CALLBACK (HOSTED ON VERCEL)
-  // Blocks: 49079 (Reward Ad), task-53937 (Task Ad)
+  // Blocks: 59700 (Reward Ad), int-59701 (Interstitial), task-59702 (Task Ad)
   // Handles incoming GET requests from Adsgram servers containing [userId]
   // Format: /api/adsgram-reward?userid=[userId]&secret=YOUR_ADSGRAM_S2S_SECRET
   // Or:     /api/ads?action=adsgram_reward&userid=[userId]&secret=YOUR_ADSGRAM_S2S_SECRET
@@ -110,7 +110,7 @@ module.exports = withVpsFallback(async (req, res) => {
         ok: true,
         status: "active",
         message: "Adsgram S2S reward endpoint is operational and ready for live callbacks",
-        blockId: req.query.block || req.query.blockId || "49079",
+        blockId: req.query.block || req.query.blockId || "59700",
         timestamp: Date.now()
       });
       return;
@@ -156,9 +156,9 @@ module.exports = withVpsFallback(async (req, res) => {
       // Confirmed for BOTH Rewarded Video Ad (49079) and Task Ad (task-53937)!
       const updateSet = {
         lastAdsgramS2sRewardAt: now,
-        lastAdsgramS2sBlockId: blockId || "49079",
+        lastAdsgramS2sBlockId: blockId || "59700",
         lastAdsgramS2sTaskRewardAt: now,
-        lastAdsgramS2sTaskBlockId: blockId || "task-53937",
+        lastAdsgramS2sTaskBlockId: blockId || "task-59702",
         lastActiveAt: new Date()
       };
 
@@ -183,7 +183,7 @@ module.exports = withVpsFallback(async (req, res) => {
         ok: true,
         status: "confirmed",
         userId: targetUid,
-        blockId: blockId || "49079",
+        blockId: blockId || "59700",
         timestamp: now,
         message: `Adsgram S2S ad view confirmed and recorded for user ${targetUid}`
       });
