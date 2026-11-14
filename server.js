@@ -49,7 +49,8 @@ app.set("trust proxy", true);
 // 2. High-Security HTTP & Cross-Origin (CORS) Middleware
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  // Allow Telegram Mini App inside Telegram iframes (Web/Desktop/Mobile)
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org https://*.t.me telegram:;");
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Server-Engine", "TREASURE-VPS-Core");
