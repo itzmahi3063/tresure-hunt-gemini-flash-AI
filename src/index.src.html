@@ -13976,10 +13976,12 @@
     if (!myId) {
       try { myId = localStorage.getItem("hoocooh_registered_uid") || ""; } catch(e){}
     }
+    var bName = (user && user.botUsername) || "treasure_hunt12_bot";
+    bName = bName.replace(/^@/, "");
     if (!myId || myId === "0") {
-      return "https://t.me/treasure_hunt12_bot/Play";
+      return "https://t.me/" + bName + "/Play";
     }
-    return "https://t.me/treasure_hunt12_bot/Play?startapp=ref_" + myId;
+    return "https://t.me/" + bName + "/Play?startapp=ref_" + myId;
   }
 
   function copyReferralLink() {
