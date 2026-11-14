@@ -1237,7 +1237,7 @@ const handler = withVpsFallback(async (req, res) => {
         await answerCallbackQuery(botToken, cb.id, langDict.toastChanged);
 
         // Send updated welcome message in newly selected language
-        const appUrl = `${baseUrl}/index.html?lang=${finalLang}`;
+        const appUrl = `${baseUrl}/index.html?v=${Date.now()}&lang=${finalLang}`;
         const photoUrl = `${baseUrl}/assets/botfather_banner.jpg?v=2`;
 
         await sendTelegramMsg(botToken, cbChatId, langDict.text, {
@@ -1720,7 +1720,7 @@ const handler = withVpsFallback(async (req, res) => {
         }
       } catch(e){}
 
-      let appUrl = `${baseUrl}/index.html?lang=${userLang}`;
+      let appUrl = `${baseUrl}/index.html?v=${Date.now()}&lang=${userLang}`;
       if (!hasSelected) {
         appUrl += `&needLang=1`;
       }

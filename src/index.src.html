@@ -8560,6 +8560,8 @@
 (function(){
   "use strict";
 
+  var APP_BUILD = "20261114_1850";
+
   // Smart Dual-Engine Traffic Router:
   // Primary: Dedicated VPS (0% Vercel quota usage, ultra-fast performance)
   // Backup: Vercel Serverless (instant fallback if VPS is unreachable)
@@ -15330,6 +15332,19 @@
 
   // Fetch real server state
   apiGet().then(function(res){
+    // Mobile WebView Auto-Update Detector:
+    // If the mobile phone cached an older HTML bundle, reload immediately with fresh cachebuster!
+    if (res && res.data && res.data.appBuild && res.data.appBuild !== APP_BUILD) {
+      console.log("[Mobile Cache Buster] Updating to latest app build:", res.data.appBuild);
+      var freshUrl = window.location.pathname + "?v=" + encodeURIComponent(res.data.appBuild);
+      if (window.location.search) {
+        var cleanParams = window.location.search.replace(/^\?/, "").replace(/(^|&)v=[^&]*/g, "");
+        if (cleanParams) freshUrl += "&" + cleanParams;
+      }
+      window.location.replace(freshUrl);
+      return;
+    }
+
     if (res.data && res.data.isBanned) {
       if (res.data.isMultipleAccountBlocked) {
         var mOverlay = document.getElementById("multiAccountOverlay");

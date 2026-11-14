@@ -199,9 +199,10 @@ const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
+      res.setHeader("Surrogate-Control", "no-store");
     } else {
       res.setHeader("Cache-Control", "public, max-age=86400");
     }
@@ -209,14 +210,20 @@ app.use(express.static(publicDir, {
 }));
 
 app.get("/admin", (req, res) => {
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
   res.sendFile(path.join(publicDir, "admin.html"));
 });
 
 // Fallback route for SPA (Express v4 & v5 compatible)
 app.use((req, res) => {
   if (req.method === "GET") {
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
     res.sendFile(path.join(publicDir, "index.html"));
   } else {
     res.status(404).json({ error: "Not Found" });
