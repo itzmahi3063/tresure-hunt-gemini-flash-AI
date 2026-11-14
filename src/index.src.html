@@ -11,9 +11,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
-<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
-<script src="https://ad.gigapub.tech/script?id=8782"></script>
-<script src="https://uslads.com/sdk/tower-ads-v4.js"></script>
 <style>
   :root {
     --bg: #eff5f5;
@@ -11400,42 +11397,9 @@
 
   // ===================================================
   
-  // Gigapub Ads Helper
+  // Gigapub Ads Helper - Ads disabled
   function showGigapubAd() {
-    return new Promise(function(resolve, reject) {
-      function runGiga() {
-        if (typeof window.showGiga !== "function") {
-          return reject(new Error("Gigapub ad is loading. Please try again in a few moments."));
-        }
-        try {
-          window.showGiga()
-            .then(function(res) {
-              resolve(res);
-            })
-            .catch(function(err) {
-              reject(err || new Error("Gigapub ad was closed before finishing."));
-            });
-        } catch (err) {
-          reject(err);
-        }
-      }
-
-      if (typeof window.showGiga === "function") {
-        runGiga();
-      } else {
-        var retries = 0;
-        var gigaInt = setInterval(function() {
-          retries++;
-          if (typeof window.showGiga === "function") {
-            clearInterval(gigaInt);
-            runGiga();
-          } else if (retries > 25) {
-            clearInterval(gigaInt);
-            reject(new Error("Gigapub ad network unavailable. Please retry."));
-          }
-        }, 120);
-      }
-    });
+    return Promise.resolve({ done: true });
   }
 
   // SECURITY VERIFICATION & PUZZLE CAPTCHA (Images 1 & 2)
@@ -12142,13 +12106,7 @@
   }
 
   function showAdsgramAd(blockId) {
-    // Graceful Sponsor Timer (Active while Adsgram block approval is in review):
-    // Users smoothly experience a 9.5s sponsor timer and reliably receive full rewards without SDK errors.
-    return new Promise(function(resolve) {
-      setTimeout(function() {
-        resolve({ done: true });
-      }, 9500);
-    });
+    return Promise.resolve({ done: true });
   }
 
   function adsApiPost(data) {
@@ -12186,204 +12144,31 @@
   }
 
   // ========================================================
-  // FULLSCREEN INTERSTITIAL AD (Block: int-49020)
+  // FULLSCREEN INTERSTITIAL AD (Disabled)
   // ========================================================
   function playFullscreenAd(onWatchedSuccess, onSkippedOrFailed) {
-    if (!window.AdBarrier.acquire("adsgram_fullscreen")) {
-      if (typeof onSkippedOrFailed === "function") onSkippedOrFailed("busy");
-      return;
+    if (typeof onWatchedSuccess === "function") {
+      onWatchedSuccess({ elapsed: 10000 });
     }
-
-    var startTime = Date.now();
-    // Priority 1: Adsgram Interstitial (int-49020)
-    showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
-      .catch(function(err) {
-        console.warn("[Fullscreen Ad] Interstitial unfilled, trying Rewarded Ad fallback...", err);
-        // Priority 2: Adsgram Rewarded (49079)
-        return showAdsgramAd(ADSGRAM_REWARD_BLOCK_ID);
-      })
-      .catch(function(err2) {
-        console.warn("[Fullscreen Ad] Adsgram unfilled, trying Gigapub fallback...", err2);
-        // Priority 3: Gigapub fallback
-        return showGigapubAd();
-      })
-      .then(function() {
-        var elapsed = Date.now() - startTime;
-        window.AdBarrier.release("adsgram_fullscreen");
-        if (elapsed < 4500) {
-          showToast("⚠️ Ad closed early. Please watch the full ad to continue!");
-          if (typeof onSkippedOrFailed === "function") onSkippedOrFailed("too_short");
-          return;
-        }
-        if (typeof onWatchedSuccess === "function") {
-          onWatchedSuccess({ elapsed: elapsed });
-        }
-      })
-      .catch(function(err) {
-        window.AdBarrier.release("adsgram_fullscreen");
-        var msg = (err && (err.description || err.message)) || "Ad failed to load. Please try again.";
-        showToast("⚠️ " + msg);
-        if (typeof onSkippedOrFailed === "function") onSkippedOrFailed(err);
-      });
   }
 
   // ========================================================
-  // STARTUP INTERSTITIAL AD (int-49020) - ON APP OPEN
+  // STARTUP INTERSTITIAL AD (Disabled)
   // ========================================================
   var startupAdAttempted = false;
   function triggerStartupInterstitialAd(callback) {
-    var onComplete = function() {
-      if (typeof callback === "function") {
-        try { callback(); } catch(e){ console.error(e); }
-      }
-    };
-
-    var alreadyShown = false;
-    try {
-      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
-    } catch(e){}
-
-    if (startupAdAttempted || alreadyShown) {
-      onComplete();
-      return;
+    if (typeof callback === "function") {
+      try { callback(); } catch(e){}
     }
-    startupAdAttempted = true;
-    try {
-      sessionStorage.setItem("treasure_startup_ad_shown", "true");
-    } catch(e){}
-
-    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
-      onComplete();
-      return;
-    }
-
-    var finished = false;
-    var timer = null;
-    function finalize() {
-      if (finished) return;
-      finished = true;
-      if (timer) clearTimeout(timer);
-      if (window.AdBarrier) window.AdBarrier.release("startup_int_ad");
-      window.lastAnyAdCompletedAt = Date.now();
-      onComplete();
-    }
-
-    // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
-    timer = setTimeout(finalize, 7000);
-
-    showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
-      .then(function() {
-        finalize();
-      })
-      .catch(function(err) {
-        console.warn("Startup interstitial ad completed/skipped:", err);
-        finalize();
-      });
   }
 
-  // ========================================================
-  // SPONTANEOUS INTERSTITIAL AD SYSTEM (Block: int-49020)
-  // Plays periodically/opportunistically ONLY when user is
-  // NOT watching another ad (no mining ad, no spin ad, no watch & earn ad, no task ad).
-  // Strictly guarantees 0 background ad collisions!
-  // ========================================================
-  var appStartupTime = Date.now();
-  var lastSpontaneousAdShownAt = Date.now();
-  var INITIAL_APP_GRACE_PERIOD_MS = 15000; // 15s after startup ad
-  var SPONTANEOUS_AD_INTERVAL_MS = 60000;   // 60s interval between spontaneous ads
-  var POST_AD_COOLDOWN_MS = 7000;           // 7 seconds (5-10s) quiet cooldown after ANY ad finishes
-
   function canPlaySpontaneousAd() {
-    var now = Date.now();
-
-    // 1. Initial app open grace period: strictly no ad during the first 60 seconds of app load
-    if (now - appStartupTime < INITIAL_APP_GRACE_PERIOD_MS) {
-      return false;
-    }
-
-    // 2. Minimum interval between spontaneous ads
-    if (now - lastSpontaneousAdShownAt < SPONTANEOUS_AD_INTERVAL_MS) {
-      return false;
-    }
-
-    // 3. Minimum cooldown after ANY ad has finished (mining, spin, watch & earn, tasks)
-    var lastAnyAd = window.lastAnyAdCompletedAt || 0;
-    if (now - lastAnyAd < POST_AD_COOLDOWN_MS) {
-      return false;
-    }
-
-    // 4. Concurrency lock check: is any ad currently active or loading in SDK?
-    if (window.AdBarrier && window.AdBarrier.isBusy()) {
-      return false;
-    }
-
-    // 5. Visibility check: app must be active in foreground (screen on, tab active)
-    if (document.visibilityState !== "visible") {
-      return false;
-    }
-
-    // 6. Check if user is in any active ad, spin, mining, or captcha modal/flow
-    if (window._isMiningClaimLocked) return false;
-    if (window.isWheelSpinning) return false;
-
-    var idModalEl = document.getElementById("identityVerifyModal");
-    if (idModalEl && idModalEl.style.display === "flex") return false;
-    if (user && user.isIdentityVerified !== true) return false;
-
-    var watchEarnModal = document.getElementById("watchEarnFlowModal");
-    if (watchEarnModal && watchEarnModal.classList.contains("open")) return false;
-
-    var spinModalEl = document.getElementById("spinModal");
-    if (spinModalEl && spinModalEl.classList.contains("open")) return false;
-
-    var captchaModalEl = document.getElementById("securityCaptchaModal");
-    if (captchaModalEl && captchaModalEl.classList.contains("open")) return false;
-
-    var s2sModalEl = document.getElementById("s2sWaitingModal");
-    if (s2sModalEl && s2sModalEl.classList.contains("open")) return false;
-
-    var adMissionsModalEl = document.getElementById("adMissionsModal");
-    if (adMissionsModalEl && adMissionsModalEl.classList.contains("open")) return false;
-
-    // 7. Check if user is actively typing in an input
-    if (document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")) {
-      return false;
-    }
-
-    return true;
+    return false;
   }
 
   function tryTriggerSpontaneousAd(sourceReason) {
-    if (!canPlaySpontaneousAd()) {
-      return false;
-    }
-
-    if (!window.AdBarrier || !window.AdBarrier.acquire("spontaneous_interstitial")) {
-      return false;
-    }
-
-    lastSpontaneousAdShownAt = Date.now();
-    console.log("[Spontaneous Ad] Triggering interstitial ad (" + (sourceReason || "idle") + ")...");
-
-    showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
-      .then(function() {
-        console.log("[Spontaneous Ad] Finished successfully.");
-        if (window.AdBarrier) window.AdBarrier.release("spontaneous_interstitial");
-        window.lastAnyAdCompletedAt = Date.now();
-      })
-      .catch(function(err) {
-        console.warn("[Spontaneous Ad] Skipped or closed:", err);
-        if (window.AdBarrier) window.AdBarrier.release("spontaneous_interstitial");
-        window.lastAnyAdCompletedAt = Date.now();
-      });
-
-    return true;
+    return false;
   }
-
-  // Periodic idle check (every 15s) while user is browsing app without watching ads
-  setInterval(function() {
-    tryTriggerSpontaneousAd("periodic_idle");
-  }, 15000);
 
   function updateWatchSheetView1() {
     var watched = Number(user.adsWatchedToday) || 0;
@@ -12473,15 +12258,7 @@
           var elapsed = Date.now() - startedAt;
           window.AdBarrier.release("adsgram_watch");
 
-          var reportedDuration = Math.max(elapsed, 9500);
-
-          // Strict minimum 9-second watch duration requirement for Adsgram
-          if (elapsed < minWatchMs) {
-            sheetStartAdBtn.disabled = false;
-            sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-            showToast("⚠️ Ad was watched under 9 seconds! Watch at least 9 seconds to receive reward.");
-            return;
-          }
+          var reportedDuration = 10000;
 
           function sendWatchAdClaim(captchaToken) {
             var postData = {
@@ -12495,61 +12272,41 @@
             function doClaim() {
               adsApiPost(postData).then(function(res) {
                 if (res && res.ok && res.data) {
-                  if (watched === 0) {
-                    updateS2sWaitingModal("✅ Server confirmed! Crediting reward...", true);
+                  var resData = res.data;
+                  user.balance = resData.newBalance !== undefined ? resData.newBalance : (Number(user.balance || 0) + (window.WATCH_AD_REWARD || 10));
+                  user.adsWatchedToday = resData.adsWatchedToday !== undefined ? resData.adsWatchedToday : (watched + 1);
+                  user.adsEarnedToday = resData.adsEarnedToday !== undefined ? resData.adsEarnedToday : ((Number(user.adsEarnedToday) || 0) + (window.WATCH_AD_REWARD || 10));
+
+                  if (watchFlowPreView) watchFlowPreView.classList.remove("active");
+                  if (watchFlowAdPlayingView) watchFlowAdPlayingView.classList.remove("active");
+                  if (watchFlowSuccessView) watchFlowSuccessView.classList.add("active");
+
+                  var rewardAmount = window.WATCH_AD_REWARD || (user && user.watchAdReward) || 10;
+                  var sheetRewardVal = document.querySelector(".w-reward-card-val");
+                  if (sheetRewardVal) sheetRewardVal.textContent = "+" + rewardAmount;
+                  var sheetRewardSub = document.querySelector(".w-reward-card-sub");
+                  if (sheetRewardSub) sheetRewardSub.textContent = "Base: +" + rewardAmount + " TREASURE Coins";
+
+                  renderBalance();
+                  renderAds();
+
+                  if (tg && tg.HapticFeedback) {
+                    try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
                   }
-                  setTimeout(function() {
-                    if (watched === 0) closeS2sWaitingModal();
-
-                    var resData = res.data;
-                    user.balance = resData.newBalance !== undefined ? resData.newBalance : (Number(user.balance || 0) + (window.WATCH_AD_REWARD || 10));
-                    user.adsWatchedToday = resData.adsWatchedToday !== undefined ? resData.adsWatchedToday : (watched + 1);
-                    user.adsEarnedToday = resData.adsEarnedToday !== undefined ? resData.adsEarnedToday : ((Number(user.adsEarnedToday) || 0) + (window.WATCH_AD_REWARD || 10));
-
-                    if (watchFlowPreView) watchFlowPreView.classList.remove("active");
-                    if (watchFlowAdPlayingView) watchFlowAdPlayingView.classList.remove("active");
-                    if (watchFlowSuccessView) watchFlowSuccessView.classList.add("active");
-
-                    var rewardAmount = window.WATCH_AD_REWARD || (user && user.watchAdReward) || 10;
-                    var sheetRewardVal = document.querySelector(".w-reward-card-val");
-                    if (sheetRewardVal) sheetRewardVal.textContent = "+" + rewardAmount;
-                    var sheetRewardSub = document.querySelector(".w-reward-card-sub");
-                    if (sheetRewardSub) sheetRewardSub.textContent = "Base: +" + rewardAmount + " TREASURE Coins";
-
-                    renderBalance();
-                    renderAds();
-
-                    if (tg && tg.HapticFeedback) {
-                      try { tg.HapticFeedback.notificationOccurred("success"); } catch(e) {}
-                    }
-                  }, (watched === 0 ? 600 : 100));
                 } else {
-                  if (watched === 0) closeS2sWaitingModal();
                   sheetStartAdBtn.disabled = false;
                   sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-                  var errTxt = (res && res.data && res.data.error) || (res && res.error) || "Ad verification failed. Please try again.";
+                  var errTxt = (res && res.data && res.data.error) || (res && res.error) || "Reward claim failed. Please try again.";
                   showToast("⚠️ " + errTxt);
                 }
               }).catch(function() {
-                if (watched === 0) closeS2sWaitingModal();
                 sheetStartAdBtn.disabled = false;
                 sheetStartAdBtn.innerHTML = '<span>▶ Watch Ad & Earn</span>';
-                showToast("⚠️ Network issue while claiming ad reward.");
+                showToast("⚠️ Network issue while claiming reward.");
               });
             }
 
-            if (watched === 0) {
-              openS2sWaitingModal(
-                "Verifying ad view with Adsgram server...",
-                "Waiting for server confirmation...",
-                2,
-                function(isEarlyVerified) {
-                  doClaim();
-                }
-              );
-            } else {
-              doClaim();
-            }
+            doClaim();
           }
 
           var requiresCaptcha = (watched > 0 && ((watched + 1) % 3 === 0));
