@@ -1092,7 +1092,9 @@ const handler = withVpsFallback(async (req, res) => {
       try {
         const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
         const tgData = await tgRes.json();
-        res.status(200).json({ ok: true, info: tgData });
+        const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+        const meData = await meRes.json();
+        res.status(200).json({ ok: true, info: tgData, bot: meData });
         return;
       } catch (err) {
         res.status(500).json({ ok: false, error: err.message });
