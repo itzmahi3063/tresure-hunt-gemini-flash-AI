@@ -119,8 +119,8 @@ app.use((req, res, next) => {
   const secret = (process.env.VPS_BRIDGE_SECRET || "").trim();
   if (!secret) return next();
 
-  // Allow static frontend, assets and health check
-  if (!req.path.startsWith("/api/") || req.path === "/api/health") {
+  // Allow static frontend, assets, health check, and Telegram webhook
+  if (!req.path.startsWith("/api/") || req.path === "/api/health" || req.path === "/api/webhook") {
     return next();
   }
 
