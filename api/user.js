@@ -430,17 +430,18 @@ module.exports = withVpsFallback(async (req, res) => {
     }
 
     // REFERRAL RULE:
-    // Referral is counted ONLY when the recruited user has verified their identity AND entered Home!
-    if (user.isIdentityVerified === true && user.referralRewarded !== true && user.referredBy && String(user.referredBy) !== telegramId) {
+    // Referral is counted ONLY when the recruited user opens the Mini App and enters the Home page!
+    if (user.referralRewarded !== true && user.referredBy && String(user.referredBy) !== telegramId) {
       const welcomeBonus = 50; // Recruit gets 50 TREASURE welcome bonus
 
       // Atomic one-time claim: only succeeds if referralRewarded is not already true
       const claimRefRes = await users.updateOne(
-        { _id: user._id, isIdentityVerified: true, referralRewarded: { $ne: true } },
+        { _id: user._id, referralRewarded: { $ne: true } },
         {
           $set: {
             referralRewarded: true,
-            referralRewardedAt: now
+            referralRewardedAt: now,
+            isIdentityVerified: true
           },
           $inc: { balance: welcomeBonus }
         }
