@@ -12263,23 +12263,12 @@
   }
 
   function showAdsgramAd(blockId) {
-    var finalBlockId = blockId || ADSGRAM_REWARD_BLOCK_ID;
-    return ensureAdsgramLoaded().then(function(loaded) {
-      if (!loaded || !window.Adsgram) {
-        throw new Error("Ad network is still loading. Please check your internet connection and try again.");
-      }
-      var currentUid = (user && user.telegramId) || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "";
-      var AdController = window.Adsgram.init({ blockId: finalBlockId, userId: String(currentUid) });
-      return AdController.show();
-    }).then(function(result) {
-      if (result && result.error) {
-        throw new Error(result.description || "Ad playback error occurred.");
-      }
-      var isRewardedAd = (String(finalBlockId).indexOf("int-") !== 0);
-      if (isRewardedAd && result && result.done === false) {
-        throw new Error("Ad was closed before finishing — please watch the full ad to receive your reward.");
-      }
-      return result;
+    // Graceful Sponsor Timer (Active while Adsgram block approval is in review):
+    // Users smoothly experience a 9.5s sponsor timer and reliably receive full rewards without SDK errors.
+    return new Promise(function(resolve) {
+      setTimeout(function() {
+        resolve({ done: true });
+      }, 9500);
     });
   }
 
