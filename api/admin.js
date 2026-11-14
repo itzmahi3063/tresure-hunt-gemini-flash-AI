@@ -900,9 +900,9 @@ module.exports = withVpsFallback(async (req, res) => {
 
       // 5. Bot & Webhook Settings
       if (action === "bot_settings") {
-        const host = req.headers["x-forwarded-host"] || req.headers.host;
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const webhookUrl = `${protocol}://${host}/api/webhook`;
+        const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+        const host = rawHost.split(",")[0].trim();
+        const webhookUrl = `https://${host}/api/webhook`;
         const setting = await db.collection("settings").findOne({ key: "bot_settings" });
         const adminIds = await getAdminTelegramIds(db);
 
@@ -2068,9 +2068,9 @@ module.exports = withVpsFallback(async (req, res) => {
           res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured in environment variables" });
           return;
         }
-        const host = req.headers["x-forwarded-host"] || req.headers.host;
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const webhookUrl = `${protocol}://${host}/api/webhook`;
+        const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+        const host = rawHost.split(",")[0].trim();
+        const webhookUrl = `https://${host}/api/webhook`;
 
         const tgRes = await fetch(
           `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`

@@ -99,6 +99,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: JSON.stringify(photoPayload)
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) return data;
         console.warn("sendPhoto by file_id was not ok, falling back to url/buffer:", data);
       } catch (fileIdErr) {
@@ -119,6 +122,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: JSON.stringify(photoPayload)
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) {
           if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
             const largest = data.result.photo[data.result.photo.length - 1];
@@ -160,6 +166,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: formData
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) {
           if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
             const largest = data.result.photo[data.result.photo.length - 1];
@@ -192,6 +201,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       body: JSON.stringify(textPayload)
     });
     const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
     if (!data.ok && data.description && (
       data.description.toLowerCase().includes("parse") ||
       data.description.toLowerCase().includes("entity") ||
@@ -1030,9 +1042,11 @@ const handler = withVpsFallback(async (req, res) => {
   }
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const protocol = req.headers["x-forwarded-proto"] || "https";
-  const baseUrl = `${protocol}://${host}`;
+  const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+  const host = rawHost.split(",")[0].trim();
+  // Telegram Bot API STRICTLY requires HTTPS for all web_app and webhook URLs
+  const protocol = "https";
+  const baseUrl = `https://${host}`;
 
   // ==========================================
   // GET: Setup Webhook & Diagnostics Helper
