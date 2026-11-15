@@ -373,7 +373,11 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   if (w.status !== "PENDING") return { ok: false, message: `Already processed (${w.status}).` };
 
   const now = Date.now();
+  const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+  const payoutCurrency = (appSettingDoc && appSettingDoc.payoutCurrency) || "USDT";
+  const usdtVal = Number((w.usdtAmount !== undefined ? w.usdtAmount : ((w.amount || 0) * 0.00003)).toFixed(4));
   const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * 1.0).toFixed(4));
+  const payAmt = (payoutCurrency === "USDT") ? usdtVal : tonVal;
   let finalTx = "";
 
   // ATOMIC CLAIM BEFORE PAYING: PENDING -> PROCESSING
@@ -393,7 +397,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   let autoPayRes;
   try {
     const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
-    autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
+    autoPayRes = await dispatchTonPayout(w.walletAddress, payAmt, payoutMemo, db, payoutCurrency);
   } catch (payErr) {
     await releaseClaim();
     const errText = payErr && payErr.message ? payErr.message : String(payErr);
@@ -459,11 +463,16 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
         channelId = channelId ? (channelId.startsWith("-") ? channelId : ("@" + channelId)) : "@hoocoohpaylogs";
       }
 
+      const paidCurrency = w.paidCurrency || payoutCurrency;
+      const displayAmountPaid = paidCurrency === "USDT" 
+        ? `<b>${usdtVal.toFixed(2)} USDT</b>` 
+        : `<b>${tonVal.toFixed(4)} TON</b>`;
+
       const channelMsg = 
 `🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
 `👤 <b>Miner:</b> ${displayName}\n` +
-`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
-`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
+`💎 <b>Amount Paid:</b> ${displayAmountPaid} (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
 `💳 <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
 `🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
@@ -478,9 +487,11 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       });
 
       if (w.telegramId) {
+        const displayPaid = paidCurrency === "USDT" ? `${usdtVal.toFixed(2)} USDT` : `${tonVal.toFixed(4)} TON`;
         const userMsg = 
 `✅ <b>Withdrawal Approved!</b>\n\n` +
-`🪙 <b>${Number(w.amount).toLocaleString()} TREASURE Coins ($${Number(w.usdtAmount).toFixed(2)} USDT) sent!</b>\n` +
+`🪙 <b>${Number(w.amount).toLocaleString()} TREASURE Coins sent!</b>\n` +
+`💎 <b>Paid on TON:</b> ${displayPaid} ($${usdtVal.toFixed(2)} USDT)\n` +
 `🔗 <a href="${txUrl}">View Transaction</a>`;
 
         await sendTelegramMsg(botToken, w.telegramId, userMsg, {
@@ -500,6 +511,8 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       $set: {
         status: "APPROVED",
         tonAmount: tonVal,
+        usdtAmount: usdtVal,
+        paidCurrency: payoutCurrency,
         txHash: finalTx,
         approvedAt: now,
         channelPosted: true
@@ -524,7 +537,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
     console.error("Referral commission error in webhook.js:", comErr);
   }
 
-  return { ok: true, message: `Approved! Sent ${tonVal} TON.` };
+  return { ok: true, message: `Approved! Sent ${payAmt} ${payoutCurrency}.` };
 }
 
 async function handleAdminRejectWithdrawal(db, botToken, wid) {

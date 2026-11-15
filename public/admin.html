@@ -701,7 +701,7 @@
               <th>User</th>
               <th>Coins</th>
               <th>USDT Value</th>
-              <th style="color: #00b4d8;">💎 TON Payable</th>
+              <th style="color: #10b981;">💵 USDT Payable</th>
               <th>TON Address</th>
               <th>Date</th>
               <th>Status</th>
@@ -1718,7 +1718,7 @@
             var approveBtnText = isProcessing ? "⚡ Retry Approve" : "Approve";
             actions = `
               <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${tonValStr}', '${w.walletAddress}', this)">${approveBtnText}</button>
+                <button class="btn-success" onclick="approveWithdrawal('${w.id}', '${Number(w.usdtAmount).toFixed(2)}', '${w.walletAddress}', this)">${approveBtnText}</button>
                 <button class="btn-secondary" onclick="rejectWithdrawal('${w.id}', this)">Reject</button>
                 <button class="btn-danger" onclick="banUserFromW('${w.telegramId}', '${w.id}')">Ban</button>
               </div>
@@ -1751,10 +1751,10 @@
                 </div>
               </td>
               <td data-label="Coins"><strong>${Number(w.amount).toLocaleString()}</strong></td>
-              <td data-label="USDT"><span style="color: var(--accent); font-weight: 800;">$${Number(w.usdtAmount).toFixed(2)}</span></td>
-              <td data-label="TON Payable">
-                <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(0, 180, 216, 0.15); color: #00b4d8; border: 1px solid rgba(0, 180, 216, 0.35); padding: 4px 8px; border-radius: 8px; font-weight: 800; font-size: 12.5px;">
-                  💎 ${tonValStr} TON
+              <td data-label="USDT Value"><span style="color: var(--accent); font-weight: 800;">$${Number(w.usdtAmount).toFixed(2)}</span></td>
+              <td data-label="USDT Payable">
+                <span style="display: inline-flex; align-items: center; gap: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); padding: 4px 8px; border-radius: 8px; font-weight: 800; font-size: 12.5px;">
+                  💵 $${Number(w.usdtAmount).toFixed(2)} USDT
                 </span>
               </td>
               <td data-label="TON Address">
@@ -1911,7 +1911,8 @@
         var s = data.status;
         if (s.configured && s.enabled) {
           hotWalletDot.style.background = "#10b981";
-          hotWalletTitle.innerHTML = `💎 Hot Wallet Ready (V4R2) · Balance: <strong style="color: #00b4d8;">${Number(s.balanceTon).toFixed(4)} TON</strong>`;
+          var usdtBalStr = typeof s.balanceUsdt === 'number' ? s.balanceUsdt.toFixed(2) : '0.00';
+          hotWalletTitle.innerHTML = `💎 Hot Wallet Ready (V4R2) · <strong style="color: #10b981;">💵 ${usdtBalStr} USDT</strong> · Gas: <strong style="color: #00b4d8;">${Number(s.balanceTon).toFixed(4)} TON</strong> · <span style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 700;">🟢 Payout in USDT</span>`;
           var shortAddr = s.walletAddress ? (s.walletAddress.slice(0, 10) + '...' + s.walletAddress.slice(-8)) : '';
           hotWalletSubtitle.innerHTML = `Address (V4R2): <code title="${s.walletAddress}">${shortAddr}</code> <button type="button" class="btn-copy-tag" onclick="copyToClipboard('${s.walletAddress}', 'V4R2 address copied!')" style="padding: 2px 7px; font-size: 11px;">📋 Copy</button> · Seqno: ${s.seqno} · Source: ${s.source === 'env' ? 'Vercel Env' : 'Database'}`;
         } else if (s.configured && !s.enabled) {
@@ -1974,12 +1975,12 @@
   // Withdrawal Actions attached to window
   var isActionProcessing = false;
 
-  window.approveWithdrawal = async function(id, tonAmount, walletAddr, btnEl) {
+  window.approveWithdrawal = async function(id, usdtAmount, walletAddr, btnEl) {
     if (isActionProcessing) {
       showToast("⏳ Another payout is currently being processed. Please wait...");
       return;
     }
-    var confirmMsg = `⚡ Confirm Auto-Payout & Approval?\n\n💎 Amount: ${tonAmount ? tonAmount + ' TON' : ''}\n📍 Destination: ${walletAddr || ''}\n\nClick OK to automatically pay & confirm on-chain!`;
+    var confirmMsg = `⚡ Confirm Auto-Payout & Approval?\n\n💵 Amount: $${usdtAmount || '0.00'} USDT (TON Jetton)\n📍 Destination: ${walletAddr || ''}\n\nClick OK to automatically transfer USDT on-chain & confirm!`;
     if (!confirm(confirmMsg)) return;
 
     isActionProcessing = true;
@@ -2000,20 +2001,23 @@
       var res = await apiAdmin("POST", null, { action: "approve_withdrawal", withdrawalId: id });
       if (progressInterval) clearInterval(progressInterval);
       if (res.ok) {
+        var paidAmtStr = res.usdtAmount !== undefined ? `$${Number(res.usdtAmount).toFixed(2)} USDT` : (res.tonAmount ? res.tonAmount + ' TON' : 'USDT');
         if (res.channelPosted) {
-          showToast(`💎 Sent ${res.tonAmount} TON on-chain! Approved & posted to channel.`);
+          showToast(`💵 Sent ${paidAmtStr} on-chain! Approved & posted to channel.`);
         } else if (res.channelPostError) {
-          alert(`💎 Sent ${res.tonAmount} TON on-chain! Approved.\n\n⚠️ Channel Post Warning: ${res.channelPostError}\n\nPlease check your channel settings: Make sure @treasure_hunt12_bot is added as an Administrator with 'Post Messages' permission in your channel!`);
+          alert(`💵 Sent ${paidAmtStr} on-chain! Approved.\n\n⚠️ Channel Post Warning: ${res.channelPostError}\n\nPlease check your channel settings: Make sure @treasure_hunt12_bot is added as an Administrator with 'Post Messages' permission in your channel!`);
         } else {
-          showToast(`✅ Approved! ${res.tonAmount ? '(' + res.tonAmount + ' TON)' : ''}`);
+          showToast(`✅ Approved! (${paidAmtStr})`);
         }
         loadWithdrawals();
         loadStats();
+        loadHotWalletStatus();
       } else {
         var errMsg = res.error || "Approval failed";
         alert("⚠️ " + errMsg);
         loadWithdrawals();
         loadStats();
+        loadHotWalletStatus();
       }
     } catch(e) {
       if (progressInterval) clearInterval(progressInterval);
@@ -2233,7 +2237,7 @@
           } else {
             var errDetail = (res && res.error) ? res.error : "Unknown error";
             // Stop immediately only if hot wallet balance is low or credentials missing:
-            if (errDetail.includes("INSUFFICIENT_HOT_WALLET_BALANCE") || errDetail.includes("not configured") || errDetail.includes("missing") || errDetail.includes("INVALID_MNEMONIC")) {
+            if (errDetail.includes("INSUFFICIENT_HOT_WALLET") || errDetail.includes("not configured") || errDetail.includes("missing") || errDetail.includes("INVALID_MNEMONIC")) {
               alert("⚠️ Auto-pay halted:\n" + errDetail);
               stopAutoPayRequested = true;
               break;

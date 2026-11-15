@@ -856,7 +856,7 @@ const paidAgg = await withdrawalsCol.aggregate([
         if (appSetting && appSetting.payoutChannelId && appSetting.payoutChannelId !== payoutChannelId) {
           await db.collection("settings").updateOne({ key: "app_settings" }, { $set: { payoutChannelId } }).catch(() => {});
         }
-        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, tonPerUsd: (appSetting && typeof appSetting.tonPerUsd === "number") ? appSetting.tonPerUsd : 1.0, adMissionReward, dailyRequestLimit, payoutChannelId });
+        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, tonPerUsd: (appSetting && typeof appSetting.tonPerUsd === "number") ? appSetting.tonPerUsd : 1.0, adMissionReward, dailyRequestLimit, payoutChannelId, payoutCurrency: (appSetting && appSetting.payoutCurrency) || "USDT" });
         return;
       }
 
@@ -1032,9 +1032,12 @@ const paidAgg = await withdrawalsCol.aggregate([
         }
 
         const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const payoutCurrency = (appSettingDoc && appSettingDoc.payoutCurrency) || "USDT";
         const TON_PER_USD_POST = (appSettingDoc && typeof appSettingDoc.tonPerUsd === "number" && appSettingDoc.tonPerUsd > 0) ? appSettingDoc.tonPerUsd : 1.0;
         const now = Date.now();
-        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * TON_PER_USD_POST).toFixed(4));
+        const usdtVal = Number((w.usdtAmount !== undefined ? w.usdtAmount : ((w.amount || 0) * 0.00003)).toFixed(4));
+        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number((usdtVal * TON_PER_USD_POST).toFixed(4));
+        const payAmt = (payoutCurrency === "USDT") ? usdtVal : tonVal;
         let finalTx = txHash ? txHash.trim() : "";
         let autoPaySuccess = false;
         let autoPayMsg = "";
@@ -1078,7 +1081,7 @@ const paidAgg = await withdrawalsCol.aggregate([
           let autoPayRes;
           try {
             const payoutMemo = (w && (w.memo || w.comment)) ? String(w.memo || w.comment).trim() : `TREASURE Payout UID ${w.telegramId}`;
-            autoPayRes = await dispatchTonPayout(w.walletAddress, tonVal, payoutMemo, db);
+            autoPayRes = await dispatchTonPayout(w.walletAddress, payAmt, payoutMemo, db, payoutCurrency);
           } catch (payErr) {
             await releasePayoutClaim();
             const errText = payErr && payErr.message ? payErr.message : String(payErr);
@@ -1095,7 +1098,7 @@ const paidAgg = await withdrawalsCol.aggregate([
           // Strictly check if payment actually left wallet on-chain
           if (!autoPayRes || !autoPayRes.isConfigured || !autoPayRes.success || !autoPayRes.txHash) {
             await releasePayoutClaim();
-            const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || "Auto-pay failed (TON was NOT sent on-chain)";
+            const haltReason = (autoPayRes && (autoPayRes.message || autoPayRes.error)) || `Auto-pay failed (${payoutCurrency} was NOT sent on-chain)`;
             try {
               await withdrawalsCol.updateOne(
                 wQuery,
@@ -1103,7 +1106,7 @@ const paidAgg = await withdrawalsCol.aggregate([
               );
             } catch (_) {}
             res.status(400).json({
-              error: `Auto-Pay failed (TON NOT sent): ${haltReason}`,
+              error: `Auto-Pay failed (${payoutCurrency} NOT sent): ${haltReason}`,
               isAddressInvalid: autoPayRes ? !!autoPayRes.isAddressInvalid : false,
               autoPayError: autoPayRes ? (autoPayRes.error || haltReason) : "UNKNOWN_ERROR"
             });
@@ -1116,7 +1119,7 @@ const paidAgg = await withdrawalsCol.aggregate([
 
           // Persist txHash immediately in database to guarantee single payout
           await withdrawalsCol.updateOne(wQuery, {
-            $set: { txHash: finalTx, tonAmount: tonVal, paidOnChainAt: now }
+            $set: { txHash: finalTx, tonAmount: tonVal, usdtAmount: usdtVal, paidCurrency: payoutCurrency, paidOnChainAt: now }
           }).catch(() => {});
         } else {
           autoPaySuccess = true;
@@ -1174,11 +1177,16 @@ const paidAgg = await withdrawalsCol.aggregate([
               );
 
               if (channelClaim && channelClaim.modifiedCount > 0) {
+                const paidCurrency = w.paidCurrency || payoutCurrency;
+                const displayAmountPaid = paidCurrency === "USDT" 
+                  ? `<b>${usdtVal.toFixed(2)} USDT</b>` 
+                  : `<b>${tonVal.toFixed(4)} TON</b>`;
+
                 const channelMsg = 
 `🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
 `👤 <b>Miner:</b> ${displayName}\n` +
-`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
-`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
+`💎 <b>Amount Paid:</b> ${displayAmountPaid} (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
 `💳 <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
 `🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
@@ -1216,9 +1224,12 @@ const paidAgg = await withdrawalsCol.aggregate([
 
             // Send 1:1 notification to withdrawing user ONLY if not already notified
             if (w.telegramId && !w.userNotified) {
+              const paidCurrency = w.paidCurrency || payoutCurrency;
+              const displayPaid = paidCurrency === "USDT" ? `${usdtVal.toFixed(2)} USDT` : `${tonVal.toFixed(4)} TON`;
               const userMsg = 
 `✅ <b>Withdrawal Approved!</b>\n\n` +
-`🪙 <b>${Number(w.amount).toLocaleString()} TREASURE Coins ($${Number(w.usdtAmount).toFixed(2)} USDT) sent!</b>\n` +
+`🪙 <b>${Number(w.amount).toLocaleString()} TREASURE Coins sent!</b>\n` +
+`💎 <b>Amount:</b> ${displayPaid} ($${usdtVal.toFixed(2)} USDT)\n` +
 `🔗 <a href="${txUrl}">View Transaction</a>`;
 
               await sendTelegramMsg(botToken, w.telegramId, userMsg, {
@@ -2214,6 +2225,7 @@ const paidAgg = await withdrawalsCol.aggregate([
       }
 
             // 13.5. Update Adexium Status
+      // 13.5. Update Adexium Status
       if (action === "update_adexium_status") {
         const { enabled } = req.body || {};
         const isEnabled = (enabled === true || enabled === "true" || enabled === 1 || enabled === "1");
@@ -2226,6 +2238,23 @@ const paidAgg = await withdrawalsCol.aggregate([
           ok: true,
           adexiumEnabled: isEnabled,
           message: `Adexium ads successfully ${isEnabled ? "ENABLED" : "DISABLED"}!`
+        });
+        return;
+      }
+
+      // 13.6. Update Payout Currency (USDT vs TON)
+      if (action === "update_payout_currency") {
+        const { currency } = req.body || {};
+        const cleanCurrency = (String(currency || "USDT").toUpperCase() === "TON") ? "TON" : "USDT";
+        await db.collection("settings").updateOne(
+          { key: "app_settings" },
+          { $set: { payoutCurrency: cleanCurrency, updatedAt: Date.now() } },
+          { upsert: true }
+        );
+        res.status(200).json({
+          ok: true,
+          payoutCurrency: cleanCurrency,
+          message: `Payout currency successfully set to ${cleanCurrency} (TON Jetton)!`
         });
         return;
       }
@@ -2317,13 +2346,18 @@ const paidAgg = await withdrawalsCol.aggregate([
         const displayName = escapeHtml(rawName);
         const txUrl = `https://tonviewer.com/transaction/${encodeURIComponent(w.txHash)}`;
         const txLinkHtml = `<a href="${txUrl}">View on TON Explorer</a>`;
+        const paidCurrency = w.paidCurrency || (appSettingDoc && appSettingDoc.payoutCurrency) || "USDT";
+        const usdtVal = Number((w.usdtAmount !== undefined ? w.usdtAmount : ((w.amount || 0) * 0.00003)).toFixed(4));
         const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number((w.usdtAmount || 0));
+        const displayAmountPaid = paidCurrency === "USDT" 
+          ? `<b>${usdtVal.toFixed(2)} USDT</b>` 
+          : `<b>${tonVal.toFixed(4)} TON</b>`;
 
         const channelMsg = 
 `🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
 `👤 <b>Miner:</b> ${displayName}\n` +
-`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
-`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
+`💎 <b>Amount Paid:</b> ${displayAmountPaid} (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
 `💳 <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
 `🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
