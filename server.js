@@ -341,6 +341,37 @@ try {
     } catch (_) {}
   })();
 
+  // Auto-Repair: Detect and reset any withdrawal that received a duplicate/stolen txHash back to PENDING
+  (async () => {
+    try {
+      const db = await getDb();
+      if (!db) return;
+      const wCol = db.collection("withdrawals");
+      const pipeline = [
+        { $match: { txHash: { $exists: true, $ne: "" } } },
+        { $group: { _id: "$txHash", count: { $sum: 1 }, docs: { $push: "$$ROOT" } } },
+        { $match: { count: { $gt: 1 } } }
+      ];
+      const dupes = await wCol.aggregate(pipeline).toArray();
+      for (const group of dupes) {
+        const sorted = group.docs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        const affected = sorted.slice(1);
+        for (const doc of affected) {
+          await wCol.updateOne(
+            { _id: doc._id },
+            {
+              $set: { status: "PENDING" },
+              $unset: { txHash: "", approvedAt: "", channelPosted: "", processingAt: "", lastAutoPayError: "" }
+            }
+          );
+          console.log(`[Auto-Repair] Reset withdrawal ${doc._id} (UID: ${doc.telegramId}) to PENDING (released duplicate txHash: ${group._id})`);
+        }
+      }
+    } catch (err) {
+      console.warn("[Auto-Repair] Notice:", err.message);
+    }
+  })();
+
   const runVpsBackgroundTasks = async () => {
     try {
       const db = await getDb();

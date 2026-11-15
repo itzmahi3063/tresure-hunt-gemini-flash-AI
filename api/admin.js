@@ -1079,23 +1079,11 @@ const paidAgg = await withdrawalsCol.aggregate([
         let autoPaySuccess = false;
         let autoPayMsg = "";
 
-        // Check if this withdrawal was ALREADY paid on-chain (prevent duplicate send)
+        // Check if this specific withdrawal was ALREADY paid on-chain (prevent duplicate send)
         if (!finalTx && w.txHash && String(w.txHash).trim()) {
           finalTx = String(w.txHash).trim();
           autoPaySuccess = true;
           autoPayMsg = "Already confirmed on-chain (re-using txHash)";
-        }
-
-        // Anti-Duplicate Recovery: If on-chain payout succeeded within the last 15 minutes for this exact withdrawal
-        if (!finalTx) {
-          const lastAutoPay = await db.collection("settings").findOne({ key: "ton_autopay" }).catch(() => null);
-          if (lastAutoPay && lastAutoPay.lastTxHash && (now - (lastAutoPay.lastBroadcastAt || 0) < 15 * 60 * 1000)) {
-            if (w.status === "PROCESSING" || (w.processingAt && (now - w.processingAt < 15 * 60 * 1000)) || (w.lastAutoPayAttemptAt && (now - w.lastAutoPayAttemptAt < 15 * 60 * 1000))) {
-              finalTx = String(lastAutoPay.lastTxHash).trim();
-              autoPaySuccess = true;
-              autoPayMsg = "Recovered confirmed on-chain transaction";
-            }
-          }
         }
 
         // ATOMIC CLAIM: move PENDING -> PROCESSING
@@ -1401,6 +1389,33 @@ const paidAgg = await withdrawalsCol.aggregate([
         }
 
         res.status(200).json({ ok: true, message: `Withdrawal rejected and ${refundAmt.toLocaleString()} coins refunded to user.` });
+        return;
+      }
+
+      // Reset any withdrawal back to PENDING (for fixing payout mismatches or re-sending)
+      if (action === "reset_withdrawal_to_pending" || action === "reset_withdrawal") {
+        const { withdrawalId } = req.body || {};
+        if (!withdrawalId) {
+          res.status(400).json({ error: "withdrawalId required" });
+          return;
+        }
+
+        let objId;
+        try { objId = new ObjectId(withdrawalId); } catch(e){ objId = null; }
+        const wQuery = objId ? { _id: objId } : { _id: withdrawalId };
+
+        const w = await withdrawalsCol.findOne(wQuery);
+        if (!w) {
+          res.status(404).json({ error: "Withdrawal not found" });
+          return;
+        }
+
+        await withdrawalsCol.updateOne(wQuery, {
+          $set: { status: "PENDING" },
+          $unset: { txHash: "", processingAt: "", lastAutoPayError: "", channelPosted: "", approvedAt: "" }
+        });
+
+        res.status(200).json({ ok: true, message: "Withdrawal status reset to PENDING successfully. You can now re-approve it with the exact on-chain payout." });
         return;
       }
 

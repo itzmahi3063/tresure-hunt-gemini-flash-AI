@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { ObjectId } = require("mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
@@ -253,7 +254,7 @@ function calculateFraudRiskScore(u) {
   return Math.min(100, Math.max(0, score));
 }
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   // CORS / Options preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -475,10 +476,10 @@ const paidAgg = await withdrawalsCol.aggregate([
         const rawList = await withdrawalsCol
           .find(filter)
           .sort({ createdAt: -1 })
-          .limit(200)
+          .limit(500)
           .toArray();
 
-        // Attach user info
+        // Attach user info (with projection for minimal DB memory/CPU)
         const userIds = [...new Set(rawList.map(w => String(w.telegramId)))];
         const usersMap = {};
         if (userIds.length > 0) {
@@ -487,6 +488,30 @@ const paidAgg = await withdrawalsCol.aggregate([
               { telegramId: { $in: userIds } },
               { telegramId: { $in: userIds.map(Number).filter(Boolean) } }
             ]
+          }, {
+            projection: {
+              telegramId: 1,
+              firstName: 1,
+              lastName: 1,
+              username: 1,
+              balance: 1,
+              recruitsCount: 1,
+              isBanned: 1,
+              isSuspicious: 1,
+              isHighRiskHacker: 1,
+              isFakeAdBypasser: 1,
+              permanentWarning: 1,
+              isSuspendedMultipleAccount: 1,
+              deviceViolationsCount: 1,
+              adSkipUnder9sStrikes: 1,
+              spinUnder5sStrikes: 1,
+              securityFlag: 1,
+              suspiciousReason: 1,
+              penaltyNotice: 1,
+              fraudScore: 1,
+              registeredIp: 1,
+              lastIp: 1
+            }
           }).toArray();
           foundUsers.forEach(u => {
             usersMap[String(u.telegramId)] = u;
@@ -557,7 +582,8 @@ const paidAgg = await withdrawalsCol.aggregate([
             createdAt: w.createdAt,
             approvedAt: w.approvedAt,
             rejectedAt: w.rejectedAt,
-            reason: w.reason || ""
+            reason: w.reason || "",
+            lastAutoPayError: w.lastAutoPayError || ""
           };
         });
 
@@ -569,9 +595,20 @@ const paidAgg = await withdrawalsCol.aggregate([
           filteredList = list.filter(w => w.status === "PENDING" && !w.isSuspicious);
         }
 
+        const isAll = (req.query.all === "true" || req.query.all === "1");
+        const totalCount = filteredList.length;
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = isAll ? (totalCount || 1) : Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+        const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+        const paginatedList = isAll ? filteredList : filteredList.slice((page - 1) * limit, page * limit);
+
         res.status(200).json({
           ok: true,
-          withdrawals: filteredList,
+          withdrawals: paginatedList,
+          totalCount: totalCount,
+          page: page,
+          limit: limit,
+          totalPages: totalPages,
           pendingSuspiciousCount: Math.max(dbPendingSuspiciousCount, localSuspiciousCount)
         });
         return;
@@ -862,9 +899,9 @@ const paidAgg = await withdrawalsCol.aggregate([
 
       // 5. Bot & Webhook Settings
       if (action === "bot_settings") {
-        const host = req.headers["x-forwarded-host"] || req.headers.host;
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const webhookUrl = `${protocol}://${host}/api/webhook`;
+        const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+        const host = rawHost.split(",")[0].trim();
+        const webhookUrl = `https://${host}/api/webhook`;
         const setting = await db.collection("settings").findOne({ key: "bot_settings" });
         const adminIds = await getAdminTelegramIds(db);
 
@@ -1042,23 +1079,11 @@ const paidAgg = await withdrawalsCol.aggregate([
         let autoPaySuccess = false;
         let autoPayMsg = "";
 
-        // Check if this withdrawal was ALREADY paid on-chain (prevent duplicate send)
+        // Check if this specific withdrawal was ALREADY paid on-chain (prevent duplicate send)
         if (!finalTx && w.txHash && String(w.txHash).trim()) {
           finalTx = String(w.txHash).trim();
           autoPaySuccess = true;
           autoPayMsg = "Already confirmed on-chain (re-using txHash)";
-        }
-
-        // Anti-Duplicate Recovery: If on-chain payout succeeded within the last 15 minutes for this exact withdrawal
-        if (!finalTx) {
-          const lastAutoPay = await db.collection("settings").findOne({ key: "ton_autopay" }).catch(() => null);
-          if (lastAutoPay && lastAutoPay.lastTxHash && (now - (lastAutoPay.lastBroadcastAt || 0) < 15 * 60 * 1000)) {
-            if (w.status === "PROCESSING" || (w.processingAt && (now - w.processingAt < 15 * 60 * 1000)) || (w.lastAutoPayAttemptAt && (now - w.lastAutoPayAttemptAt < 15 * 60 * 1000))) {
-              finalTx = String(lastAutoPay.lastTxHash).trim();
-              autoPaySuccess = true;
-              autoPayMsg = "Recovered confirmed on-chain transaction";
-            }
-          }
         }
 
         // ATOMIC CLAIM: move PENDING -> PROCESSING
@@ -1364,6 +1389,33 @@ const paidAgg = await withdrawalsCol.aggregate([
         }
 
         res.status(200).json({ ok: true, message: `Withdrawal rejected and ${refundAmt.toLocaleString()} coins refunded to user.` });
+        return;
+      }
+
+      // Reset any withdrawal back to PENDING (for fixing payout mismatches or re-sending)
+      if (action === "reset_withdrawal_to_pending" || action === "reset_withdrawal") {
+        const { withdrawalId } = req.body || {};
+        if (!withdrawalId) {
+          res.status(400).json({ error: "withdrawalId required" });
+          return;
+        }
+
+        let objId;
+        try { objId = new ObjectId(withdrawalId); } catch(e){ objId = null; }
+        const wQuery = objId ? { _id: objId } : { _id: withdrawalId };
+
+        const w = await withdrawalsCol.findOne(wQuery);
+        if (!w) {
+          res.status(404).json({ error: "Withdrawal not found" });
+          return;
+        }
+
+        await withdrawalsCol.updateOne(wQuery, {
+          $set: { status: "PENDING" },
+          $unset: { txHash: "", processingAt: "", lastAutoPayError: "", channelPosted: "", approvedAt: "" }
+        });
+
+        res.status(200).json({ ok: true, message: "Withdrawal status reset to PENDING successfully. You can now re-approve it with the exact on-chain payout." });
         return;
       }
 
@@ -2116,9 +2168,9 @@ const paidAgg = await withdrawalsCol.aggregate([
           res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured in environment variables" });
           return;
         }
-        const host = req.headers["x-forwarded-host"] || req.headers.host;
-        const protocol = req.headers["x-forwarded-proto"] || "https";
-        const webhookUrl = `${protocol}://${host}/api/webhook`;
+        const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+        const host = rawHost.split(",")[0].trim();
+        const webhookUrl = `https://${host}/api/webhook`;
 
         const tgRes = await fetch(
           `https://api.telegram.org/bot${botToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}&drop_pending_updates=true`
@@ -2225,7 +2277,6 @@ const paidAgg = await withdrawalsCol.aggregate([
       }
 
             // 13.5. Update Adexium Status
-      // 13.5. Update Adexium Status
       if (action === "update_adexium_status") {
         const { enabled } = req.body || {};
         const isEnabled = (enabled === true || enabled === "true" || enabled === 1 || enabled === "1");
@@ -2418,4 +2469,4 @@ const paidAgg = await withdrawalsCol.aggregate([
     console.error("admin.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

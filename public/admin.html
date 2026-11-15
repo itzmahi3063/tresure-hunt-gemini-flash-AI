@@ -1725,10 +1725,11 @@
             `;
           } else {
             if (w.status === "APPROVED") {
+              var reOpenBtn = `<button class="btn-secondary" style="font-size: 9.5px; padding: 1px 6px; margin-top: 3px; color: #94a3b8; border-color: rgba(148,163,184,0.3);" onclick="resetWithdrawalToPending('${w.id}', this)" title="Reset to Pending to re-run payout">🔄 Re-Open</button>`;
               if (w.channelPosted) {
-                actions = `<span style="font-size: 11px; color: #10b981; font-weight: 700;">✅ Paid & Posted</span><br><a href="https://tonviewer.com/transaction/${w.txHash}" target="_blank" style="font-size: 10.5px; color: var(--accent); font-family: monospace;">Tx: ${w.txHash ? w.txHash.slice(0, 8) + '...' : ''}</a>`;
+                actions = `<span style="font-size: 11px; color: #10b981; font-weight: 700;">✅ Paid & Posted</span><br><a href="https://tonviewer.com/transaction/${w.txHash}" target="_blank" style="font-size: 10.5px; color: var(--accent); font-family: monospace;">Tx: ${w.txHash ? w.txHash.slice(0, 8) + '...' : ''}</a><br>${reOpenBtn}`;
               } else {
-                actions = `<span style="font-size: 11px; color: #10b981; font-weight: 700;">✅ Paid On-Chain</span><br><button class="btn-secondary" style="font-size: 10px; padding: 2px 7px; margin-top: 3px; color: #f59e0b; border-color: rgba(245,158,11,0.5);" onclick="retryChannelPost('${w.id}', this)" title="Click to post this payout proof to your Telegram channel">📢 Post to Channel</button>`;
+                actions = `<span style="font-size: 11px; color: #10b981; font-weight: 700;">✅ Paid On-Chain</span><br><button class="btn-secondary" style="font-size: 10px; padding: 2px 7px; margin-top: 3px; color: #f59e0b; border-color: rgba(245,158,11,0.5);" onclick="retryChannelPost('${w.id}', this)" title="Click to post this payout proof to your Telegram channel">📢 Post to Channel</button><br>${reOpenBtn}`;
               }
             } else {
               actions = `<span style="font-size: 11px; color: var(--text-dim);">${w.reason || 'Rejected'}</span>`;
@@ -2059,6 +2060,23 @@
       alert("❌ " + (e.message || e));
     } finally {
       isActionProcessing = false;
+    }
+  };
+
+  window.resetWithdrawalToPending = async function(id, btnEl) {
+    if (!confirm("Reset this withdrawal back to PENDING so you can re-approve and send the exact payout?")) return;
+    try {
+      if (btnEl) btnEl.innerText = "⏳ Resetting...";
+      var res = await apiAdmin("POST", null, { action: "reset_withdrawal_to_pending", withdrawalId: id });
+      if (res && res.ok) {
+        showToast("✅ Reset to PENDING!");
+        loadWithdrawals();
+        loadStats();
+      } else {
+        alert("Failed to reset: " + ((res && res.error) || "Unknown error"));
+      }
+    } catch(e) {
+      alert("Error: " + (e.message || e));
     }
   };
 
