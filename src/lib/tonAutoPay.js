@@ -14,8 +14,66 @@
  * - TON_API_KEY / TONCENTER_API_KEY / TON_CONSOLE_API_KEY: Optional RPC key.
  */
 
-const { TonClient, WalletContractV4, internal, toNano, fromNano, beginCell, external, storeMessage, SendMode, Address } = require("@ton/ton");
+const { TonClient, WalletContractV4, internal, toNano, fromNano, beginCell, external, storeMessage, SendMode, Address, JettonMaster, JettonWallet } = require("@ton/ton");
 const { mnemonicToPrivateKey } = require("@ton/crypto");
+
+// Official Tether USD (USDT) Master Contract on TON Mainnet
+const USDT_MASTER_ADDRESS = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
+
+// Reliable helper to fetch Jetton wallet address & balance using Toncenter v3 indexer + RPC failover
+async function getJettonWalletAndBalance(ownerAddress, masterAddress, clients = []) {
+  let jettonWalletAddress = null;
+  let balance = -1; // -1 means unknown
+
+  const ownerRaw = ownerAddress.toRawString();
+  const masterRaw = masterAddress.toRawString();
+
+  // 1. Try Toncenter v3 indexer first (sub-second indexed response)
+  try {
+    const url = `https://toncenter.com/api/v3/jetton/wallets?owner_address=${encodeURIComponent(ownerRaw)}&jetton_address=${encodeURIComponent(masterRaw)}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.jetton_wallets) && data.jetton_wallets.length > 0) {
+        const item = data.jetton_wallets[0];
+        if (item.address) {
+          jettonWalletAddress = Address.parse(item.address);
+        }
+        if (item.balance !== undefined && item.balance !== null) {
+          balance = Number(item.balance) / 1e6;
+        }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Fallback to RPC for Jetton wallet address if not discovered yet
+  if (!jettonWalletAddress && clients && clients.length > 0) {
+    for (const c of clients) {
+      try {
+        const master = c.open(JettonMaster.create(masterAddress));
+        jettonWalletAddress = await master.getWalletAddress(ownerAddress);
+        if (jettonWalletAddress) break;
+      } catch (_) {}
+    }
+  }
+
+  // 3. Fallback to RPC for Jetton balance if not discovered yet
+  if (balance < 0 && jettonWalletAddress && clients && clients.length > 0) {
+    for (const c of clients) {
+      try {
+        const jw = c.open(JettonWallet.create(jettonWalletAddress));
+        const units = await jw.getBalance();
+        balance = Number(units) / 1e6;
+        break;
+      } catch (_) {}
+    }
+  }
+
+  return { jettonWalletAddress, balance };
+}
 
 async function getTonAutoPayConfig(db = null) {
   let envMnemonic = (
@@ -136,6 +194,20 @@ async function getTonAutoPayStatus(db = null) {
       balanceTon = parseFloat(fromNano(nano));
     } catch (_) {}
 
+    // Query USDT Jetton Balance and Address
+    let balanceUsdt = 0;
+    let usdtWalletAddress = null;
+    try {
+      const usdtMaster = Address.parse(USDT_MASTER_ADDRESS);
+      const jwInfo = await getJettonWalletAndBalance(activeWallet.address, usdtMaster, [client]);
+      if (jwInfo.jettonWalletAddress) {
+        usdtWalletAddress = jwInfo.jettonWalletAddress.toString({ bounceable: false });
+      }
+      if (jwInfo.balance >= 0) {
+        balanceUsdt = jwInfo.balance;
+      }
+    } catch (_) {}
+
     let seqno = 0;
     try {
       const seqRes = await client.runMethod(activeWallet.address, 'seqno');
@@ -144,6 +216,14 @@ async function getTonAutoPayStatus(db = null) {
       }
     } catch (_) {}
 
+    let payoutCurrency = "USDT";
+    if (db) {
+      try {
+        const s = await db.collection("settings").findOne({ key: "app_settings" });
+        if (s && s.payoutCurrency) payoutCurrency = s.payoutCurrency;
+      } catch (_) {}
+    }
+
     return {
       configured: true,
       enabled: config.isEnabled,
@@ -151,6 +231,9 @@ async function getTonAutoPayStatus(db = null) {
       walletType,
       walletAddress,
       balanceTon,
+      balanceUsdt,
+      usdtWalletAddress,
+      payoutCurrency,
       seqno,
       wordCount: words.length
     };
@@ -162,7 +245,7 @@ async function getTonAutoPayStatus(db = null) {
   }
 }
 
-async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Payout", db = null) {
+async function dispatchTonPayout(toAddress, amount, memo = "TREASURE Mine Payout", db = null, currency = "USDT") {
   const config = await getTonAutoPayConfig(db);
 
   if (!config.mnemonicStr) {
@@ -204,13 +287,14 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
     };
   }
 
-  const amtNum = parseFloat(tonAmount);
+  const isUsdt = (String(currency || "USDT").toUpperCase() === "USDT");
+  const amtNum = parseFloat(amount);
   if (isNaN(amtNum) || amtNum <= 0) {
     return {
       success: false,
       isConfigured: true,
       error: "INVALID_AMOUNT",
-      message: `Invalid payout amount: ${tonAmount} TON`
+      message: `Invalid payout amount: ${amount} ${isUsdt ? "USDT" : "TON"}`
     };
   }
 
@@ -304,10 +388,6 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
       } catch (_) {}
     }
 
-    // Safe gas buffer: uninitialized contracts need ~0.025 TON for deployment + action phase
-    const gasBuffer = isDeployed ? 0.01 : 0.025;
-    const requiredTotal = amtNum + gasBuffer;
-
     // Check balance strictly (block if balance check fails or is insufficient)
     let balanceTon = -1;
     try {
@@ -324,13 +404,69 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
       }
     }
 
-    if (balanceTon >= 0 && balanceTon < requiredTotal) {
-      return {
-        success: false,
-        isConfigured: true,
-        error: "INSUFFICIENT_HOT_WALLET_BALANCE",
-        message: `Hot wallet balance too low! Available: ${balanceTon.toFixed(4)} TON, Needed: ${requiredTotal.toFixed(4)} TON (including network gas fee). Please deposit TON to: ${senderAddress}`
-      };
+    // USDT Jetton Setup & Balance Verification
+    const usdtMaster = Address.parse(USDT_MASTER_ADDRESS);
+    let senderJettonWallet = null;
+    let senderUsdt = -1;
+
+    if (isUsdt) {
+      try {
+        const jwInfo = await getJettonWalletAndBalance(activeWallet.address, usdtMaster, clients);
+        senderJettonWallet = jwInfo.jettonWalletAddress;
+        senderUsdt = jwInfo.balance;
+      } catch (jwErr) {
+        console.warn("[TON Auto-Pay] Warning querying Jetton wallet:", jwErr.message);
+      }
+
+      // If senderJettonWallet could not be derived, try RPC failover
+      if (!senderJettonWallet) {
+        try {
+          senderJettonWallet = await callWithFailover(c => {
+            const m = c.open(JettonMaster.create(usdtMaster));
+            return m.getWalletAddress(activeWallet.address);
+          });
+        } catch (addrErr) {
+          console.error("[TON Auto-Pay] Failed to derive Jetton wallet address:", addrErr.message);
+          return {
+            success: false,
+            isConfigured: true,
+            error: "JETTON_WALLET_NOT_FOUND",
+            message: `Could not determine USDT Jetton wallet for hot wallet ${senderAddress}. Please ensure the hot wallet is valid.`
+          };
+        }
+      }
+
+      // Check USDT balance strictly if balance was successfully read (senderUsdt >= 0)
+      if (senderUsdt >= 0 && senderUsdt < amtNum) {
+        return {
+          success: false,
+          isConfigured: true,
+          error: "INSUFFICIENT_HOT_WALLET_USDT",
+          message: `Hot wallet USDT balance too low! Available: ${senderUsdt.toFixed(4)} USDT, Needed: ${amtNum.toFixed(4)} USDT. Please deposit USDT (TON Jetton) to your hot wallet: ${senderAddress}`
+        };
+      }
+
+      // Check TON gas balance (attached 0.05 TON for Jetton execution + 0.01 gas buffer)
+      if (balanceTon >= 0 && balanceTon < 0.06) {
+        return {
+          success: false,
+          isConfigured: true,
+          error: "INSUFFICIENT_HOT_WALLET_GAS",
+          message: `Hot wallet TON gas balance too low! Available: ${balanceTon.toFixed(4)} TON, Needed: at least 0.06 TON for Jetton network gas. Please deposit a small amount of TON to: ${senderAddress}`
+        };
+      }
+    } else {
+      // Native TON balance check
+      const gasBuffer = isDeployed ? 0.01 : 0.025;
+      const requiredTotal = amtNum + gasBuffer;
+      if (balanceTon >= 0 && balanceTon < requiredTotal) {
+        return {
+          success: false,
+          isConfigured: true,
+          error: "INSUFFICIENT_HOT_WALLET_BALANCE",
+          message: `Hot wallet balance too low! Available: ${balanceTon.toFixed(4)} TON, Needed: ${requiredTotal.toFixed(4)} TON (including network gas fee). Please deposit TON to: ${senderAddress}`
+        };
+      }
     }
 
     // STRICT ON-CHAIN ANTI-DUPLICATE GUARD:
@@ -451,20 +587,52 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
     // In TON, stateInit MUST be attached whenever contract is not deployed or seqno is 0:
     const neededInit = !isDeployed ? activeWallet.init : null;
 
-    // Construct transfer message cleanly with parsed address and comment
-    const transfer = activeWallet.createTransfer({
-      seqno: currentSeqno,
-      secretKey: keyPair.secretKey,
-      sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
-      timeout: Math.floor(Date.now() / 1000) + 600,
-      messages: [
+    // Construct transfer messages based on currency (USDT Jetton vs Native TON)
+    let transferMessages = [];
+    if (isUsdt) {
+      const forwardPayload = beginCell()
+        .storeUint(0, 32)
+        .storeStringTail(memo || "TREASURE Payout")
+        .endCell();
+
+      const jettonUnits = BigInt(Math.round(amtNum * 1e6));
+      const jettonTransferBody = beginCell()
+        .storeUint(0x0f8a7ea5, 32) // op::transfer
+        .storeUint(0, 64)
+        .storeCoins(jettonUnits)
+        .storeAddress(parsedToAddress)
+        .storeAddress(activeWallet.address) // refund excess gas to hot wallet
+        .storeBit(0) // custom_payload null
+        .storeCoins(toNano("0.01")) // forward_ton_amount
+        .storeBit(1)
+        .storeRef(forwardPayload)
+        .endCell();
+
+      transferMessages = [
+        internal({
+          to: senderJettonWallet,
+          value: toNano("0.05"),
+          bounce: true,
+          body: jettonTransferBody
+        })
+      ];
+    } else {
+      transferMessages = [
         internal({
           to: parsedToAddress,
           value: toNano(amtNum.toFixed(6)),
           bounce: false,
           body: memo || "TREASURE Mine Payout"
         })
-      ]
+      ];
+    }
+
+    const transfer = activeWallet.createTransfer({
+      seqno: currentSeqno,
+      secretKey: keyPair.secretKey,
+      sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+      timeout: Math.floor(Date.now() / 1000) + 600,
+      messages: transferMessages
     });
 
     // Build external envelope with stateInit attached when needed
@@ -643,9 +811,10 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
       isConfigured: true,
       txHash: finalTxHash,
       sender: senderAddress,
+      currency: isUsdt ? "USDT" : "TON",
       amount: amtNum,
       confirmed: true,
-      message: `Successfully transferred ${amtNum} TON on-chain from ${senderAddress}! TxHash: ${finalTxHash}`
+      message: `Successfully transferred ${amtNum.toFixed(4)} ${isUsdt ? "USDT (TON Jetton)" : "TON"} on-chain from ${senderAddress}! TxHash: ${finalTxHash}`
     };
   } catch (err) {
     const errorDetails = err.response?.data?.error || err.response?.data?.message || err.message;
@@ -659,8 +828,14 @@ async function dispatchTonPayout(toAddress, tonAmount, memo = "TREASURE Mine Pay
   }
 }
 
+async function dispatchUsdtPayout(toAddress, usdtAmount, memo = "TREASURE Mine Payout", db = null) {
+  return dispatchTonPayout(toAddress, usdtAmount, memo, db, "USDT");
+}
+
 module.exports = {
   dispatchTonPayout,
+  dispatchUsdtPayout,
   getTonAutoPayStatus,
-  getTonAutoPayConfig
+  getTonAutoPayConfig,
+  USDT_MASTER_ADDRESS
 };
