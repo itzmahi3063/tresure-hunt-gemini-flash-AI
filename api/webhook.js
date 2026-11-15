@@ -1828,6 +1828,7 @@ const handler = withVpsFallback(async (req, res) => {
 
       // Strict Security Check:
       if (!senderId || !adminIds.has(senderId)) {
+        await sendTelegramMsg(botToken, chatId, `🚫 <b>Access Restricted</b>\n\nYou are not authorized as an administrator.\nYour Telegram ID: <code>${senderId}</code>`);
         res.status(200).json({ ok: true, ignored: true });
         return;
       }

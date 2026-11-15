@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const fs = require("fs");
 const path = require("path");
 const { ObjectId } = require("mongodb");
@@ -98,6 +99,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: JSON.stringify(photoPayload)
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) return data;
         console.warn("sendPhoto by file_id was not ok, falling back to url/buffer:", data);
       } catch (fileIdErr) {
@@ -118,6 +122,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: JSON.stringify(photoPayload)
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) {
           if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
             const largest = data.result.photo[data.result.photo.length - 1];
@@ -159,6 +166,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           body: formData
         });
         const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
         if (data && data.ok) {
           if (data.result && Array.isArray(data.result.photo) && data.result.photo.length > 0) {
             const largest = data.result.photo[data.result.photo.length - 1];
@@ -191,6 +201,9 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
       body: JSON.stringify(textPayload)
     });
     const data = await res.json();
+    if (!data.ok) {
+      console.warn("[Telegram API Error]:", data.description || data);
+    }
     if (!data.ok && data.description && (
       data.description.toLowerCase().includes("parse") ||
       data.description.toLowerCase().includes("entity") ||
@@ -674,7 +687,7 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     : enrichedList.filter(w => !w.isSusp);
 
   const totalCount = pendingList.length;
-  const adminUrl = `${baseUrl}/admin.html`;
+  const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
   const pagePrefix = suspiciousOnly ? "adm_susp_wd_page_" : "adm_wd_page_";
 
   if (totalCount === 0) {
@@ -732,7 +745,7 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     const uid = String(w.telegramId || "N/A");
     const coinAmt = Number(w.amount || 0).toLocaleString();
     const usdtAmt = Number(w.usdtAmount || 0).toFixed(2);
-    const tonAmt = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
+    const tonAmt = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * 1.0).toFixed(4));
 
     let riskBadge = "🟢 Clean";
     if (u.isHighRiskHacker) {
@@ -804,7 +817,7 @@ async function renderTasksPage(db, botToken, chatId, messageId, page = 0, baseUr
 
   const allTasks = await tasksCol.find({}).sort({ createdAt: -1 }).toArray();
   const totalCount = allTasks.length;
-  const adminUrl = `${baseUrl}/admin.html`;
+  const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
 
   if (totalCount === 0) {
     let msgText = "";
@@ -1019,7 +1032,7 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   ]);
   inlineKeyboard.push([
     { text: "🔙 Back to Admin", callback_data: "adm_back_menu" },
-    { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }
+    { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }
   ]);
 
   if (messageId) {
@@ -1032,7 +1045,7 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   }
 }
 
-const handler = async (req, res) => {
+const handler = withVpsFallback(async (req, res) => {
   // CORS / Preflight
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -1043,9 +1056,11 @@ const handler = async (req, res) => {
   }
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const host = req.headers["x-forwarded-host"] || req.headers.host;
-  const protocol = req.headers["x-forwarded-proto"] || "https";
-  const baseUrl = `${protocol}://${host}`;
+  const rawHost = req.headers["x-forwarded-host"] || req.headers.host || "treasuremine.fun";
+  const host = rawHost.split(",")[0].trim();
+  // Telegram Bot API STRICTLY requires HTTPS for all web_app and webhook URLs
+  const protocol = "https";
+  const baseUrl = `https://${host}`;
 
   // ==========================================
   // GET: Setup Webhook & Diagnostics Helper
@@ -1091,7 +1106,9 @@ const handler = async (req, res) => {
       try {
         const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
         const tgData = await tgRes.json();
-        res.status(200).json({ ok: true, info: tgData });
+        const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+        const meData = await meRes.json();
+        res.status(200).json({ ok: true, info: tgData, bot: meData });
         return;
       } catch (err) {
         res.status(500).json({ ok: false, error: err.message });
@@ -1234,7 +1251,7 @@ const handler = async (req, res) => {
         await answerCallbackQuery(botToken, cb.id, langDict.toastChanged);
 
         // Send updated welcome message in newly selected language
-        const appUrl = `${baseUrl}/index.html?lang=${finalLang}`;
+        const appUrl = `${baseUrl}/index.html?v=${Date.now()}&lang=${finalLang}`;
         const photoUrl = `${baseUrl}/assets/botfather_banner.jpg?v=2`;
 
         await sendTelegramMsg(botToken, cbChatId, langDict.text, {
@@ -1548,7 +1565,7 @@ const handler = async (req, res) => {
           await db.collection("settings").deleteOne({ key: "admin_state_" + cbSenderId });
         }
 
-        const adminUrl = `${baseUrl}/admin.html`;
+        const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
         const replyText = 
           `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
           `Tap a button below to manage the platform:`;
@@ -1614,7 +1631,7 @@ const handler = async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "❌ Cancel", callback_data: "adm_back_menu" }],
-              [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -1717,7 +1734,7 @@ const handler = async (req, res) => {
         }
       } catch(e){}
 
-      let appUrl = `${baseUrl}/index.html?lang=${userLang}`;
+      let appUrl = `${baseUrl}/index.html?v=${Date.now()}&lang=${userLang}`;
       if (!hasSelected) {
         appUrl += `&needLang=1`;
       }
@@ -1811,6 +1828,7 @@ const handler = async (req, res) => {
 
       // Strict Security Check:
       if (!senderId || !adminIds.has(senderId)) {
+        await sendTelegramMsg(botToken, chatId, `🚫 <b>Access Restricted</b>\n\nYou are not authorized as an administrator.\nYour Telegram ID: <code>${senderId}</code>`);
         res.status(200).json({ ok: true, ignored: true });
         return;
       }
@@ -1818,7 +1836,7 @@ const handler = async (req, res) => {
       // SENDER IS VERIFIED ADMIN!
       const totalMinersCount = db ? await db.collection("users").countDocuments({}) : 0;
       const pendingWCount = db ? await db.collection("withdrawals").countDocuments({ status: "PENDING" }) : 0;
-      const adminUrl = `${baseUrl}/admin.html`;
+      const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
       const replyText = 
         `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
         `Welcome back, <b>${escapeHtml(firstName)}</b> (ID: <code>${senderId}</code>)!\n\n` +
@@ -1898,7 +1916,7 @@ const handler = async (req, res) => {
           await sendTelegramMsg(botToken, chatId, usageMsg, {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+                [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
               ]
             }
           });
@@ -1930,7 +1948,7 @@ const handler = async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
-              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -2228,7 +2246,7 @@ const handler = async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
-              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -2403,7 +2421,7 @@ const handler = async (req, res) => {
                 ],
                 [
                   { text: "💸 Withdraw", callback_data: "adm_wd_page_0" },
-                  { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }
+                  { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }
                 ]
               ]
             }
@@ -2442,7 +2460,7 @@ const handler = async (req, res) => {
   }
 
   res.status(405).json({ error: "Method not allowed" });
-};
+});
 
 handler.setCachedWelcomeBannerFileId = function(fileId) { cachedWelcomeBannerFileId = fileId; };
 module.exports = handler;

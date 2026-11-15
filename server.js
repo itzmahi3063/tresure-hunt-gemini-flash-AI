@@ -87,7 +87,8 @@ setInterval(() => {
 }, 30 * 1000);
 
 app.use((req, res, next) => {
-  if (req.path === "/api/health" || req.path.startsWith("/assets/")) {
+  // Telegram webhooks, internal health check, and static assets must NEVER be throttled
+  if (req.path === "/api/health" || req.path === "/api/webhook" || req.path.startsWith("/assets/")) {
     return next();
   }
 
@@ -320,6 +321,21 @@ try {
         if (bDoc && bDoc.fileId && typeof apiHandlers.webhook?.setCachedWelcomeBannerFileId === "function") {
           apiHandlers.webhook.setCachedWelcomeBannerFileId(bDoc.fileId);
           console.log("[VPS Startup] Pre-warmed welcome banner file_id:", bDoc.fileId);
+        }
+      }
+    } catch (_) {}
+  })();
+
+  // Instant Webhook Re-sync on VPS boot to guarantee zero-lag /start and /admin delivery
+  (async () => {
+    try {
+      const bToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN;
+      if (bToken) {
+        const whUrl = "https://treasuremine.fun/api/webhook";
+        const res = await fetch(`https://api.telegram.org/bot${bToken}/setWebhook?url=${encodeURIComponent(whUrl)}`);
+        const json = await res.json().catch(() => ({}));
+        if (json.ok) {
+          console.log(" 🤖 Telegram Webhook Synchronized Successfully:", whUrl);
         }
       }
     } catch (_) {}
