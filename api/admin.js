@@ -360,6 +360,8 @@ module.exports = withVpsFallback(async (req, res) => {
     // ==========================================
     if (req.method === "GET") {
       const action = req.query.action || "stats";
+      const appSetting = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+      const TON_PER_USD = (appSetting && typeof appSetting.tonPerUsd === "number" && appSetting.tonPerUsd > 0) ? appSetting.tonPerUsd : 1.0;
 
       // 1. Stats
       if (action === "stats") {
@@ -376,10 +378,7 @@ module.exports = withVpsFallback(async (req, res) => {
           { $group: { _id: null, totalCoins: { $sum: "$balance" } } }
         ]).toArray();
         const totalCoins = balAgg[0] ? Math.max(0, balAgg[0].totalCoins) : 0;
-
-        const TON_PER_USD = (appSetting && typeof appSetting.tonPerUsd === "number" && appSetting.tonPerUsd > 0) ? appSetting.tonPerUsd : 1.0;
-
-        const paidAgg = await withdrawalsCol.aggregate([
+const paidAgg = await withdrawalsCol.aggregate([
           { $match: { status: "APPROVED" } },
           { $group: { _id: null, totalUsdt: { $sum: "$usdtAmount" }, totalTon: { $sum: { $ifNull: ["$tonAmount", { $multiply: ["$usdtAmount", TON_PER_USD] }] } } } }
         ]).toArray();
@@ -1069,8 +1068,10 @@ module.exports = withVpsFallback(async (req, res) => {
           return;
         }
 
+        const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const TON_PER_USD_POST = (appSettingDoc && typeof appSettingDoc.tonPerUsd === "number" && appSettingDoc.tonPerUsd > 0) ? appSettingDoc.tonPerUsd : 1.0;
         const now = Date.now();
-        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * ((appSettingDoc && typeof appSettingDoc.tonPerUsd === "number") ? appSettingDoc.tonPerUsd : 1.0)).toFixed(4));
+        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * TON_PER_USD_POST).toFixed(4));
         let finalTx = txHash ? txHash.trim() : "";
         let autoPaySuccess = false;
         let autoPayMsg = "";
