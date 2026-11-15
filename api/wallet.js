@@ -91,9 +91,19 @@ function calculateCoinsUsdt(coins, rate = COIN_RATE) {
   return c * rate;
 }
 
-// Conversion rate: 3 cents ($0.03 USD) = 0.019 TON
-// TON per USD = 0.019 / 0.03 = 19 / 30 (~0.63333333 TON per $1 USDT)
-const TON_PER_USD = 0.019 / 0.03;
+async function getTonConversionRate(db) {
+  try {
+    const s = await db.collection("settings").findOne({ key: "app_settings" });
+    const coinRate = (s && typeof s.coinPriceUsd === "number" && s.coinPriceUsd > 0) ? s.coinPriceUsd : COIN_RATE;
+    // Default 1:1 USD-to-TON pegging for project tokenomics (0.00003 USD/Coin = 0.00003 TON/Coin => 3,000 Coins = 0.09 TON)
+    const tonPerUsd = (s && typeof s.tonPerUsd === "number" && s.tonPerUsd > 0) ? s.tonPerUsd : 1.0;
+    return { coinRate, tonPerUsd };
+  } catch (e) {}
+  return { coinRate: COIN_RATE, tonPerUsd: 1.0 };
+}
+
+// Default TON per USD = 1.0 (3,000 Coins = 0.09 TON)
+const TON_PER_USD = 1.0;
 
 module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -302,9 +312,9 @@ module.exports = withVpsFallback(async (req, res) => {
         }
 
         const newBal = Number(updatedUser.balance || 0);
-        const activeCoinRate = await getCoinRate(db);
+        const { coinRate: activeCoinRate, tonPerUsd } = await getTonConversionRate(db);
         const usdtVal = Number(calculateCoinsUsdt(numAmount, activeCoinRate).toFixed(4));
-        const tonVal = Number((usdtVal * TON_PER_USD).toFixed(6));
+        const tonVal = Number((usdtVal * tonPerUsd).toFixed(4));
 
         // Dynamic checks for 24h limits & S2S violations:
         const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));

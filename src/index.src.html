@@ -8157,8 +8157,11 @@
               <input type="number" class="withdraw-amount-field" id="withdrawAmountInput" placeholder="Min 1,000" min="1000" step="1">
               <button type="button" class="withdraw-inline-max-btn" id="withdrawMaxBtn">MAX</button>
             </div>
-            <div class="withdraw-convert-preview">
-              ≈ $<strong id="withdrawEstUsdtVal">0.00</strong> USDT
+            <div class="withdraw-convert-preview" style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+              <span style="font-size: 11.5px; color: var(--text-dim);">≈ $<strong id="withdrawEstUsdtVal">0.00</strong> USDT</span>
+              <span style="font-size: 12px; font-weight: 800; color: #00b4d8; background: rgba(0, 180, 216, 0.12); padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(0, 180, 216, 0.3);">
+                💎 <strong id="withdrawEstTonVal" style="color: #00b4d8;">0.0000</strong> TON
+              </span>
             </div>
           </div>
 
@@ -14964,8 +14967,11 @@
   function updateWithdrawEstimate() {
     var amt = parseInt(withdrawAmountInput ? withdrawAmountInput.value : 0, 10);
     if (isNaN(amt) || amt < 0) amt = 0;
-    var est = coinsToUsd(amt).toFixed(2);
-    if (withdrawEstUsdtVal) withdrawEstUsdtVal.textContent = est;
+    var estUsd = coinsToUsd(amt);
+    if (withdrawEstUsdtVal) withdrawEstUsdtVal.textContent = estUsd.toFixed(2);
+    var tonVal = (estUsd * (window.TON_PER_USD || 1.0)).toFixed(4);
+    var tonEl = document.getElementById("withdrawEstTonVal");
+    if (tonEl) tonEl.textContent = tonVal;
   }
 
   function isValidTonAddress(address) {

@@ -377,7 +377,7 @@ module.exports = withVpsFallback(async (req, res) => {
         ]).toArray();
         const totalCoins = balAgg[0] ? Math.max(0, balAgg[0].totalCoins) : 0;
 
-        const TON_PER_USD = 0.019 / 0.03; // 3 cents = 0.019 TON
+        const TON_PER_USD = (appSetting && typeof appSetting.tonPerUsd === "number" && appSetting.tonPerUsd > 0) ? appSetting.tonPerUsd : 1.0;
 
         const paidAgg = await withdrawalsCol.aggregate([
           { $match: { status: "APPROVED" } },
@@ -575,7 +575,7 @@ module.exports = withVpsFallback(async (req, res) => {
             registeredIp: u.registeredIp || u.lastIp || "",
             amount: w.amount,
             usdtAmount: w.usdtAmount,
-            tonAmount: w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4)),
+            tonAmount: w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * TON_PER_USD).toFixed(4)),
             walletAddress: w.walletAddress,
             network: w.network || "TON",
             status: w.status || "PENDING",
@@ -894,7 +894,7 @@ module.exports = withVpsFallback(async (req, res) => {
         if (appSetting && appSetting.payoutChannelId && appSetting.payoutChannelId !== payoutChannelId) {
           await db.collection("settings").updateOne({ key: "app_settings" }, { $set: { payoutChannelId } }).catch(() => {});
         }
-        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, adMissionReward, dailyRequestLimit, payoutChannelId });
+        res.status(200).json({ ok: true, watchAdReward, coinPriceUsd, tonPerUsd: (appSetting && typeof appSetting.tonPerUsd === "number") ? appSetting.tonPerUsd : 1.0, adMissionReward, dailyRequestLimit, payoutChannelId });
         return;
       }
 
@@ -1070,7 +1070,7 @@ module.exports = withVpsFallback(async (req, res) => {
         }
 
         const now = Date.now();
-        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
+        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * ((appSettingDoc && typeof appSettingDoc.tonPerUsd === "number") ? appSettingDoc.tonPerUsd : 1.0)).toFixed(4));
         let finalTx = txHash ? txHash.trim() : "";
         let autoPaySuccess = false;
         let autoPayMsg = "";
@@ -1211,12 +1211,13 @@ module.exports = withVpsFallback(async (req, res) => {
 
               if (channelClaim && channelClaim.modifiedCount > 0) {
                 const channelMsg = 
-`🎉 <b>New payout paid</b> 🎉\n\n` +
-`👤 <b>User:</b> ${displayName}\n` +
-`🔘 <b>Amount:</b> ${Number(w.amount).toLocaleString()} TREASURE (${Number(w.usdtAmount).toFixed(2)} USDT)\n` +
+`🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
+`👤 <b>Miner:</b> ${displayName}\n` +
+`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
 `💳 <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
-`🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
+`🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
 `🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
                 try {
@@ -2318,7 +2319,99 @@ module.exports = withVpsFallback(async (req, res) => {
         return;
       }
 
-res.status(400).json({ error: "Unknown POST action" });
+      // 13.7. Retry / Manual Post to Payout Channel
+      if (action === "retry_channel_post" || action === "post_to_channel") {
+        const { withdrawalId } = req.body || {};
+        if (!withdrawalId) {
+          res.status(400).json({ error: "withdrawalId is required" });
+          return;
+        }
+
+        const wObjId = ObjectId.isValid(withdrawalId) ? new ObjectId(withdrawalId) : null;
+        const w = await withdrawalsCol.findOne({
+          $or: [{ _id: withdrawalId }, ...(wObjId ? [{ _id: wObjId }] : [])]
+        });
+
+        if (!w) {
+          res.status(404).json({ error: "Withdrawal record not found" });
+          return;
+        }
+
+        if (w.status !== "APPROVED" || !w.txHash) {
+          res.status(400).json({ error: "Only approved withdrawals with confirmed on-chain TxHash can be posted to channel." });
+          return;
+        }
+
+        const appSettingDoc = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const rawChannelId = (appSettingDoc && appSettingDoc.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+        const channelId = normalizeChannelUsername(rawChannelId);
+
+        const u = await usersCol.findOne({
+          $or: [{ telegramId: String(w.telegramId) }, { telegramId: Number(w.telegramId) }]
+        });
+        const rawName = u?.username ? `@${u.username}` : (u?.firstName ? `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}` : `Miner_${String(w.telegramId).slice(-4)}`);
+        const displayName = escapeHtml(rawName);
+        const txUrl = `https://tonviewer.com/transaction/${encodeURIComponent(w.txHash)}`;
+        const txLinkHtml = `<a href="${txUrl}">View on TON Explorer</a>`;
+        const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number((w.usdtAmount || 0));
+
+        const channelMsg = 
+`🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
+`👤 <b>Miner:</b> ${displayName}\n` +
+`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
+`💳 <b>Wallet address:</b>\n` +
+`<code>${escapeHtml(w.walletAddress)}</code>\n` +
+`🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
+`🤖 <b>Bot:</b> @treasure_hunt12_bot`;
+
+        const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🚀 Open @treasure_hunt12_bot", url: "https://t.me/treasure_hunt12_bot" }]
+            ]
+          }
+        });
+
+        if (chSendRes && chSendRes.ok) {
+          await withdrawalsCol.updateOne(
+            { _id: w._id },
+            { $set: { channelPosted: true, channelPostMessageId: chSendRes.result?.message_id, channelTarget: channelId }, $unset: { channelPostError: "" } }
+          );
+          res.status(200).json({ ok: true, channelTarget: channelId, message: `Successfully posted payout proof to ${channelId}!` });
+        } else {
+          const errText = chSendRes?.error || "Failed to post to Telegram channel";
+          await withdrawalsCol.updateOne(
+            { _id: w._id },
+            { $set: { channelPostError: errText } }
+          );
+          res.status(400).json({ error: `Could not post to ${channelId}: ${errText}. Make sure @treasure_hunt12_bot is added as Administrator with 'Post Messages' in ${channelId}!` });
+        }
+        return;
+      }
+
+      // 14. System Version & Status Diagnostic
+      if (action === "system_version") {
+        const appSetting = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
+        const rawChannelId = (appSetting && appSetting.payoutChannelId) || process.env.PAYOUT_CHANNEL_ID || "@hoocoohpaylogs";
+        const payoutChannelId = normalizeChannelUsername(rawChannelId);
+        res.status(200).json({
+          ok: true,
+          version: "2.6.0",
+          build: "20261115_1920",
+          serverTime: new Date().toISOString(),
+          payoutChannel: payoutChannelId,
+          features: [
+            "1:1 Accurate TON Payout Calculation (3,000 Coins = 0.09 TON)",
+            "Automatic Payout Proof Posting to Telegram Channel",
+            "Admin User Miner Level Adjustment (Level 1 to 10)",
+            "Hot Wallet On-Chain Auto-Pay with Anti-Collision Guard"
+          ]
+        });
+        return;
+      }
+
+      res.status(400).json({ error: "Unknown POST action" });
       return;
     }
 

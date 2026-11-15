@@ -373,7 +373,7 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
   if (w.status !== "PENDING") return { ok: false, message: `Already processed (${w.status}).` };
 
   const now = Date.now();
-  const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
+  const tonVal = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * 1.0).toFixed(4));
   let finalTx = "";
 
   // ATOMIC CLAIM BEFORE PAYING: PENDING -> PROCESSING
@@ -460,12 +460,13 @@ async function handleAdminApproveWithdrawal(db, botToken, wid, baseUrl) {
       }
 
       const channelMsg = 
-`🎉 <b>New payout paid</b> 🎉\n\n` +
-`👤 <b>User:</b> ${displayName}\n` +
-`🔘 <b>Amount:</b> ${Number(w.amount).toLocaleString()} TREASURE (${Number(w.usdtAmount).toFixed(2)} USDT)\n` +
+`🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
+`👤 <b>Miner:</b> ${displayName}\n` +
+`💎 <b>Amount Paid:</b> <b>${tonVal.toFixed(4)} TON</b> (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
+`💵 <b>Value:</b> ${Number(w.usdtAmount).toFixed(2)} USDT\n` +
 `💳 <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
-`🔗 <b>Transaction id:</b> ${txLinkHtml}\n\n` +
+`🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
 `🤖 <b>Bot:</b> @treasure_hunt12_bot`;
 
       await sendTelegramMsg(botToken, channelId, channelMsg, {
@@ -673,7 +674,7 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     : enrichedList.filter(w => !w.isSusp);
 
   const totalCount = pendingList.length;
-  const adminUrl = `${baseUrl}/admin.html`;
+  const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
   const pagePrefix = suspiciousOnly ? "adm_susp_wd_page_" : "adm_wd_page_";
 
   if (totalCount === 0) {
@@ -731,7 +732,7 @@ async function renderWithdrawalsPage(db, botToken, chatId, messageId, page = 0, 
     const uid = String(w.telegramId || "N/A");
     const coinAmt = Number(w.amount || 0).toLocaleString();
     const usdtAmt = Number(w.usdtAmount || 0).toFixed(2);
-    const tonAmt = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * (0.019 / 0.03)).toFixed(4));
+    const tonAmt = w.tonAmount !== undefined ? Number(w.tonAmount) : Number(((w.usdtAmount || 0) * 1.0).toFixed(4));
 
     let riskBadge = "🟢 Clean";
     if (u.isHighRiskHacker) {
@@ -803,7 +804,7 @@ async function renderTasksPage(db, botToken, chatId, messageId, page = 0, baseUr
 
   const allTasks = await tasksCol.find({}).sort({ createdAt: -1 }).toArray();
   const totalCount = allTasks.length;
-  const adminUrl = `${baseUrl}/admin.html`;
+  const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
 
   if (totalCount === 0) {
     let msgText = "";
@@ -1018,7 +1019,7 @@ async function renderReferralsPage(db, botToken, chatId, messageId, targetUid, p
   ]);
   inlineKeyboard.push([
     { text: "🔙 Back to Admin", callback_data: "adm_back_menu" },
-    { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }
+    { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }
   ]);
 
   if (messageId) {
@@ -1551,7 +1552,7 @@ const handler = withVpsFallback(async (req, res) => {
           await db.collection("settings").deleteOne({ key: "admin_state_" + cbSenderId });
         }
 
-        const adminUrl = `${baseUrl}/admin.html`;
+        const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
         const replyText = 
           `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
           `Tap a button below to manage the platform:`;
@@ -1617,7 +1618,7 @@ const handler = withVpsFallback(async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "❌ Cancel", callback_data: "adm_back_menu" }],
-              [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -1821,7 +1822,7 @@ const handler = withVpsFallback(async (req, res) => {
       // SENDER IS VERIFIED ADMIN!
       const totalMinersCount = db ? await db.collection("users").countDocuments({}) : 0;
       const pendingWCount = db ? await db.collection("withdrawals").countDocuments({ status: "PENDING" }) : 0;
-      const adminUrl = `${baseUrl}/admin.html`;
+      const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
       const replyText = 
         `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
         `Welcome back, <b>${escapeHtml(firstName)}</b> (ID: <code>${senderId}</code>)!\n\n` +
@@ -1901,7 +1902,7 @@ const handler = withVpsFallback(async (req, res) => {
           await sendTelegramMsg(botToken, chatId, usageMsg, {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+                [{ text: "🛡️ Open Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
               ]
             }
           });
@@ -1933,7 +1934,7 @@ const handler = withVpsFallback(async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
-              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -2231,7 +2232,7 @@ const handler = withVpsFallback(async (req, res) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: "🔄 Check Status", callback_data: "adm_broadcast_status" }],
-              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }]
+              [{ text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }]
             ]
           }
         });
@@ -2406,7 +2407,7 @@ const handler = withVpsFallback(async (req, res) => {
                 ],
                 [
                   { text: "💸 Withdraw", callback_data: "adm_wd_page_0" },
-                  { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html` } }
+                  { text: "🛡️ Admin Panel", web_app: { url: `${baseUrl}/admin.html?v=${Date.now()}` } }
                 ]
               ]
             }
