@@ -332,7 +332,7 @@ try {
       const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
       // 1. Process 2-hour completed mining reminders
-      await processMiningReminders(db, botToken).catch(() => {});
+      await processMiningReminders(db, botToken, "https://treasuremine.fun").catch(() => {});
 
       // 2. Process large broadcast batches
       const bRes = await processBroadcastQueue(db, botToken, 8000).catch(() => null);

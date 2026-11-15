@@ -1899,7 +1899,7 @@ const handler = async (req, res) => {
           {
             message: broadcastText,
             buttonText: "🏹 Play Treasure Hunt",
-            buttonUrl: "https://tresure-hunt-gemini-flash-ai.vercel.app/index.html"
+            buttonUrl: `${baseUrl}/index.html`
           },
           12000
         );
@@ -2197,7 +2197,7 @@ const handler = async (req, res) => {
           {
             message: text.trim(),
             buttonText: "🏹 Play Treasure Hunt",
-            buttonUrl: "https://tresure-hunt-gemini-flash-ai.vercel.app/index.html"
+            buttonUrl: `${baseUrl}/index.html`
           },
           12000
         );
