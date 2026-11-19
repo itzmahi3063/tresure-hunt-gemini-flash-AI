@@ -14,6 +14,29 @@ let cachedAdminIds = null;
 let cachedAdminIdsTime = 0;
 const ADMIN_CACHE_TTL = 60 * 1000; // 60 seconds
 
+// Resolve with `fallback` if a promise does not settle in `ms` (keeps /start & /admin instant even if MongoDB is busy)
+function withTimeout(promise, ms, fallback = null) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// fetch() for Telegram JSON calls: if Telegram answers 429 (rate limit), wait retry_after (max 2.5s) and retry once,
+// so /start & /admin replies are not silently lost while a broadcast is running.
+async function tgFetch(url, init) {
+  let res = await fetch(url, init);
+  let data = await res.json();
+  if (data && data.ok === false && data.error_code === 429) {
+    const waitMs = Math.min(((data.parameters && data.parameters.retry_after) || 1) * 1000, 2500);
+    await new Promise((r) => setTimeout(r, waitMs));
+    res = await fetch(url, init);
+    data = await res.json();
+  }
+  return { json: async () => data };
+}
+
 function escapeHtml(text) {
   if (!text) return "";
   return String(text)
@@ -48,23 +71,35 @@ async function getAdminTelegramIds(db) {
     });
   }
 
-  // 2. From MongoDB settings or admins collection
+  // 2. From MongoDB settings or admins collection (bounded: a busy DB must never block /admin)
+  let dbOk = true;
   try {
     if (db) {
-      const setting = await db.collection("settings").findOne({ key: "bot_settings" });
-      if (setting && setting.adminTelegramId) {
-        String(setting.adminTelegramId).split(",").forEach(id => {
-          const trimmed = id.trim();
-          if (trimmed) ids.add(trimmed);
+      const dbPart = async () => {
+        const setting = await db.collection("settings").findOne({ key: "bot_settings" });
+        if (setting && setting.adminTelegramId) {
+          String(setting.adminTelegramId).split(",").forEach(id => {
+            const trimmed = id.trim();
+            if (trimmed) ids.add(trimmed);
+          });
+        }
+        const adminDocs = await db.collection("admins").find({}).toArray();
+        adminDocs.forEach(doc => {
+          if (doc.telegramId) ids.add(String(doc.telegramId).trim());
         });
-      }
-      const adminDocs = await db.collection("admins").find({}).toArray();
-      adminDocs.forEach(doc => {
-        if (doc.telegramId) ids.add(String(doc.telegramId).trim());
-      });
+        return true;
+      };
+      dbOk = Boolean(await withTimeout(dbPart(), 2000, false));
     }
   } catch (e) {
+    dbOk = false;
     console.error("Error fetching admin IDs from DB:", e);
+  }
+
+  if (!dbOk) {
+    // DB slow/unavailable: keep previously known admins, and do not cache this partial result
+    if (cachedAdminIds) cachedAdminIds.forEach(id => ids.add(id));
+    return ids;
   }
 
   cachedAdminIds = ids;
@@ -93,7 +128,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           photo: photoFileId,
           caption: text
         });
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        const res = await tgFetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(photoPayload)
@@ -116,7 +151,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
           photo: options.photoUrl,
           caption: text
         });
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+        const res = await tgFetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(photoPayload)
@@ -195,7 +230,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
     const textPayload = Object.assign({}, basePayload, {
       text: text
     });
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const res = await tgFetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(textPayload)
@@ -1702,7 +1737,7 @@ const handler = withVpsFallback(async (req, res) => {
       let db = null;
       let u = null;
       try {
-        db = await getDb();
+        db = await withTimeout(getDb(), 3000, null);
         if (db) {
           // Asynchronous non-blocking background purge
           setImmediate(() => triggerBackgroundPurge(db));
@@ -1715,9 +1750,10 @@ const handler = withVpsFallback(async (req, res) => {
               .catch(() => {});
           }
 
-          u = await db.collection("users").findOne({
+          // Bounded lookup: if MongoDB is busy, greet instantly with defaults instead of hanging (no reply at all)
+          u = await withTimeout(db.collection("users").findOne({
             $or: [{ telegramId: String(senderId) }, { telegramId: Number(senderId) }]
-          });
+          }), 1500, null);
           if (u) {
             if (u.isBanned) {
               const banMsg = 
@@ -1821,7 +1857,7 @@ const handler = withVpsFallback(async (req, res) => {
     if (command === "/admin") {
       let db = null;
       try {
-        db = await getDb();
+        db = await withTimeout(getDb(), 3000, null);
         triggerBackgroundPurge(db);
       } catch(e){}
       const adminIds = await getAdminTelegramIds(db);
@@ -1834,8 +1870,8 @@ const handler = withVpsFallback(async (req, res) => {
       }
 
       // SENDER IS VERIFIED ADMIN!
-      const totalMinersCount = db ? await db.collection("users").countDocuments({}) : 0;
-      const pendingWCount = db ? await db.collection("withdrawals").countDocuments({ status: "PENDING" }) : 0;
+      const totalMinersCount = db ? (await withTimeout(db.collection("users").countDocuments({}), 2000, 0)) || 0 : 0;
+      const pendingWCount = db ? (await withTimeout(db.collection("withdrawals").countDocuments({ status: "PENDING" }), 2000, 0)) || 0 : 0;
       const adminUrl = `${baseUrl}/admin.html?v=${Date.now()}`;
       const replyText = 
         `🛡️ <b>TREASURE Admin Control Center</b>\n\n` +
