@@ -372,7 +372,12 @@ try {
     }
   })();
 
+  let vpsWorkerBusy = false;
+  let vpsDrainTimer = null;
   const runVpsBackgroundTasks = async () => {
+    // Single-flight: the 5-min interval and the 2s broadcast "drain" chain must never overlap/multiply
+    if (vpsWorkerBusy) return;
+    vpsWorkerBusy = true;
     try {
       const db = await getDb();
       if (!db) return;
@@ -385,7 +390,12 @@ try {
       const bRes = await processBroadcastQueue(db, botToken, 8000).catch(() => null);
       if (bRes && bRes.active && !bRes.completed && bRes.remainingUsers > 0) {
         // Fast drain loop: if broadcast is actively running, trigger next batch in 2s
-        setTimeout(runVpsBackgroundTasks, 2000);
+        if (vpsDrainTimer) clearTimeout(vpsDrainTimer);
+        const drainTick = () => {
+          if (vpsWorkerBusy) { vpsDrainTimer = setTimeout(drainTick, 2000); return; }
+          runVpsBackgroundTasks();
+        };
+        vpsDrainTimer = setTimeout(drainTick, (bRes.locked || bRes.paused) ? 5000 : 2000);
       }
 
       // 3. Maintenance purges
@@ -421,6 +431,8 @@ try {
       }
     } catch (err) {
       console.warn("[VPS Worker] Error during background cycle:", err.message);
+    } finally {
+      vpsWorkerBusy = false;
     }
   };
 
