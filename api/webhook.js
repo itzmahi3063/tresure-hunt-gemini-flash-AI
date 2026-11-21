@@ -1724,6 +1724,19 @@ const handler = withVpsFallback(async (req, res) => {
     const senderId = message.from && message.from.id ? String(message.from.id) : "";
     const firstName = message.from?.first_name || "Admin";
 
+    // Bot Fighting Mode: ignore messages from other bots and silently drop command spam (lib/shield.js)
+    try {
+      const shield = require("../lib/shield");
+      if (message.from && message.from.is_bot) {
+        res.status(200).send("OK");
+        return;
+      }
+      if (!shield.checkBotUpdate(senderId)) {
+        res.status(200).send("OK");
+        return;
+      }
+    } catch (shieldErr) { /* fail-open */ }
+
     const parts = text.split(/\s+/);
     const firstWord = parts[0].toLowerCase();
     const command = firstWord.split("@")[0]; // removes bot username e.g. /admin@mybot -> /admin
@@ -1848,6 +1861,28 @@ const handler = withVpsFallback(async (req, res) => {
       }
 
       res.status(200).json({ ok: true, sent: true });
+      return;
+    }
+
+    // ----------------------------------------------------
+    // Command: /shield (Admin only: DDoS Protection & Bot Fighting Mode control)
+    // ----------------------------------------------------
+    if (command === "/shield") {
+      let db = null;
+      try { db = await withTimeout(getDb(), 3000, null); } catch(e){}
+      const adminIds = await getAdminTelegramIds(db);
+      if (!senderId || !adminIds.has(senderId)) {
+        res.status(200).json({ ok: true, ignored: true });
+        return;
+      }
+      let shieldReply = "⚠️ Shield is unavailable right now.";
+      try {
+        shieldReply = await require("../lib/shield").handleShieldCommand(db, parts.slice(1));
+      } catch (e) {
+        console.error("/shield command error:", e);
+      }
+      await sendTelegramMsg(botToken, chatId, shieldReply);
+      res.status(200).json({ ok: true });
       return;
     }
 
