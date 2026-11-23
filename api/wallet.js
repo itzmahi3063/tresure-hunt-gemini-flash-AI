@@ -334,15 +334,15 @@ module.exports = withVpsFallback(async (req, res) => {
 
         const appSettings = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
         const currentAdReward = (appSettings && typeof appSettings.watchAdReward === "number" && appSettings.watchAdReward > 0) ? appSettings.watchAdReward : 10;
-        const maxDailyEarnCoins = 10 * currentAdReward;
+        const maxDailyEarnCoins = (10 * currentAdReward) + (5 * 10);
         const adsCycleStart = Number(user.adsCycleStartedAt || 0);
         const isAdsCycleActive = (now - adsCycleStart < 24 * 60 * 60 * 1000);
         const adsWatchedToday = isAdsCycleActive ? Number(user.adsWatchedToday || 0) : 0;
         const adsEarnedToday = isAdsCycleActive ? Number(user.adsEarnedToday || 0) : 0;
 
-        if (adsWatchedToday > 10 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
+        if (adsWatchedToday > 15 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
           dynamicSuspicious = true;
-          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 10 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 15 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
         }
 
         // Auto-clean legacy false-positive Ad Mission S2S flag for innocent users

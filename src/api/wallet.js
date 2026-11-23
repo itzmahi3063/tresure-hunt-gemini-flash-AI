@@ -1,3 +1,4 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser, purgeExcessUserWithdrawals } = require("../lib/userHelper");
@@ -6,6 +7,7 @@ const { getMax24hMiningForLevel } = require("../lib/gameLogic");
 const crypto = require("crypto");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
+const { Address } = require("@ton/ton");
 
 // Base rate fallback: 1 TREASURE Coin = $0.00003 USD
 const COIN_RATE = 0.00003;
@@ -89,11 +91,21 @@ function calculateCoinsUsdt(coins, rate = COIN_RATE) {
   return c * rate;
 }
 
-// Conversion rate: 3 cents ($0.03 USD) = 0.019 TON
-// TON per USD = 0.019 / 0.03 = 19 / 30 (~0.63333333 TON per $1 USDT)
-const TON_PER_USD = 0.019 / 0.03;
+async function getTonConversionRate(db) {
+  try {
+    const s = await db.collection("settings").findOne({ key: "app_settings" });
+    const coinRate = (s && typeof s.coinPriceUsd === "number" && s.coinPriceUsd > 0) ? s.coinPriceUsd : COIN_RATE;
+    // Default 1:1 USD-to-TON pegging for project tokenomics (0.00003 USD/Coin = 0.00003 TON/Coin => 3,000 Coins = 0.09 TON)
+    const tonPerUsd = (s && typeof s.tonPerUsd === "number" && s.tonPerUsd > 0) ? s.tonPerUsd : 1.0;
+    return { coinRate, tonPerUsd };
+  } catch (e) {}
+  return { coinRate: COIN_RATE, tonPerUsd: 1.0 };
+}
 
-module.exports = async (req, res) => {
+// Default TON per USD = 1.0 (3,000 Coins = 0.09 TON)
+const TON_PER_USD = 1.0;
+
+module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured" });
@@ -244,9 +256,16 @@ module.exports = async (req, res) => {
         } else {
           // First withdrawal OR 1-time unlocked by admin:
           cleanAddress = (walletAddress || "").trim();
+          let isAddressValid = false;
+          try {
+            Address.parse(cleanAddress);
+            isAddressValid = true;
+          } catch (_) {
+            isAddressValid = false;
+          }
           const isTon = /^(UQ|EQ|kQ|0Q)[A-Za-z0-9_-]{46}$/.test(cleanAddress) || /^(-1|0):[0-9a-fA-F]{64}$/.test(cleanAddress);
-          if (!isTon) {
-            res.status(400).json({ error: "Invalid TON address! Address must be 48 characters starting with UQ or EQ" });
+          if (!isTon || !isAddressValid) {
+            res.status(400).json({ error: "Invalid TON address! Please enter a valid TON wallet address (with correct checksum starting with UQ or EQ)." });
             return;
           }
 
@@ -293,9 +312,9 @@ module.exports = async (req, res) => {
         }
 
         const newBal = Number(updatedUser.balance || 0);
-        const activeCoinRate = await getCoinRate(db);
+        const { coinRate: activeCoinRate, tonPerUsd } = await getTonConversionRate(db);
         const usdtVal = Number(calculateCoinsUsdt(numAmount, activeCoinRate).toFixed(4));
-        const tonVal = Number((usdtVal * TON_PER_USD).toFixed(6));
+        const tonVal = Number((usdtVal * tonPerUsd).toFixed(4));
 
         // Dynamic checks for 24h limits & S2S violations:
         const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
@@ -315,15 +334,15 @@ module.exports = async (req, res) => {
 
         const appSettings = await db.collection("settings").findOne({ key: "app_settings" }).catch(() => null);
         const currentAdReward = (appSettings && typeof appSettings.watchAdReward === "number" && appSettings.watchAdReward > 0) ? appSettings.watchAdReward : 10;
-        const maxDailyEarnCoins = 10 * currentAdReward;
+        const maxDailyEarnCoins = (10 * currentAdReward) + (5 * 10);
         const adsCycleStart = Number(user.adsCycleStartedAt || 0);
         const isAdsCycleActive = (now - adsCycleStart < 24 * 60 * 60 * 1000);
         const adsWatchedToday = isAdsCycleActive ? Number(user.adsWatchedToday || 0) : 0;
         const adsEarnedToday = isAdsCycleActive ? Number(user.adsEarnedToday || 0) : 0;
 
-        if (adsWatchedToday > 10 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
+        if (adsWatchedToday > 15 || adsEarnedToday > (maxDailyEarnCoins + 5)) {
           dynamicSuspicious = true;
-          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 10 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
+          dynamicReason = (dynamicReason ? dynamicReason + " | " : "") + `Watch & Earn 24h limit exceeded (${adsWatchedToday} ads, ${adsEarnedToday} coins in 24h, limit: 15 ads / ${maxDailyEarnCoins} coins). Over-claim exploit.`;
         }
 
         // Auto-clean legacy false-positive Ad Mission S2S flag for innocent users
@@ -408,4 +427,4 @@ module.exports = async (req, res) => {
     console.error("wallet.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

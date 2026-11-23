@@ -6,7 +6,7 @@ const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
-const MAX_ADS_PER_DAY = 10;
+const MAX_ADS_PER_DAY = 15;
 const AD_REWARD = 15;
 const MAX_SPIN_ADS_PER_DAY = 6;
 const CYCLE_MS = 24 * 60 * 60 * 1000; // 24 hours for daily ads
@@ -286,8 +286,8 @@ module.exports = withVpsFallback(async (req, res) => {
           remainingToday: Math.max(0, MAX_ADS_PER_DAY - watchedToday),
           earnedToday,
           maxAds: MAX_ADS_PER_DAY,
-          rewardPerAd: currentAdReward,
-          requiresCaptcha: ((watchedToday > 0) && ((watchedToday + 1) % 3 === 0)),
+          rewardPerAd: (watchedToday >= 10 ? 10 : currentAdReward),
+          requiresCaptcha: ((watchedToday > 0) && (watchedToday < 10) && ((watchedToday + 1) % 3 === 0)),
           nextResetMs: Math.max(0, CYCLE_MS - (now - cycleStart))
         },
         adMission: adMissionPublicState(getAdMissionState(user, now)),
@@ -792,8 +792,10 @@ module.exports = withVpsFallback(async (req, res) => {
       cycleStart = now;
     }
 
-    const maxDailyEarnCoins = MAX_ADS_PER_DAY * currentAdReward;
-    if (watchedToday >= MAX_ADS_PER_DAY || (earnedToday + currentAdReward) > (maxDailyEarnCoins + 5)) {
+    const isGigapubAd = (watchedToday >= 10);
+    const rewardToCredit = isGigapubAd ? 10 : currentAdReward;
+    const maxDailyEarnCoins = (10 * currentAdReward) + (5 * 10);
+    if (watchedToday >= MAX_ADS_PER_DAY || (earnedToday + rewardToCredit) > (maxDailyEarnCoins + 5)) {
       const remainingMs = Math.max(0, CYCLE_MS - (now - cycleStart));
       const updateFlag = {
         isSuspicious: true,
@@ -803,7 +805,7 @@ module.exports = withVpsFallback(async (req, res) => {
       };
       await usersCol.updateOne({ _id: user._id }, { $set: updateFlag });
       res.status(403).json({
-        error: `🚨 Security Warning: Daily 10-ad limit exceeded! You have already claimed all ${MAX_ADS_PER_DAY} ads (${earnedToday} coins) for this 24-hour cycle. Your account has been flagged as suspicious.`,
+        error: `🚨 Security Warning: Daily ad limit exceeded! You have already claimed all ${MAX_ADS_PER_DAY} ads (${earnedToday} coins) for this 24-hour cycle. Your account has been flagged as suspicious.`,
         isSuspicious: true,
         remainingMs,
         adsWatchedToday: watchedToday,
@@ -833,7 +835,7 @@ module.exports = withVpsFallback(async (req, res) => {
 
     // 2. Strict Watch Duration Anti-Cheat Enforcement (9s rule):
     const minRequiredDuration = 9000;
-    if (duration < minRequiredDuration) {
+    if (!isGigapubAd && duration < minRequiredDuration) {
       const strikes = Number(user.adSkipUnder9sStrikes || 0) + 1;
       const updateData = {
         adSkipUnder9sStrikes: strikes,
@@ -904,7 +906,7 @@ module.exports = withVpsFallback(async (req, res) => {
     // old value matches 0 documents and gets no reward. Counts are $set from the fresh read (guarded by
     // the same compare-and-set), which also makes the 24h cycle reset correct.
     const newWatched = watchedToday + 1;
-    const newEarned = earnedToday + currentAdReward;
+    const newEarned = earnedToday + rewardToCredit;
 
     const claimAdRes = await usersCol.findOneAndUpdate(
       {
@@ -926,7 +928,7 @@ module.exports = withVpsFallback(async (req, res) => {
       },
       {
         $inc: {
-          balance: currentAdReward,
+          balance: rewardToCredit,
           totalAdsWatched: 1
         },
         $set: {
@@ -957,18 +959,18 @@ module.exports = withVpsFallback(async (req, res) => {
 
     const finalWatchedToday = Number(updatedUser.adsWatchedToday || newWatched);
     const finalEarnedToday = Number(updatedUser.adsEarnedToday || newEarned);
-    const finalBalance = Number(updatedUser.balance || (user.balance || 0) + currentAdReward);
+    const finalBalance = Number(updatedUser.balance || (user.balance || 0) + rewardToCredit);
 
     res.status(200).json({
       ok: true,
-      reward: currentAdReward,
+      reward: rewardToCredit,
       newBalance: finalBalance,
       adsWatchedToday: finalWatchedToday,
       adsEarnedToday: finalEarnedToday,
       adsCycleStartedAt: cycleStart,
       remainingToday: Math.max(0, MAX_ADS_PER_DAY - finalWatchedToday),
       maxAds: MAX_ADS_PER_DAY,
-      requiresNextCaptcha: ((finalWatchedToday > 0) && ((finalWatchedToday + 1) % 3 === 0))
+      requiresNextCaptcha: ((finalWatchedToday > 0) && (finalWatchedToday < 10) && ((finalWatchedToday + 1) % 3 === 0))
     });
   } catch (err) {
     console.error("ads.js error:", err);
