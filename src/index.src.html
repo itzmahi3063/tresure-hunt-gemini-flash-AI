@@ -1057,7 +1057,37 @@
     cursor: not-allowed;
   }
 
-  .tg-emoji { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; line-height: 1; position: relative; } .tg-custom-emoji-media { width: 24px; height: 24px; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; object-fit: contain; vertical-align: middle; pointer-events: none; border: none; outline: none; } .tg-custom-emoji-media svg { width: 100% !important; height: 100% !important; display: block; } /* Bottom Row of Daily Card */
+  .tg-emoji { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; line-height: 1; position: relative; }
+  .tg-custom-emoji-media { width: 24px; height: 24px; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; object-fit: contain; vertical-align: middle; pointer-events: none; border: none; outline: none; }
+  .tg-custom-emoji-media svg { width: 100% !important; height: 100% !important; display: block; }
+  .daily-btn-icon { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+  .daily-btn-icon .tg-emoji { margin-right: 0; }
+  .vault-corner-emoji {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.32);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1.5px solid rgba(255, 255, 255, 0.65);
+    border-radius: 50%;
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.18);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .vault-corner-emoji .tg-emoji { margin-right: 0; }
+  .vault-corner-emoji .tg-custom-emoji-media {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+  /* Bottom Row of Daily Card */
   .daily-bottom-row {
     background: var(--sub-box-bg);
     border-radius: 14px;
@@ -7162,7 +7192,8 @@
 
       <!-- Dedicated Collect Daily Reward Button -->
       <button class="daily-collect-btn" id="dailyCollectBtn">
-        <span><span class="tg-emoji" data-id="5203996991054432397">🎁</span> Collect Daily Reward (+5 TREASURE)</span>
+        <span class="daily-btn-icon"><span class="tg-emoji" data-id="5203996991054432397">🎁</span></span>
+        <span class="daily-btn-txt" id="dailyCollectBtnTxt">Collect Daily Reward (+5 TREASURE)</span>
       </button>
 
       <!-- Bottom Row of Daily Card -->
@@ -7763,6 +7794,9 @@
 
     <!-- Vault Balance Hero Card -->
     <div class="vault-hero-card">
+      <div class="vault-corner-emoji" title="Vault">
+        <span class="tg-emoji" data-id="5280818098960611598">🤑</span>
+      </div>
       <div class="vault-hero-badge">
         <span class="dot"></span>
         <span>Vault Balance</span>
@@ -9291,6 +9325,7 @@
       } else if (targetTab === "tab-wallet") {
         loadWalletData();
         renderWallet();
+        renderTgEmojis(document.getElementById("tab-wallet"));
         setTimeout(function(){
           window.scrollTo(0, 0);
           document.documentElement.scrollTop = 0;
@@ -11305,14 +11340,41 @@
     try {
       var scope = root || document;
       var els = scope.querySelectorAll(".tg-emoji");
+      window._tgEmojiDataCache = window._tgEmojiDataCache || {};
       for (var i = 0; i < els.length; i++) {
         (function(el) {
           var id = el.getAttribute("data-id");
           if (!id || el.getAttribute("data-rendered") === id) return;
           el.setAttribute("data-rendered", id);
           var fb = el.textContent || "🎁";
-          var url = "/api/emoji?id=" + encodeURIComponent(id);
 
+          function mountLottie(animData) {
+            if (window.lottie && typeof window.lottie.loadAnimation === "function") {
+              el.innerHTML = "";
+              var animBox = document.createElement("div");
+              animBox.className = "tg-custom-emoji-media";
+              el.appendChild(animBox);
+              window.lottie.loadAnimation({
+                container: animBox,
+                renderer: "svg",
+                loop: true,
+                autoplay: true,
+                animationData: animData
+              });
+            } else {
+              el.textContent = fb;
+            }
+          }
+
+          if (window._tgEmojiDataCache[id]) {
+            var cached = window._tgEmojiDataCache[id];
+            if (cached.type === "lottie") {
+              mountLottie(cached.data);
+              return;
+            }
+          }
+
+          var url = "/api/emoji?id=" + encodeURIComponent(id);
           fetch(url)
             .then(function(res) {
               if (!res.ok) throw new Error("Emoji fetch " + res.status);
@@ -11321,21 +11383,8 @@
 
               if (type === "lottie" || cType.indexOf("json") !== -1) {
                 return res.json().then(function(animData) {
-                  if (window.lottie && typeof window.lottie.loadAnimation === "function") {
-                    el.innerHTML = "";
-                    var animBox = document.createElement("div");
-                    animBox.className = "tg-custom-emoji-media";
-                    el.appendChild(animBox);
-                    window.lottie.loadAnimation({
-                      container: animBox,
-                      renderer: "svg",
-                      loop: true,
-                      autoplay: true,
-                      animationData: animData
-                    });
-                  } else {
-                    el.textContent = fb;
-                  }
+                  window._tgEmojiDataCache[id] = { type: "lottie", data: animData };
+                  mountLottie(animData);
                 });
               } else if (type === "video" || cType.indexOf("video") !== -1 || cType.indexOf("webm") !== -1) {
                 el.innerHTML = "";
@@ -11443,7 +11492,15 @@
 
       if (dailyBtn) {
         dailyBtn.disabled = true;
-        dailyBtn.innerHTML = '<span>' + t("claimed_for_today") + ' (' + t("next_in") + ' ' + formatDuration(remaining) + ')</span>';
+        var waitingTxt = t("claimed_for_today") + ' (' + t("next_in") + ' ' + formatDuration(remaining) + ')';
+        var dailyBtnTxt = document.getElementById("dailyCollectBtnTxt");
+        var dailyBtnIcon = dailyBtn.querySelector(".daily-btn-icon");
+        if (dailyBtnIcon) dailyBtnIcon.style.display = "none";
+        if (dailyBtnTxt) {
+          if (dailyBtnTxt.textContent !== waitingTxt) dailyBtnTxt.textContent = waitingTxt;
+        } else {
+          dailyBtn.innerHTML = '<span class="daily-btn-icon" style="display:none;"><span class="tg-emoji" data-id="5203996991054432397">🎁</span></span><span class="daily-btn-txt" id="dailyCollectBtnTxt">' + waitingTxt + '</span>';
+        }
       }
       if (remaining <= 0) {
         _lastDailyGridKey = null; // force grid refresh when countdown reaches 0
@@ -11454,7 +11511,19 @@
 
       if (dailyBtn) {
         dailyBtn.disabled = false;
-        dailyBtn.innerHTML = '<span><span class="tg-emoji" data-id="5203996991054432397">🎁</span> ' + t("collect_daily_bonus") + ' (+' + currentReward + ' TREASURE)</span>'; renderTgEmojis(dailyBtn);
+        var readyTxt = t("collect_daily_bonus") + ' (+' + currentReward + ' TREASURE)';
+        var dailyBtnTxt = document.getElementById("dailyCollectBtnTxt");
+        var dailyBtnIcon = dailyBtn.querySelector(".daily-btn-icon");
+        if (dailyBtnTxt && dailyBtnIcon) {
+          dailyBtnIcon.style.display = "";
+          if (dailyBtnTxt.textContent !== readyTxt) dailyBtnTxt.textContent = readyTxt;
+          if (!dailyBtnIcon.querySelector(".tg-custom-emoji-media")) {
+            renderTgEmojis(dailyBtnIcon);
+          }
+        } else {
+          dailyBtn.innerHTML = '<span class="daily-btn-icon"><span class="tg-emoji" data-id="5203996991054432397">🎁</span></span><span class="daily-btn-txt" id="dailyCollectBtnTxt">' + readyTxt + '</span>';
+          renderTgEmojis(dailyBtn);
+        }
       }
     }
   }
@@ -12951,6 +13020,7 @@
     renderAds();
     renderInvite();
     renderWallet();
+    renderTgEmojis(document);
   }
 
   // Initial immediate render so there is zero stuck loading
