@@ -1,4 +1,5 @@
 const { withVpsFallback } = require("../lib/vpsBridge");
+const zlib = require("zlib");
 
 // In-memory cache for fast sub-millisecond serving of custom emojis
 const emojiCache = new Map();
@@ -21,6 +22,7 @@ module.exports = withVpsFallback(async (req, res) => {
   if (emojiCache.has(emojiId)) {
     const cached = emojiCache.get(emojiId);
     res.setHeader("Content-Type", cached.contentType);
+    res.setHeader("X-Emoji-Type", cached.emojiType);
     res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
     res.status(200).send(cached.buffer);
     return;
@@ -61,7 +63,7 @@ module.exports = withVpsFallback(async (req, res) => {
     const filePath = fileData.result.file_path;
     const downloadUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
 
-    // 3. Download the actual emoji asset (WebM / WebP / etc.)
+    // 3. Download the actual emoji asset (TGS / WebM / WebP / etc.)
     const dlRes = await fetch(downloadUrl);
     if (!dlRes.ok) {
       res.status(502).json({ error: "Failed to download emoji file from Telegram" });
@@ -69,25 +71,39 @@ module.exports = withVpsFallback(async (req, res) => {
     }
 
     const arrayBuf = await dlRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuf);
+    const rawBuffer = Buffer.from(arrayBuf);
 
     let contentType = "image/webp";
-    if (filePath.endsWith(".webm")) {
+    let emojiType = "image";
+    let payloadBuffer = rawBuffer;
+
+    if (filePath.endsWith(".tgs") || sticker.is_animated) {
+      try {
+        // TGS is a gzipped Lottie JSON. Decompress to raw JSON for seamless browser Lottie rendering!
+        payloadBuffer = zlib.gunzipSync(rawBuffer);
+        contentType = "application/json; charset=utf-8";
+        emojiType = "lottie";
+      } catch (gzErr) {
+        contentType = "application/gzip";
+        emojiType = "tgs";
+      }
+    } else if (filePath.endsWith(".webm") || sticker.is_video) {
       contentType = "video/webm";
-    } else if (filePath.endsWith(".tgs")) {
-      contentType = "application/gzip";
+      emojiType = "video";
     } else if (filePath.endsWith(".png")) {
       contentType = "image/png";
+      emojiType = "image";
     }
 
-    // Cache the result (max 100 items to avoid excessive memory)
+    // Cache the result (max 100 items in memory)
     if (emojiCache.size < 100) {
-      emojiCache.set(emojiId, { buffer, contentType });
+      emojiCache.set(emojiId, { buffer: payloadBuffer, contentType, emojiType });
     }
 
     res.setHeader("Content-Type", contentType);
+    res.setHeader("X-Emoji-Type", emojiType);
     res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
-    res.status(200).send(buffer);
+    res.status(200).send(payloadBuffer);
   } catch (err) {
     console.error("api/emoji error:", err && err.message);
     res.status(500).json({ error: "Server error fetching emoji" });
