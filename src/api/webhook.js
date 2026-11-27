@@ -1998,7 +1998,7 @@ const handler = withVpsFallback(async (req, res) => {
           botToken,
           {
             message: broadcastText,
-            buttonText: "🏹 Play Treasure Hunt",
+            buttonText: "🤝 Play Treasure Hunt",
             buttonUrl: `${baseUrl}/index.html`
           },
           12000
@@ -2296,7 +2296,7 @@ const handler = withVpsFallback(async (req, res) => {
           botToken,
           {
             message: text.trim(),
-            buttonText: "🏹 Play Treasure Hunt",
+            buttonText: "🤝 Play Treasure Hunt",
             buttonUrl: `${baseUrl}/index.html`
           },
           12000

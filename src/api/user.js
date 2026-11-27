@@ -224,7 +224,7 @@ module.exports = withVpsFallback(async (req, res) => {
         const expiresAt = now + (2 * 60 * 1000); // 2 minutes
 
         const captionText =
-          `🏹 <b>TREASURE HUNT · Verify It's you</b>\n\n` +
+          `<tg-emoji emoji-id="5456371000239212004">🤝</tg-emoji> <b>TREASURE HUNT · Verify It's you</b>\n\n` +
           `Here is your secure 4-digit verification code.\n` +
           `👉 <b>Check the image above!</b>\n\n` +
           `⏱ <b>Validity: 2 minutes</b>\n` +
@@ -263,7 +263,7 @@ module.exports = withVpsFallback(async (req, res) => {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 chat_id: telegramId,
-                text: `🏹 <b>TREASURE HUNT · Verify It's you</b>\n\nYour 4-digit verification code is: <code>${codeStr}</code>\n\n⏱ <b>Validity: 2 minutes</b>\n<i>Enter this code in the app to unlock access.</i>`,
+                text: `<tg-emoji emoji-id="5456371000239212004">🤝</tg-emoji> <b>TREASURE HUNT · Verify It's you</b>\n\nYour 4-digit verification code is: <code>${codeStr}</code>\n\n⏱ <b>Validity: 2 minutes</b>\n<i>Enter this code in the app to unlock access.</i>`,
                 parse_mode: "HTML"
               })
             });
