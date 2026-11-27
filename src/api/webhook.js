@@ -243,6 +243,7 @@ async function sendTelegramMsg(botToken, chatId, text, options = {}) {
     if (!data.ok && data.description && (
       data.description.toLowerCase().includes("parse") ||
       data.description.toLowerCase().includes("entity") ||
+      data.description.toLowerCase().includes("custom_emoji") ||
       data.description.toLowerCase().includes("tag")
     )) {
       const plainPayload = Object.assign({}, basePayload, {
@@ -267,11 +268,11 @@ const WELCOME_MESSAGES = {
   en: {
     name: "English",
     text: 
-`🏹 <b>Welcome to TREASURE HUNT!</b>
+`<tg-emoji emoji-id="5456371000239212004">🤝</tg-emoji> <b>Welcome to TREASURE HUNT!</b>
 
-🌕 <b>Hunt the riches, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
+<tg-emoji emoji-id="5449569374065152798">🌛</tg-emoji> <b>Hunt the riches, earn TREASURE Coins, invite your crew, and withdraw real USDT!</b>
 
-🎮 <b>How it works:</b>
+<tg-emoji emoji-id="5361741454685256344">🎮</tg-emoji> <b>How it works:</b>
 
 • Dive deep to Hunt & Earn
 • Complete tasks to stack more TREASURE Coins
@@ -279,10 +280,10 @@ const WELCOME_MESSAGES = {
 • Invite friends to expand your crew & Earn
 • Withdraw your earnings directly as USDT!
 
-<b>Convert TREASURE Coins ➔ USDT 💲</b>
+<b>Convert TREASURE Coins ➔ USDT <tg-emoji emoji-id="5197434882321567830">💵</tg-emoji></b>
 
-👇 <b>Tap the button below to start your hunt!</b> 👇`,
-    btnStart: "🏹 Play Treasure Hunt",
+<tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji> <b>Tap the button below to start your hunt!</b> <tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji>`,
+    btnStart: "🤝 Play Treasure Hunt",
     btnLang: "🌐 Select your language",
     promptLang: "• <b>Language</b>\nChoose your language:",
     toastChanged: "✅ Language set to English!"
@@ -290,11 +291,11 @@ const WELCOME_MESSAGES = {
   ru: {
     name: "Русский",
     text: 
-`🏹 <b>Добро пожаловать в TREASURE HUNT!</b>
+`<tg-emoji emoji-id="5456371000239212004">🤝</tg-emoji> <b>Добро пожаловать в TREASURE HUNT!</b>
 
-🌕 <b>Охотьтесь за сокровищами, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
+<tg-emoji emoji-id="5449569374065152798">🌛</tg-emoji> <b>Охотьтесь за сокровищами, зарабатывайте TREASURE Coins, приглашайте друзей и выводите реальные USDT!</b>
 
-🎮 <b>Как это работает:</b>
+<tg-emoji emoji-id="5361741454685256344">🎮</tg-emoji> <b>Как это работает:</b>
 
 • Погружайтесь в охоту, чтобы добывать и зарабатывать
 • Выполняйте задания, чтобы получить больше монет
@@ -302,10 +303,10 @@ const WELCOME_MESSAGES = {
 • Приглашайте друзей в свою команду и зарабатывайте вместе
 • Выводите заработанные средства прямо в USDT!
 
-<b>Конвертируйте TREASURE Coins ➔ USDT 💲</b>
+<b>Конвертируйте TREASURE Coins ➔ USDT <tg-emoji emoji-id="5197434882321567830">💵</tg-emoji></b>
 
-👇 <b>Нажмите кнопку ниже, чтобы начать охоту!</b> 👇`,
-    btnStart: "🏹 Играть в Treasure Hunt",
+<tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji> <b>Нажмите кнопку ниже, чтобы начать охоту!</b> <tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji>`,
+    btnStart: "🤝 Играть в Treasure Hunt",
     btnLang: "🌐 Выбрать язык",
     promptLang: "• <b>Язык</b>\nВыберите ваш язык:",
     toastChanged: "✅ Язык изменен на Русский!"
@@ -313,11 +314,11 @@ const WELCOME_MESSAGES = {
   ar: {
     name: "العربية",
     text: 
-`🏹 <b>مرحبًا بك في TREASURE HUNT!</b>
+`<tg-emoji emoji-id="5456371000239212004">🤝</tg-emoji> <b>مرحبًا بك في TREASURE HUNT!</b>
 
-🌕 <b>ابحث عن الكنوز، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
+<tg-emoji emoji-id="5449569374065152798">🌛</tg-emoji> <b>ابحث عن الكنوز، واكسب عملات TREASURE، وادعُ أصدقاءك، واسحب عملات USDT حقيقية!</b>
 
-🎮 <b>كيف يعمل:</b>
+<tg-emoji emoji-id="5361741454685256344">🎮</tg-emoji> <b>كيف يعمل:</b>
 
 • انغمس в رحلة البحث عن الكنوز والربح
 • أكمل المهام لجمع المزيد من عملات TREASURE
@@ -325,10 +326,10 @@ const WELCOME_MESSAGES = {
 • ادعُ أصدقاءك للانضمام إلى فريقك والربح معًا
 • اسحب أرباحك مباشرة كعملة USDT!
 
-<b>تحويل عملات TREASURE ➔ USDT 💲</b>
+<b>تحويل عملات TREASURE ➔ USDT <tg-emoji emoji-id="5197434882321567830">💵</tg-emoji></b>
 
-👇 <b>اضغط على الزر أدناه لبدء المغامرة!</b> 👇`,
-    btnStart: "🏹 العب Treasure Hunt",
+<tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji> <b>اضغط على الزر أدناه لبدء المغامرة!</b> <tg-emoji emoji-id="5406745015365943482">⬇️</tg-emoji>`,
+    btnStart: "🤝 العب Treasure Hunt",
     btnLang: "🌐 اختر لغتك",
     promptLang: "• <b>اللغة</b>\nاختر لغتك:",
     toastChanged: "✅ تم تعيين اللغة إلى العربية!"
@@ -1286,12 +1287,10 @@ const handler = withVpsFallback(async (req, res) => {
         const langDict = WELCOME_MESSAGES[finalLang] || WELCOME_MESSAGES.en;
         await answerCallbackQuery(botToken, cb.id, langDict.toastChanged);
 
-        // Send updated welcome message in newly selected language
+        // Send updated welcome message in newly selected language (clean text without banner)
         const appUrl = `${baseUrl}/index.html?v=${Date.now()}&lang=${finalLang}`;
-        const photoUrl = `${baseUrl}/assets/botfather_banner.jpg?v=2`;
 
         await sendTelegramMsg(botToken, cbChatId, langDict.text, {
-          photoUrl: photoUrl,
           reply_markup: {
             inline_keyboard: [
               [
@@ -1838,15 +1837,7 @@ const handler = withVpsFallback(async (req, res) => {
         }
       };
 
-      if (cachedWelcomeBannerFileId) {
-        sendOptions.photoFileId = cachedWelcomeBannerFileId;
-      } else {
-        // Fast URL delivery via CDN - avoids heavy multipart binary upload
-        sendOptions.photoUrl = `${baseUrl}/assets/welcome_banner.jpg?v=6`;
-        sendOptions.cacheFileIdKey = "welcome_banner_file_id";
-        sendOptions.db = db;
-      }
-
+      // Clean welcome text message without banner image
       await sendTelegramMsg(botToken, chatId, langDict.text, sendOptions);
 
       if (startParam === "verify" && db) {
