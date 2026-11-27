@@ -1,8 +1,17 @@
 const { withVpsFallback } = require("../lib/vpsBridge");
 const zlib = require("zlib");
+const fs = require("fs");
+const path = require("path");
 
 // In-memory cache for fast sub-millisecond serving of custom emojis
 const emojiCache = new Map();
+
+const staticFileMap = {
+  "5307843983102204243": "emoji_key.json",
+  "5463046637842608206": "emoji_gold.json",
+  "5280818098960611598": "emoji_money.json",
+  "5203996991054432397": "emoji_gift.json"
+};
 
 module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "GET") {
@@ -26,6 +35,28 @@ module.exports = withVpsFallback(async (req, res) => {
     res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
     res.status(200).send(cached.buffer);
     return;
+  }
+
+  // Check static pre-bundled assets
+  if (staticFileMap[emojiId]) {
+    const candidatePaths = [
+      path.join(__dirname, "../public/assets", staticFileMap[emojiId]),
+      path.join(__dirname, "./public/assets", staticFileMap[emojiId]),
+      path.join(process.cwd(), "public/assets", staticFileMap[emojiId])
+    ];
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const buf = fs.readFileSync(p);
+          emojiCache.set(emojiId, { buffer: buf, contentType: "application/json; charset=utf-8", emojiType: "lottie" });
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.setHeader("X-Emoji-Type", "lottie");
+          res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+          res.status(200).send(buf);
+          return;
+        } catch (_) {}
+      }
+    }
   }
 
   const botToken = (process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || "").trim();
