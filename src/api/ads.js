@@ -28,7 +28,7 @@ const AD_MISSION_LOCK_MS = 24 * 60 * 60 * 1000;
 const GIGAPUB_ADS_START_INDEX = 10;                                   // watchedToday >= 10  => GigaPub ad
 const GIGAPUB_MAX_TAP_BONUS_PER_CYCLE = MAX_ADS_PER_DAY - GIGAPUB_ADS_START_INDEX; // 5
 const GIGAPUB_TAP_BONUS_DEFAULT = 10;
-const GIGAPUB_TAP_SIGNALS = { open: 1, link: 1, message: 1, away: 1 }; // allowed client signal types
+const GIGAPUB_TAP_SIGNALS = { open: 1, link: 1, message: 1, away: 1, human_click: 1 }; // allowed client signal types
 
 // Validates the client-reported tap info. Returns a signal string or "" (no bonus). Never throws, never flags.
 function readGigapubTap(body) {
@@ -36,10 +36,9 @@ function readGigapubTap(body) {
   if (!t || typeof t !== "object" || t.tapped !== true) return "";
   const signal = String(t.signal || "").slice(0, 16);
   if (!GIGAPUB_TAP_SIGNALS[signal]) return "";
-  if (signal === "away") {
-    const awayMs = Number(t.awayMs) || 0;
-    if (awayMs < 600 || awayMs > 600000) return "";
-  }
+  const awayMs = Number(t.awayMs) || 0;
+  // Human stay requirement: at least 1 second (1000ms) on advertiser landing page
+  if (awayMs < 1000 || awayMs > 600000) return "";
   return signal;
 }
 

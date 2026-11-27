@@ -81,8 +81,8 @@ module.exports = withVpsFallback(async (req, res) => {
     if (adProvider === "gigapub") {
       const gigaTap = req.body && req.body.gigapubTap;
       const signal = gigaTap && typeof gigaTap === "object" && gigaTap.tapped === true ? String(gigaTap.signal || "") : "";
-      const isAway = signal === "away" && Number(gigaTap.awayMs) >= 600;
-      const isValidTap = (signal === "open" || signal === "link" || signal === "message" || isAway);
+      const awayMs = Number(gigaTap && gigaTap.awayMs) || 0;
+      const isValidTap = (signal === "human_click" || signal === "open" || signal === "link" || signal === "message" || signal === "away") && (awayMs >= 1000);
       if (isValidTap) {
         gigapubTapped = true;
         reward = baseReward;

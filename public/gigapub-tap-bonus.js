@@ -23,7 +23,7 @@
   if (window.__gigaTapBonusLoaded) return;
   window.__gigaTapBonusLoaded = true;
 
-  var CFG = { bonus: 10, startIndex: 10, maxAds: 15, minAwayMs: 700 };
+  var CFG = { bonus: 10, startIndex: 10, maxAds: 15, minAwayMs: 1000 };
   var DEBUG = /gpdebug/.test(location.hash || "");
 
   var TEXT = {
@@ -70,23 +70,81 @@
   /* ------------------------------------------------------------------ tap tracking */
   var S = null;        // current ad session
   var LAST = null;     // result of the last finished session (sent with the claim)
+  var lastHumanTouch = { at: 0, isTrusted: false };
 
-  function newSession() { return { startedAt: Date.now(), signal: "", awayStart: 0, awayMs: 0 }; }
+  function recordHumanTouch(e) {
+    if (!e || e.isTrusted !== true) return;
+    lastHumanTouch.at = Date.now();
+    lastHumanTouch.isTrusted = true;
+    log("Human physical touch verified at:", lastHumanTouch.at);
+  }
+
+  try {
+    window.addEventListener("touchstart", recordHumanTouch, { capture: true, passive: true });
+    window.addEventListener("pointerdown", recordHumanTouch, { capture: true, passive: true });
+    window.addEventListener("mousedown", recordHumanTouch, { capture: true, passive: true });
+    window.addEventListener("click", recordHumanTouch, { capture: true, passive: true });
+  } catch (e) {}
+
+  function isHumanAction() {
+    var now = Date.now();
+    // A physical human touch (with isTrusted === true) must have occurred in the last 2500ms
+    return lastHumanTouch.isTrusted && (lastHumanTouch.at > 0) && (now - lastHumanTouch.at <= 2500);
+  }
+
+  function newSession() { return { startedAt: Date.now(), signal: "", awayStart: 0, awayMs: 0, humanClicked: false }; }
+
   function mark(signal) {
     if (!S) return;
-    if (!S.signal) { S.signal = signal; log("tap signal:", signal); }
+    var isHuman = isHumanAction();
+    if (!isHuman) {
+      log("Non-human action / auto-redirect ignored. Signal:", signal);
+      return;
+    }
+    if (!S.signal) {
+      S.signal = signal;
+      S.humanClicked = true;
+      log("Human verified tap signal:", signal);
+    }
   }
-  function goAway() { if (S && !S.awayStart) S.awayStart = Date.now(); }
+
+  function goAway() {
+    if (S && !S.awayStart) {
+      if (isHumanAction()) {
+        S.humanClicked = true;
+        if (!S.signal) S.signal = "human_click";
+      }
+      S.awayStart = Date.now();
+    }
+  }
+
   function comeBack() {
-    if (S && S.awayStart) { S.awayMs += Date.now() - S.awayStart; S.awayStart = 0; }
+    if (S && S.awayStart) {
+      S.awayMs += Date.now() - S.awayStart;
+      S.awayStart = 0;
+    }
   }
+
   function finishSession() {
     if (!S) return;
     comeBack();
-    var sig = S.signal;
-    if (!sig && S.awayMs >= CFG.minAwayMs) sig = "away";
-    LAST = { tapped: !!sig, signal: sig || "", awayMs: Math.round(S.awayMs), at: Date.now() };
-    try { window.__lastGigapubTap = LAST; } catch(e) {} log("session finished:", LAST);
+    var awayTime = Math.round(S.awayMs || 0);
+    // User requested: Must be a real human click AND stay at least 1 second (1000ms) on ad page
+    var isHuman = Boolean(S.humanClicked);
+    var hasStay = awayTime >= CFG.minAwayMs; // >= 1000ms
+
+    var isTapped = isHuman && hasStay;
+    var sig = isTapped ? (S.signal || "human_click") : "";
+
+    LAST = {
+      tapped: isTapped,
+      signal: sig,
+      awayMs: awayTime,
+      humanVerified: isTapped,
+      at: Date.now()
+    };
+    try { window.__lastGigapubTap = LAST; } catch(e) {}
+    log("Session finished. Human:", isHuman, "StayMs:", awayTime, "Final Tapped:", isTapped, "LAST:", LAST);
     S = null;
   }
 
