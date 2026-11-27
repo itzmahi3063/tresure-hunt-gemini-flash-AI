@@ -6005,6 +6005,57 @@
     50% { transform: translateY(-5px) rotate(2deg); }
   }
 
+  .loading-emoji-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 50%;
+  }
+  .loading-emoji-slot {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transform: scale(0.65) rotate(-8deg);
+    transition: opacity 0.38s cubic-bezier(0.34, 1.4, 0.64, 1), transform 0.38s cubic-bezier(0.34, 1.4, 0.64, 1);
+    pointer-events: none;
+  }
+  .loading-emoji-slot.active {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+    pointer-events: auto;
+  }
+  .loading-emoji-slot.exit {
+    opacity: 0;
+    transform: scale(1.18) rotate(8deg);
+  }
+  .loading-tg-emoji {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 86px;
+    height: 86px;
+    margin: 0 !important;
+    font-size: 52px;
+    line-height: 1;
+  }
+  .loading-tg-emoji .tg-custom-emoji-media {
+    width: 86px !important;
+    height: 86px !important;
+    min-width: 86px !important;
+    min-height: 86px !important;
+  }
+  .loading-tg-emoji .tg-custom-emoji-media svg {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
   /* Title & Subtitle */
   .loading-title {
     font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
@@ -6883,10 +6934,19 @@
 <div class="loading-screen" id="appLoadingScreen">
   <div class="loading-bg-circles"></div>
   <div class="loading-content">
-    <!-- Circular Mint/Cyan Emblem with 3D Miner Logo -->
+    <!-- Circular Mint/Cyan Emblem with Custom Animated Emojis (Key -> Coin) -->
     <div class="loading-emblem-wrap">
       <div class="loading-emblem-glow"></div>
-      <img src="assets/loading_logo.webp?v=20261014_3" alt="TREASURE HUNT" class="loading-badge-img">
+      <div class="loading-emblem-disc">
+        <div class="loading-emoji-stage" id="loadingEmojiStage">
+          <div class="loading-emoji-slot slot-key active" id="loadingSlotKey">
+            <span class="tg-emoji loading-tg-emoji" data-id="5307843983102204243">🔑</span>
+          </div>
+          <div class="loading-emoji-slot slot-coin" id="loadingSlotCoin">
+            <span class="tg-emoji loading-tg-emoji" data-id="5463046637842608206">🪙</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Title & Subtitle -->
@@ -8683,6 +8743,14 @@
       return originalFetch(resource, init);
     };
   })();
+
+  // Immediately render and initialize loading screen custom emojis (Key & Coin)
+  try {
+    var loadingEmojiStage = document.getElementById("loadingEmojiStage");
+    if (loadingEmojiStage) {
+      renderTgEmojis(loadingEmojiStage);
+    }
+  } catch(e){}
 
   // Anti-tamper & DevTools protection
   try {
@@ -11354,13 +11422,16 @@
               var animBox = document.createElement("div");
               animBox.className = "tg-custom-emoji-media";
               el.appendChild(animBox);
-              window.lottie.loadAnimation({
+              var anim = window.lottie.loadAnimation({
                 container: animBox,
                 renderer: "svg",
                 loop: true,
                 autoplay: true,
                 animationData: animData
               });
+              if (el.classList.contains("loading-tg-emoji")) {
+                anim.setSpeed(1.25);
+              }
             } else {
               el.textContent = fb;
             }
@@ -15589,11 +15660,32 @@
   var loadingDone = false;
   var apiGetCompleted = false;
 
+  var hasSwitchedLoadingEmoji = false;
+  function switchLoadingEmojiToCoin() {
+    if (hasSwitchedLoadingEmoji) return;
+    hasSwitchedLoadingEmoji = true;
+    var keySlot = document.getElementById("loadingSlotKey");
+    var coinSlot = document.getElementById("loadingSlotCoin");
+    if (keySlot) {
+      keySlot.classList.remove("active");
+      keySlot.classList.add("exit");
+    }
+    if (coinSlot) {
+      coinSlot.classList.add("active");
+    }
+  }
+
+  // Auto transition to Coin around ~450ms
+  setTimeout(switchLoadingEmojiToCoin, 450);
+
   var loadingInterval = setInterval(function(){
     if (!loadingDone && loadingProgress < 85) {
       loadingProgress += Math.floor(Math.random() * 8) + 4;
       if (loadingProgress > 85) loadingProgress = 85;
       if (loadingProgressFill) loadingProgressFill.style.width = loadingProgress + "%";
+      if (loadingProgress >= 50 && !hasSwitchedLoadingEmoji) {
+        switchLoadingEmojiToCoin();
+      }
     }
   }, 100);
 
@@ -15622,6 +15714,7 @@
     if (loadingDone) return;
     loadingDone = true;
     clearInterval(loadingInterval);
+    switchLoadingEmojiToCoin();
     if (loadingProgressFill) loadingProgressFill.style.width = "100%";
     setTimeout(function(){
       if (loadingScreenEl) {
@@ -15656,11 +15749,11 @@
     }
   }
 
-  // Ultra-fast responsive splash: dismiss immediately once server payload is ready
+  // Responsive splash: guarantees both Key and Coin animations are displayed cleanly at 1.25x speed
   var splashLaunchTime = Date.now();
   function triggerDismissWhenReady() {
     var elapsed = Date.now() - splashLaunchTime;
-    var waitMs = Math.max(0, 150 - elapsed);
+    var waitMs = Math.max(0, 950 - elapsed);
     setTimeout(dismissLoadingScreen, waitMs);
   }
 
