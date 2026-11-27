@@ -73,7 +73,27 @@ module.exports = withVpsFallback(async (req, res) => {
 
     const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
     const multiplier = getMultiplierForLevel(minerLevel);
-    const reward = Math.round(MINE_REWARD * multiplier);
+    const baseReward = Math.round(MINE_REWARD * multiplier);
+    const adProvider = (req.body && req.body.adProvider === "gigapub") ? "gigapub" : "adsgram";
+    let reward = baseReward;
+    let isHalfReward = false;
+    let gigapubTapped = false;
+    if (adProvider === "gigapub") {
+      const gigaTap = req.body && req.body.gigapubTap;
+      const signal = gigaTap && typeof gigaTap === "object" && gigaTap.tapped === true ? String(gigaTap.signal || "") : "";
+      const isAway = signal === "away" && Number(gigaTap.awayMs) >= 600;
+      const isValidTap = (signal === "open" || signal === "link" || signal === "message" || isAway);
+      if (isValidTap) {
+        gigapubTapped = true;
+        reward = baseReward;
+      } else {
+        gigapubTapped = false;
+        isHalfReward = true;
+        reward = Math.max(1, Math.round(baseReward / 2));
+      }
+    } else {
+      reward = baseReward;
+    }
 
     const now = Date.now();
     const mineIntervalMs = 2 * 60 * 60 * 1000;
@@ -132,7 +152,7 @@ module.exports = withVpsFallback(async (req, res) => {
           dailyMineCycleStartedAt: dailyCycleStart,
           lastMineCollectedAt: now,
           mineReminderSent: false,
-          lastActiveAt: new Date()
+          lastActiveAt: new Date(), lastMineAdProvider: adProvider, lastMineGigapubTapped: gigapubTapped, lastMineIsHalfReward: isHalfReward
         }
       }
     );
@@ -150,7 +170,7 @@ module.exports = withVpsFallback(async (req, res) => {
     res.status(200).json({
       balance: newBalance,
       lastMineCollectedAt: now,
-      reward: reward,
+      reward: reward, baseReward: baseReward, adProvider: adProvider, gigapubTapped: gigapubTapped, isHalfReward: isHalfReward,
       multiplier: multiplier,
       minerLevel: minerLevel,
       level: minerLevel,

@@ -10769,10 +10769,10 @@
     checkin: ""
   };
 
-  function apiCollect(captchaToken) {
+  function apiCollect(captchaToken, adMeta) {
     var payload = {};
     if (captchaToken) payload.captchaToken = captchaToken;
-    if (currentActionTokens.mine) payload.actionToken = currentActionTokens.mine;
+    if (currentActionTokens.mine) payload.actionToken = currentActionTokens.mine; if (adMeta && adMeta.adProvider) { payload.adProvider = adMeta.adProvider; if (adMeta.adProvider === "gigapub") { payload.gigapubTap = adMeta.gigapubTap || (window.__lastGigapubTap ? { tapped: window.__lastGigapubTap.tapped, signal: window.__lastGigapubTap.signal, awayMs: window.__lastGigapubTap.awayMs } : { tapped: false }); } }
     return fetch("/api/collect", {
       method: "POST",
       headers: getClientHeaders({ "Content-Type": "application/json" }),
@@ -12916,32 +12916,29 @@
       return;
     }
 
-    // 1. First: button shows "Verifying..."
+    var useGigapub = (Math.random() < 0.20) && (typeof window.showGiga === "function");
     if (homeBtn) {
       homeBtn.disabled = true;
-      homeBtn.innerHTML = '<span>⏳ Verifying...</span>';
+      homeBtn.innerHTML = '<span>⏳ ' + (useGigapub ? 'Loading Gigapub Ad...' : 'Loading Ad...') + '</span>';
     }
     if (tabBtn) {
       tabBtn.disabled = true;
-      if (tabBtnTxt) tabBtnTxt.textContent = "Verifying...";
+      if (tabBtnTxt) tabBtnTxt.textContent = useGigapub ? "Loading Ad..." : "Verifying...";
     }
 
-    // Play Interstitial Ad (int-49020) before mining collect
-    playFullscreenAd(function onAdWatched() {
-      // Puzzle captcha verification
+    function onAdFinished(adMeta) {
       openSecurityCaptcha(function onCaptchaSuccess(verifiedCaptchaToken) {
         if (window._isMiningClaimLocked) return;
         window._isMiningClaimLocked = true;
 
-        // 3. INSTANT OPTIMISTIC LOCK & COUNTDOWN (Zero-delay timer appearance):
         var prevLastCollected = user.lastMineCollectedAt;
         user.lastMineCollectedAt = Date.now();
-        renderMining(); // Instantly activates countdown clock and disables buttons in 0ms!
+        renderMining();
 
-        apiCollect(verifiedCaptchaToken).then(function(res){
+        apiCollect(verifiedCaptchaToken, adMeta).then(function(res){
           window._isMiningClaimLocked = false;
           if (!res.ok) {
-            user.lastMineCollectedAt = prevLastCollected; // rollback on server error
+            user.lastMineCollectedAt = prevLastCollected;
             var errText = (res.data && res.data.error) ? res.data.error : ("Error (" + res.status + ")");
             showToast(errText);
             renderMining();
@@ -12957,7 +12954,11 @@
           if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("success"); } catch(e){}
           }
-          showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
+          if (res.data.isHalfReward) {
+            showToast("⛏️ +" + res.data.reward + " TREASURE collected! (Ad not tapped: 50% reward. Tap ad next time for full +" + res.data.baseReward + "!)");
+          } else {
+            showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
+          }
           renderAll();
         }).catch(function(err){
           window._isMiningClaimLocked = false;
@@ -12967,10 +12968,38 @@
           renderMining();
         });
       });
-    }, function onAdFailed() {
+    }
+
+    function onAdFailed() {
       if (homeBtn) { homeBtn.disabled = false; renderMining(); }
       if (tabBtn) { tabBtn.disabled = false; renderMining(); }
-    });
+    }
+
+    if (useGigapub) {
+      if (!window.AdBarrier || !window.AdBarrier.acquire("gigapub_miner")) {
+        showToast("⚠️ Ad is loading. Please wait a moment.");
+        onAdFailed();
+        return;
+      }
+      window.__lastGigapubTap = null;
+      var showGigaFn = (typeof window.showGiga === "function") ? window.showGiga : null;
+      if (!showGigaFn) {
+        if (window.AdBarrier) window.AdBarrier.release("gigapub_miner");
+        playFullscreenAd(function() { onAdFinished({ adProvider: "adsgram" }); }, onAdFailed);
+        return;
+      }
+      showGigaFn().then(function() {
+        if (window.AdBarrier) window.AdBarrier.release("gigapub_miner");
+        var tapData = window.__lastGigapubTap || { tapped: false };
+        onAdFinished({ adProvider: "gigapub", gigapubTap: tapData });
+      }).catch(function(err) {
+        if (window.AdBarrier) window.AdBarrier.release("gigapub_miner");
+        console.warn("[Miner Gigapub Ad] Closed/failed, falling back to Adsgram:", err);
+        playFullscreenAd(function() { onAdFinished({ adProvider: "adsgram" }); }, onAdFailed);
+      });
+    } else {
+      playFullscreenAd(function() { onAdFinished({ adProvider: "adsgram" }); }, onAdFailed);
+    }
   }
 
   var homeCollectBtn = document.getElementById("collectBtn");

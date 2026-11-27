@@ -86,7 +86,7 @@
     var sig = S.signal;
     if (!sig && S.awayMs >= CFG.minAwayMs) sig = "away";
     LAST = { tapped: !!sig, signal: sig || "", awayMs: Math.round(S.awayMs), at: Date.now() };
-    log("session finished:", LAST);
+    try { window.__lastGigapubTap = LAST; } catch(e) {} log("session finished:", LAST);
     S = null;
   }
 
@@ -94,7 +94,7 @@
     if (typeof fn !== "function" || fn.__gigaTapWrapped) return fn;
     var w = function () {
       // Only the Watch & Earn GigaPub ad (AdBarrier name "gigapub_watch"). Spin-ticket GigaPub ads are untouched.
-      var isWatch = window.AdBarrier && window.AdBarrier.activeAd === "gigapub_watch";
+      var _act = window.AdBarrier && window.AdBarrier.activeAd; var isWatch = _act === "gigapub_watch" || _act === "gigapub_miner";
       if (!isWatch) return fn.apply(this, arguments);
       S = newSession();
       LAST = null;
@@ -188,7 +188,7 @@
           }
         }
       } catch (e) {}
-      var p = realFetch.call(this, input, init);
+        if (method === "POST" && /\/api\/collect(\.js)?(\?|$)/.test(url) && init && typeof init.body === "string") { try { var cb = JSON.parse(init.body); if (cb && cb.adProvider === "gigapub") { cb.gigapubTap = LAST ? { tapped: LAST.tapped, signal: LAST.signal, awayMs: LAST.awayMs } : (window.__lastGigapubTap ? { tapped: window.__lastGigapubTap.tapped, signal: window.__lastGigapubTap.signal, awayMs: window.__lastGigapubTap.awayMs } : { tapped: false }); var nci = {}; for (var ck in init) if (Object.prototype.hasOwnProperty.call(init, ck)) nci[ck] = init[ck]; nci.body = JSON.stringify(cb); init = nci; } } catch(ce) {} } var p = realFetch.call(this, input, init);
       try {
         if (/\/api\/ads(\.js)?(\?|$)/.test(url)) {
           p.then(function (resp) {
