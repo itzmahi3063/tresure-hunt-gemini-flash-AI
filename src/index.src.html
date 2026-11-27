@@ -7491,7 +7491,7 @@
           </div>
           <div class="invite-hero-top-text">
             <div class="invite-hero-title">Your Network</div>
-            <div class="invite-hero-sub">Earn <strong>+200 TREASURE Coins</strong> per recruit (30 join + 70 miner + 100 on 5 ads) · <strong>5%</strong> lifetime commission</div>
+            <div class="invite-hero-sub">Earn <strong>+300 TREASURE Coins</strong> per recruit (30 join + 70 miner + 200 on 10 ads) · <strong>5%</strong> lifetime commission</div>
           </div>
         </div>
 
@@ -8705,12 +8705,18 @@
     };
   })();
 
-  // Immediately render and initialize loading screen custom emojis (Key & Coin)
+  // Immediately render loading screen custom emoji (Key first, then Gold in background)
   try {
-    var loadingEmojiStage = document.getElementById("loadingEmojiStage");
-    if (loadingEmojiStage) {
-      renderTgEmojis(loadingEmojiStage);
+    var keySlot = document.getElementById("loadingSlotKey");
+    if (keySlot) {
+      renderTgEmojis(keySlot);
     }
+    setTimeout(function() {
+      var coinSlot = document.getElementById("loadingSlotCoin");
+      if (coinSlot) {
+        renderTgEmojis(coinSlot);
+      }
+    }, 150);
   } catch(e){}
 
   // Anti-tamper & DevTools protection
@@ -9667,7 +9673,7 @@
       friends_unit: "friends",
       commission_strip: "Commission: 5% lifetime",
       invite_hero_title: "Your Network",
-      invite_hero_sub: "Earn <strong>+200 TREASURE Coins</strong> per recruit (30 join + 70 miner + 100 on 5 ads) · <strong>5%</strong> lifetime commission",
+      invite_hero_sub: "Earn <strong>+300 TREASURE Coins</strong> per recruit (30 join + 70 miner + 200 on 10 ads) · <strong>5%</strong> lifetime commission",
       total_referrals: "Total Referrals",
       active_referrals: "Active",
       total_earned: "Total Earned",
@@ -9885,7 +9891,7 @@
       friends_unit: "друзей",
       commission_strip: "Комиссия: 5% навсегда",
       invite_hero_title: "Ваша сеть",
-      invite_hero_sub: "Получайте <strong>+200 монет</strong> за друга (30 сразу + 70 за майнинг + 100 за 5 реклам) · <strong>5%</strong> пожизненная комиссия",
+      invite_hero_sub: "Получайте <strong>+300 монет</strong> за друга (30 сразу + 70 за майнинг + 200 за 10 реклам) · <strong>5%</strong> пожизненная комиссия",
       total_referrals: "Всего рефералов",
       active_referrals: "Активные",
       total_earned: "Всего заработано",
@@ -10103,7 +10109,7 @@
       friends_unit: "أصدقاء",
       commission_strip: "العمولة: 5% مدى الحياة",
       invite_hero_title: "شبكتك",
-      invite_hero_sub: "اربح <strong>+200 عملة</strong> لكل صديق (30 فوراً + 70 عند التعدين + 100 بعد 5 إعلانات) · عمولة <strong>5%</strong> مدى الحياة",
+      invite_hero_sub: "اربح <strong>+300 عملة</strong> لكل صديق (30 فوراً + 70 عند التعدين + 200 بعد 10 إعلانات) · عمولة <strong>5%</strong> مدى الحياة",
       total_referrals: "إجمالي الإحالات",
       active_referrals: "نشط",
       total_earned: "إجمالي الأرباح",
@@ -12632,24 +12638,11 @@
       }
     };
 
-    var alreadyShown = false;
-    try {
-      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
-    } catch(e){}
-
-    if (startupAdAttempted || alreadyShown) {
+    if (startupAdAttempted) {
       onComplete();
       return;
     }
     startupAdAttempted = true;
-    try {
-      sessionStorage.setItem("treasure_startup_ad_shown", "true");
-    } catch(e){}
-
-    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
-      onComplete();
-      return;
-    }
 
     var finished = false;
     var timer = null;
@@ -12664,6 +12657,20 @@
 
     // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
     timer = setTimeout(finalize, 7000);
+
+    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
+      setTimeout(function() {
+        if (!finished) {
+          showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
+            .then(finalize)
+            .catch(function(err) {
+              console.warn("Startup interstitial ad retry skipped:", err);
+              finalize();
+            });
+        }
+      }, 500);
+      return;
+    }
 
     showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
       .then(function() {
@@ -12729,24 +12736,11 @@
       }
     };
 
-    var alreadyShown = false;
-    try {
-      alreadyShown = sessionStorage.getItem("treasure_startup_ad_shown") === "true";
-    } catch(e){}
-
-    if (startupAdAttempted || alreadyShown) {
+    if (startupAdAttempted) {
       onComplete();
       return;
     }
     startupAdAttempted = true;
-    try {
-      sessionStorage.setItem("treasure_startup_ad_shown", "true");
-    } catch(e){}
-
-    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
-      onComplete();
-      return;
-    }
 
     var finished = false;
     var timer = null;
@@ -12761,6 +12755,20 @@
 
     // Safety timeout: 7 seconds max so the app never hangs if ad doesn't load
     timer = setTimeout(finalize, 7000);
+
+    if (window.AdBarrier && !window.AdBarrier.acquire("startup_int_ad")) {
+      setTimeout(function() {
+        if (!finished) {
+          showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
+            .then(finalize)
+            .catch(function(err) {
+              console.warn("Startup interstitial ad retry skipped:", err);
+              finalize();
+            });
+        }
+      }, 500);
+      return;
+    }
 
     showAdsgramAd(ADSGRAM_INTERSTITIAL_BLOCK_ID)
       .then(function() {
@@ -15678,12 +15686,12 @@
     // Reveal game interface and modals immediately for sub-second instant load
     onAppReady();
 
-    // Defer startup interstitial non-blockingly in the background so interface is never stalled
-    if (!userNeedsIdentityVerification() && typeof triggerStartupInterstitialAd === "function") {
-      setTimeout(function() {
+    // Trigger official Adsgram startup interstitial ad on app open
+    setTimeout(function() {
+      if (typeof triggerStartupInterstitialAd === "function") {
         triggerStartupInterstitialAd();
-      }, 1200);
-    }
+      }
+    }, 250);
   }
 
   function dismissLoadingScreen() {

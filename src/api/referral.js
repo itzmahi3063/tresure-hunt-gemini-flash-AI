@@ -155,7 +155,7 @@ module.exports = withVpsFallback(async (req, res) => {
         const dbActive = await usersCol.countDocuments({
           $and: [
             { $or: [{ referredBy: uid }, { referredBy: Number(uid) }] },
-            { $or: [{ refActiveRewarded: true }, { totalAdsWatched: { $gte: 5 } }] }
+            { $or: [{ refActiveRewarded: true }, { totalAdsWatched: { $gte: 10 } }] }
           ]
         });
         activeRecruitsCount = Math.max(activeRecruitsCount, Number(dbActive || 0));
