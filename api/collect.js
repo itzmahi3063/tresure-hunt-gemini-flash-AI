@@ -1,7 +1,7 @@
 const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser } = require("../lib/userHelper");
+const { findOrCreateUser, handleMinerReferralReward } = require("../lib/userHelper");
 const { mineIsReady, MINE_REWARD, getMultiplierForLevel, getMax24hMiningForLevel } = require("../lib/gameLogic");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
@@ -144,6 +144,8 @@ module.exports = withVpsFallback(async (req, res) => {
 
     const updatedUser = await users.findOne({ _id: user._id });
     const newBalance = Number(updatedUser ? updatedUser.balance : ((Number(user.balance) || 0) + reward));
+
+    handleMinerReferralReward(db, process.env.TELEGRAM_BOT_TOKEN, user).catch(() => {});
 
     res.status(200).json({
       balance: newBalance,

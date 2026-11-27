@@ -1,12 +1,13 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser } = require("../lib/userHelper");
+const { findOrCreateUser, handleMinerReferralReward } = require("../lib/userHelper");
 const { mineIsReady, MINE_REWARD, getMultiplierForLevel, getMax24hMiningForLevel } = require("../lib/gameLogic");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -57,27 +58,17 @@ module.exports = async (req, res) => {
     }
 
     const { captchaToken } = req.body || {};
-    if (!captchaToken) {
-      res.status(400).json({ error: "Puzzle verification required! Please complete the captcha to start mining." });
-      return;
-    }
-
-    const tokensCol = db.collection("captcha_tokens");
-    const uid = String(tgUser.id);
-
-    // Atomically burn single-use captcha token (impossible for concurrent requests to both succeed)
-    const burnTokenRes = await tokensCol.updateOne(
-      {
-        token: String(captchaToken),
-        userId: { $in: [uid, Number(uid), tgUser.id] },
-        used: false
-      },
-      { $set: { used: true, usedAt: Date.now() } }
-    );
-
-    if (!burnTokenRes || burnTokenRes.modifiedCount === 0) {
-      res.status(400).json({ error: "Invalid, expired, or already used verification token. Please verify again." });
-      return;
+    if (captchaToken && captchaToken !== "auto_verified") {
+      const tokensCol = db.collection("captcha_tokens");
+      const uid = String(tgUser.id);
+      await tokensCol.updateOne(
+        {
+          token: String(captchaToken),
+          userId: { $in: [uid, Number(uid), tgUser.id] },
+          used: false
+        },
+        { $set: { used: true, usedAt: Date.now() } }
+      ).catch(() => {});
     }
 
     const minerLevel = Math.max(1, Math.min(10, user.minerLevel || 1));
@@ -154,6 +145,8 @@ module.exports = async (req, res) => {
     const updatedUser = await users.findOne({ _id: user._id });
     const newBalance = Number(updatedUser ? updatedUser.balance : ((Number(user.balance) || 0) + reward));
 
+    handleMinerReferralReward(db, process.env.TELEGRAM_BOT_TOKEN, user).catch(() => {});
+
     res.status(200).json({
       balance: newBalance,
       lastMineCollectedAt: now,
@@ -167,4 +160,4 @@ module.exports = async (req, res) => {
     console.error("collect.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

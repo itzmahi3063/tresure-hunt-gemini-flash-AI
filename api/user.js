@@ -470,8 +470,8 @@ module.exports = withVpsFallback(async (req, res) => {
             {
               $inc: {
                 recruitsCount: 1,
-                refEarnings: 100,
-                balance: 100
+                refEarnings: 30,
+                balance: 30
               },
               $push: { recentReferralSignups: { $each: [nowDate], $slice: -50 } }
             },
