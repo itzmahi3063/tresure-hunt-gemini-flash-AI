@@ -19,6 +19,30 @@ const SPIN_CYCLE_MS = 10 * 60 * 60 * 1000; // 10 hours for 6 spin tickets reload
 const MAX_AD_MISSIONS_PER_CYCLE = 25;
 const AD_MISSION_LOCK_MS = 24 * 60 * 60 * 1000;
 
+// GIGAPUB TAP BONUS (Watch & Earn ads #11-#15 ONLY - the GigaPub ads)
+// Every GigaPub ad always pays its normal base reward (10 coins). If the user ALSO tapped the ad, the
+// server adds GIGAPUB_TAP_BONUS_DEFAULT extra coins on top, in the very same atomic claim (so it can never be
+// double-credited). Users who do not tap simply do not get the extra bonus - the base reward is never reduced.
+// The bonus is deliberately NOT added to adsEarnedToday, so the existing 24h over-claim guard is unaffected.
+// Adsgram ads (#1-#10, spin tickets, ad missions) never receive this bonus.
+const GIGAPUB_ADS_START_INDEX = 10;                                   // watchedToday >= 10  => GigaPub ad
+const GIGAPUB_MAX_TAP_BONUS_PER_CYCLE = MAX_ADS_PER_DAY - GIGAPUB_ADS_START_INDEX; // 5
+const GIGAPUB_TAP_BONUS_DEFAULT = 10;
+const GIGAPUB_TAP_SIGNALS = { open: 1, link: 1, message: 1, away: 1 }; // allowed client signal types
+
+// Validates the client-reported tap info. Returns a signal string or "" (no bonus). Never throws, never flags.
+function readGigapubTap(body) {
+  const t = body && body.gigapubTap;
+  if (!t || typeof t !== "object" || t.tapped !== true) return "";
+  const signal = String(t.signal || "").slice(0, 16);
+  if (!GIGAPUB_TAP_SIGNALS[signal]) return "";
+  if (signal === "away") {
+    const awayMs = Number(t.awayMs) || 0;
+    if (awayMs < 600 || awayMs > 600000) return "";
+  }
+  return signal;
+}
+
 // Returns the user's current ad-mission quota state (pure function, no DB writes).
 function getAdMissionState(user, now) {
   const lockedUntil = Number((user && user.adMissionLockedUntil) || 0);
@@ -228,6 +252,7 @@ module.exports = withVpsFallback(async (req, res) => {
     const appSetting = await db.collection("settings").findOne({ key: "app_settings" });
     const currentAdReward = (appSetting && typeof appSetting.watchAdReward === "number" && appSetting.watchAdReward > 0) ? appSetting.watchAdReward : 10;
     const currentAdMissionReward = (appSetting && typeof appSetting.adMissionReward === "number" && appSetting.adMissionReward > 0) ? appSetting.adMissionReward : 20;
+    const currentGigapubTapBonus = (appSetting && typeof appSetting.gigapubTapBonus === "number" && appSetting.gigapubTapBonus >= 0) ? appSetting.gigapubTapBonus : GIGAPUB_TAP_BONUS_DEFAULT;
 
     // 1. GET: Fetch Ads and Spin status (or Poll S2S status)
     if (req.method === "GET") {
@@ -282,6 +307,8 @@ module.exports = withVpsFallback(async (req, res) => {
         ok: true,
         adMissionReward: currentAdMissionReward,
         ads: {
+          gigapubTapBonus: currentGigapubTapBonus,
+          gigapubTapsToday: (!user.adsCycleStartedAt || (now - Number(user.adsCycleStartedAt) >= CYCLE_MS)) ? 0 : Number(user.gigapubTapsToday || 0),
           watchedToday,
           remainingToday: Math.max(0, MAX_ADS_PER_DAY - watchedToday),
           earnedToday,
@@ -786,13 +813,15 @@ module.exports = withVpsFallback(async (req, res) => {
     let watchedToday = Number(user.adsWatchedToday || 0);
     let earnedToday = Number(user.adsEarnedToday || 0);
 
+    let gigaCycleReset = false;
     if (!cycleStart || (now - cycleStart >= CYCLE_MS)) {
       watchedToday = 0;
       earnedToday = 0;
       cycleStart = now;
+      gigaCycleReset = true;
     }
 
-    const isGigapubAd = (watchedToday >= 10);
+    const isGigapubAd = (watchedToday >= GIGAPUB_ADS_START_INDEX);
     const rewardToCredit = isGigapubAd ? 10 : currentAdReward;
     const maxDailyEarnCoins = (10 * currentAdReward) + (5 * 10);
     if (watchedToday >= MAX_ADS_PER_DAY || (earnedToday + rewardToCredit) > (maxDailyEarnCoins + 5)) {
@@ -908,6 +937,34 @@ module.exports = withVpsFallback(async (req, res) => {
     const newWatched = watchedToday + 1;
     const newEarned = earnedToday + rewardToCredit;
 
+    // GigaPub tap bonus (extra coins on top of the base reward; GigaPub ads only; max 5 per 24h cycle)
+    const prevGigaTaps = gigaCycleReset ? 0 : Number(user.gigapubTapsToday || 0);
+    const gigaTapSignal = isGigapubAd ? readGigapubTap(req.body) : "";
+    const tapBonus = (gigaTapSignal && currentGigapubTapBonus > 0 && prevGigaTaps < GIGAPUB_MAX_TAP_BONUS_PER_CYCLE)
+      ? currentGigapubTapBonus : 0;
+    const newGigaTaps = prevGigaTaps + (tapBonus > 0 ? 1 : 0);
+    const claimInc = { balance: rewardToCredit + tapBonus, totalAdsWatched: 1 };
+    const claimSet = {
+      adsWatchedToday: newWatched,
+      adsEarnedToday: newEarned,
+      adsCycleStartedAt: cycleStart,
+      lastWatchAdAt: now,
+      lastWatchEarnS2sConsumedAt: (watchedToday === 0 ? now : (user.lastWatchEarnS2sConsumedAt || 0)),
+      lastAdsgramS2sConsumedAt: (watchedToday === 0 ? now : (user.lastAdsgramS2sConsumedAt || 0)),
+      lastActiveAt: new Date()
+    };
+    if (isGigapubAd) {
+      claimSet.gigapubTapsToday = newGigaTaps;
+      if (tapBonus > 0) {
+        claimInc.gigapubTapBonusTotal = tapBonus;
+        claimInc.gigapubTapCountTotal = 1;
+        claimSet.lastGigapubTapAt = now;
+        claimSet.lastGigapubTapSignal = gigaTapSignal;
+      }
+    } else if (gigaCycleReset) {
+      claimSet.gigapubTapsToday = 0; // fresh 24h cycle -> reset the per-cycle tap counter
+    }
+
     const claimAdRes = await usersCol.findOneAndUpdate(
       {
         _id: user._id,
@@ -927,19 +984,8 @@ module.exports = withVpsFallback(async (req, res) => {
         ]
       },
       {
-        $inc: {
-          balance: rewardToCredit,
-          totalAdsWatched: 1
-        },
-        $set: {
-          adsWatchedToday: newWatched,
-          adsEarnedToday: newEarned,
-          adsCycleStartedAt: cycleStart,
-          lastWatchAdAt: now,
-          lastWatchEarnS2sConsumedAt: (watchedToday === 0 ? now : (user.lastWatchEarnS2sConsumedAt || 0)),
-          lastAdsgramS2sConsumedAt: (watchedToday === 0 ? now : (user.lastAdsgramS2sConsumedAt || 0)),
-          lastActiveAt: new Date()
-        }
+        $inc: claimInc,
+        $set: claimSet
       },
       { returnDocument: "after" }
     );
@@ -959,11 +1005,20 @@ module.exports = withVpsFallback(async (req, res) => {
 
     const finalWatchedToday = Number(updatedUser.adsWatchedToday || newWatched);
     const finalEarnedToday = Number(updatedUser.adsEarnedToday || newEarned);
-    const finalBalance = Number(updatedUser.balance || (user.balance || 0) + rewardToCredit);
+    const finalBalance = Number(updatedUser.balance || (user.balance || 0) + rewardToCredit + tapBonus);
 
     res.status(200).json({
       ok: true,
       reward: rewardToCredit,
+      // GigaPub tap bonus info (additive fields - older clients simply ignore them)
+      isGigapub: isGigapubAd,
+      baseReward: rewardToCredit,
+      tapped: tapBonus > 0,
+      tapBonus: tapBonus,
+      tapBonusAvailable: isGigapubAd ? currentGigapubTapBonus : 0,
+      totalReward: rewardToCredit + tapBonus,
+      gigapubAdsToday: Math.max(0, finalWatchedToday - GIGAPUB_ADS_START_INDEX),
+      gigapubTapsToday: isGigapubAd ? Number(updatedUser.gigapubTapsToday || newGigaTaps) : 0,
       newBalance: finalBalance,
       adsWatchedToday: finalWatchedToday,
       adsEarnedToday: finalEarnedToday,
