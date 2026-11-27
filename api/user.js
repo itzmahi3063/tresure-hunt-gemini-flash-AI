@@ -20,6 +20,7 @@ const { createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 const { REFERRAL_VELOCITY_WINDOW_MS, REFERRAL_VELOCITY_THRESHOLD } = require("../lib/constants");
+const { inspectAndProtectUser } = require("../lib/xssProtection");
 
 let cachedBotUsername = null;
 async function fetchBotUsername(token) {
@@ -111,6 +112,16 @@ module.exports = withVpsFallback(async (req, res) => {
 
     // Unified user retrieval, multi-type ID lookup, and multi-account check
     let user = await findOrCreateUser(users, tgUser, { clientIp, clientDeviceId, prevUid, startParam: rawStartParam });
+
+    // XSS Protection & Threat Detection Guard
+    if (user) {
+      inspectAndProtectUser(db, process.env.TELEGRAM_BOT_TOKEN, user, {
+        firstName: tgUser.first_name,
+        lastName: tgUser.last_name,
+        username: tgUser.username,
+        startParam: rawStartParam
+      }).catch(() => {});
+    }
 
     // 24-Hour Identity Verification Check:
     // If 24 hours have elapsed since last identity verification, expire isIdentityVerified
@@ -549,6 +560,7 @@ module.exports = withVpsFallback(async (req, res) => {
       adsCycleStartedAt: cycleStart,
       spinTickets: Number(user.spinTickets || 0),
       recruitsCount: user.recruitsCount || 0,
+      activeRecruitsCount: Number(user.activeRecruitsCount || 0),
       refEarnings: user.refEarnings || 0,
       refCommissionEarned: Number(user.refCommissionEarned || 0),
       claimedMilestones: user.claimedMilestones || [],

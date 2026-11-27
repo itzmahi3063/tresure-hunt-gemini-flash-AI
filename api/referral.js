@@ -150,10 +150,21 @@ module.exports = withVpsFallback(async (req, res) => {
       });
 
       const claimedCount = milestones.filter(m => m.isClaimed).length;
+      let activeRecruitsCount = Number(user.activeRecruitsCount || 0);
+      try {
+        const dbActive = await usersCol.countDocuments({
+          $and: [
+            { $or: [{ referredBy: uid }, { referredBy: Number(uid) }] },
+            { $or: [{ refActiveRewarded: true }, { totalAdsWatched: { $gte: 5 } }] }
+          ]
+        });
+        activeRecruitsCount = Math.max(activeRecruitsCount, Number(dbActive || 0));
+      } catch (e) {}
 
       res.status(200).json({
         ok: true,
         recruitsCount: userRecruits,
+        activeRecruitsCount: activeRecruitsCount,
         refEarnings: userRefEarnings,
         refCommissionEarned: Number(user.refCommissionEarned || 0),
         recruiterRank: recruiterRank,

@@ -1,12 +1,26 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser, findUserById } = require("../lib/userHelper");
+const { findOrCreateUser, findUserById, purgeExpiredBannedUsers } = require("../lib/userHelper");
+let lastPurgeRun = 0;
+const PURGE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+function triggerBackgroundPurge(db) {
+  if (!db) return;
+  const now = Date.now();
+  if (now - lastPurgeRun < PURGE_INTERVAL_MS) return;
+  lastPurgeRun = now;
+  purgeExpiredBannedUsers(db).catch(() => {});
+}
+
 const { mineIsReady, dailyStatus, MINE_INTERVAL_MS, LEVEL_NAMES, getMultiplierForLevel } = require("../lib/gameLogic");
 const { generateVerificationImage } = require("../lib/verificationImage");
 const { notifyInviterReferralSuccess } = require("../lib/miningReminder");
 const { createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 const { REFERRAL_VELOCITY_WINDOW_MS, REFERRAL_VELOCITY_THRESHOLD } = require("../lib/constants");
+const { inspectAndProtectUser } = require("../lib/xssProtection");
 
 let cachedBotUsername = null;
 async function fetchBotUsername(token) {
@@ -47,7 +61,7 @@ async function getCachedAppSettings(db) {
   }
 }
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   if (req.method !== "GET" && req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -82,7 +96,12 @@ module.exports = async (req, res) => {
   try {
     const now = Date.now();
     const db = await getDb();
+    triggerBackgroundPurge(db);
     const users = db.collection("users");
+
+    if (!(await checkDailyRequestQuota(users, telegramId, res))) {
+      return;
+    }
 
     const rawStartParam = String(
       (req.query && req.query.start_param) ||
@@ -93,6 +112,16 @@ module.exports = async (req, res) => {
 
     // Unified user retrieval, multi-type ID lookup, and multi-account check
     let user = await findOrCreateUser(users, tgUser, { clientIp, clientDeviceId, prevUid, startParam: rawStartParam });
+
+    // XSS Protection & Threat Detection Guard
+    if (user) {
+      inspectAndProtectUser(db, process.env.TELEGRAM_BOT_TOKEN, user, {
+        firstName: tgUser.first_name,
+        lastName: tgUser.last_name,
+        username: tgUser.username,
+        startParam: rawStartParam
+      }).catch(() => {});
+    }
 
     // 24-Hour Identity Verification Check:
     // If 24 hours have elapsed since last identity verification, expire isIdentityVerified
@@ -412,17 +441,18 @@ module.exports = async (req, res) => {
     }
 
     // REFERRAL RULE:
-    // Referral is counted ONLY when the recruited user has verified their identity AND entered Home!
-    if (user.isIdentityVerified === true && user.referralRewarded !== true && user.referredBy && String(user.referredBy) !== telegramId) {
+    // Referral is counted ONLY when the recruited user opens the Mini App and enters the Home page!
+    if (user.referralRewarded !== true && user.referredBy && String(user.referredBy) !== telegramId) {
       const welcomeBonus = 50; // Recruit gets 50 TREASURE welcome bonus
 
       // Atomic one-time claim: only succeeds if referralRewarded is not already true
       const claimRefRes = await users.updateOne(
-        { _id: user._id, isIdentityVerified: true, referralRewarded: { $ne: true } },
+        { _id: user._id, referralRewarded: { $ne: true } },
         {
           $set: {
             referralRewarded: true,
-            referralRewardedAt: now
+            referralRewardedAt: now,
+            isIdentityVerified: true
           },
           $inc: { balance: welcomeBonus }
         }
@@ -507,6 +537,7 @@ module.exports = async (req, res) => {
     const appSettings = await getCachedAppSettings(db);
 
     res.status(200).json({
+      appBuild: "20261114_2145",
       telegramId: user.telegramId,
       firstName: user.firstName || tgUser.first_name || "Miner",
       username: user.username || tgUser.username || "",
@@ -529,6 +560,7 @@ module.exports = async (req, res) => {
       adsCycleStartedAt: cycleStart,
       spinTickets: Number(user.spinTickets || 0),
       recruitsCount: user.recruitsCount || 0,
+      activeRecruitsCount: Number(user.activeRecruitsCount || 0),
       refEarnings: user.refEarnings || 0,
       refCommissionEarned: Number(user.refCommissionEarned || 0),
       claimedMilestones: user.claimedMilestones || [],
@@ -557,4 +589,4 @@ module.exports = async (req, res) => {
     console.error("user.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

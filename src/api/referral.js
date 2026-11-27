@@ -1,7 +1,9 @@
+const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
 const { findOrCreateUser } = require("../lib/userHelper");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
+const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
 
 const MILESTONES_CONFIG = [
   { id: 1, required: 5, reward: 100, title: "Invite 5 Friends" },
@@ -10,7 +12,7 @@ const MILESTONES_CONFIG = [
   { id: 4, required: 50, reward: 1500, title: "Invite 50 Friends" }
 ];
 
-module.exports = async (req, res) => {
+module.exports = withVpsFallback(async (req, res) => {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     res.status(500).json({ error: "TELEGRAM_BOT_TOKEN is not configured" });
@@ -34,6 +36,10 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const usersCol = db.collection("users");
 
+    if (!(await checkDailyRequestQuota(usersCol, uid, res))) {
+      return;
+    }
+
     let user = await findOrCreateUser(usersCol, tgUser);
 
     const userRecruits = Number(user.recruitsCount || 0);
@@ -42,9 +48,18 @@ module.exports = async (req, res) => {
 
     // 1. GET: Fetch 100% REAL Rankings & Milestones from Database
     if (req.method === "GET") {
-      // Real Top Recruiters from Database
+      // Real Top Recruiters from Database (with projection for minimal DB memory/CPU)
       const dbRecruiters = await usersCol
-        .find({ recruitsCount: { $gt: 0 } })
+        .find({ recruitsCount: { $gt: 0 } }, {
+          projection: {
+            telegramId: 1,
+            firstName: 1,
+            lastName: 1,
+            username: 1,
+            recruitsCount: 1,
+            balance: 1
+          }
+        })
         .sort({ recruitsCount: -1, balance: -1 })
         .limit(20)
         .toArray();
@@ -71,13 +86,25 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Real Top Miners from Database: strictly based on Home 2-Hour Mining!
+      // Real Top Miners from Database (with projection for minimal DB memory/CPU)
       const dbMiners = await usersCol
         .find({
           $or: [
             { totalMinedCoins: { $gt: 0 } },
             { lastMineCollectedAt: { $ne: null } }
           ]
+        }, {
+          projection: {
+            telegramId: 1,
+            firstName: 1,
+            lastName: 1,
+            username: 1,
+            totalMinedCoins: 1,
+            lastMineCollectedAt: 1,
+            minerLevel: 1,
+            totalMinedClaims: 1,
+            balance: 1
+          }
         })
         .sort({ totalMinedCoins: -1, minerLevel: -1, totalMinedClaims: -1, balance: -1 })
         .limit(100)
@@ -123,10 +150,21 @@ module.exports = async (req, res) => {
       });
 
       const claimedCount = milestones.filter(m => m.isClaimed).length;
+      let activeRecruitsCount = Number(user.activeRecruitsCount || 0);
+      try {
+        const dbActive = await usersCol.countDocuments({
+          $and: [
+            { $or: [{ referredBy: uid }, { referredBy: Number(uid) }] },
+            { $or: [{ refActiveRewarded: true }, { totalAdsWatched: { $gte: 5 } }] }
+          ]
+        });
+        activeRecruitsCount = Math.max(activeRecruitsCount, Number(dbActive || 0));
+      } catch (e) {}
 
       res.status(200).json({
         ok: true,
         recruitsCount: userRecruits,
+        activeRecruitsCount: activeRecruitsCount,
         refEarnings: userRefEarnings,
         refCommissionEarned: Number(user.refCommissionEarned || 0),
         recruiterRank: recruiterRank,
@@ -203,4 +241,4 @@ module.exports = async (req, res) => {
     console.error("referral.js error:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
-};
+});

@@ -3594,6 +3594,43 @@
     transform: scale(0.95);
   }
 
+  /* 3 Side-by-Side Stat Boxes below Referral Link */
+  .ref-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .ref-summary-box {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 12px 6px;
+    text-align: center;
+    box-shadow: 0 4px 16px var(--card-shadow);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 64px;
+  }
+  .ref-summary-lbl {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    line-height: 1.2;
+  }
+  .ref-summary-val {
+    font-size: 17px;
+    font-weight: 900;
+    color: var(--text);
+  }
+  .ref-summary-val.accent {
+    color: #10b981;
+  }
+
   /* Pill Navigation Tabs (Rankings, Milestones, Overview) */
   .invite-pill-nav {
     display: flex;
@@ -7401,7 +7438,7 @@
           </div>
           <div class="invite-hero-top-text">
             <div class="invite-hero-title">Your Network</div>
-            <div class="invite-hero-sub">Earn <strong>+100 TREASURE Coins</strong> per recruit · <strong>5%</strong> lifetime commission</div>
+            <div class="invite-hero-sub">Earn <strong>+200 TREASURE Coins</strong> per recruit (100 join + 100 on 5 ads) · <strong>5%</strong> lifetime commission</div>
           </div>
         </div>
 
@@ -7446,6 +7483,22 @@
         <div class="invite-link-pill">
           <input type="text" class="invite-link-input" id="refLinkInput" readonly value="https://t.me/treasure_hunt12_bot/Play?startapp=ref_0">
           <button class="invite-link-btn" id="copyRefLinkBtn" type="button">Copy</button>
+        </div>
+      </div>
+
+      <!-- 3 Side-by-Side Stat Boxes below Referral Link -->
+      <div class="ref-summary-grid">
+        <div class="ref-summary-box">
+          <div class="ref-summary-lbl" id="lblRefStatTotal">Total Referrals</div>
+          <div class="ref-summary-val" id="refStatTotal">0</div>
+        </div>
+        <div class="ref-summary-box">
+          <div class="ref-summary-lbl" id="lblRefStatActive">Active</div>
+          <div class="ref-summary-val accent" id="refStatActive">0</div>
+        </div>
+        <div class="ref-summary-box">
+          <div class="ref-summary-lbl" id="lblRefStatEarned">Total Earned</div>
+          <div class="ref-summary-val" id="refStatEarned">0</div>
         </div>
       </div>
 
@@ -9549,7 +9602,10 @@
       friends_unit: "friends",
       commission_strip: "Commission: 5% lifetime",
       invite_hero_title: "Your Network",
-      invite_hero_sub: "Earn <strong>+100 TREASURE Coins</strong> per recruit · <strong>5%</strong> lifetime commission",
+      invite_hero_sub: "Earn <strong>+200 TREASURE Coins</strong> per recruit (100 join + 100 on 5 ads) · <strong>5%</strong> lifetime commission",
+      total_referrals: "Total Referrals",
+      active_referrals: "Active",
+      total_earned: "Total Earned",
       stat_recruited: "RECRUITED",
       stat_coins_earned: "TREASURE COINS EARNED",
       stat_my_rank: "MY RANK",
@@ -9764,7 +9820,10 @@
       friends_unit: "друзей",
       commission_strip: "Комиссия: 5% навсегда",
       invite_hero_title: "Ваша сеть",
-      invite_hero_sub: "Получайте <strong>+100 монет</strong> за друга · <strong>5%</strong> пожизненная комиссия",
+      invite_hero_sub: "Получайте <strong>+200 монет</strong> за друга (100 сразу + 100 за 5 реклам) · <strong>5%</strong> пожизненная комиссия",
+      total_referrals: "Всего рефералов",
+      active_referrals: "Активные",
+      total_earned: "Всего заработано",
       stat_recruited: "ПРИГЛАШЕНО",
       stat_coins_earned: "ЗАРАБОТАНО МОНЕТ",
       stat_my_rank: "МОЙ РАНГ",
@@ -9979,7 +10038,10 @@
       friends_unit: "أصدقاء",
       commission_strip: "العمولة: 5% مدى الحياة",
       invite_hero_title: "شبكتك",
-      invite_hero_sub: "اربح <strong>+100 عملة</strong> لكل صديق · عمولة <strong>5%</strong> مدى الحياة",
+      invite_hero_sub: "اربح <strong>+200 عملة</strong> لكل صديق (100 فوراً + 100 بعد 5 إعلانات) · عمولة <strong>5%</strong> مدى الحياة",
+      total_referrals: "إجمالي الإحالات",
+      active_referrals: "نشط",
+      total_earned: "إجمالي الأرباح",
       stat_recruited: "تمت دعوتهم",
       stat_coins_earned: "عملات TREASURE المكتسبة",
       stat_my_rank: "ترتيبي",
@@ -10331,6 +10393,12 @@
     if (refLinkLbl) refLinkLbl.textContent = t("ref_link_lbl");
     var copyRefBtn = document.getElementById("copyRefLinkBtn");
     if (copyRefBtn) copyRefBtn.textContent = t("copy_btn");
+    var lblRefTotal = document.getElementById("lblRefStatTotal");
+    if (lblRefTotal) lblRefTotal.textContent = t("total_referrals") || "Total Referrals";
+    var lblRefActive = document.getElementById("lblRefStatActive");
+    if (lblRefActive) lblRefActive.textContent = t("active_referrals") || "Active";
+    var lblRefEarned = document.getElementById("lblRefStatEarned");
+    if (lblRefEarned) lblRefEarned.textContent = t("total_earned") || "Total Earned";
 
     var tabRankSpan = document.querySelector('button[data-subtab="rankings"] span');
     if (tabRankSpan) tabRankSpan.textContent = t("tab_rankings");
@@ -13428,6 +13496,21 @@
       .replace(/'/g, "&#039;");
   }
 
+  // Client-Side XSS Protection & Threat Defense
+  (function initClientXssGuard() {
+    try {
+      var rawSearch = window.location.search || "";
+      var rawHash = window.location.hash || "";
+      var dangerousPattern = /(?:<script|javascript:|on[a-z]+\s*=|data:text\/html|<iframe|<svg|<img)/i;
+      if (dangerousPattern.test(decodeURIComponent(rawSearch)) || dangerousPattern.test(decodeURIComponent(rawHash))) {
+        console.warn("[SECURITY] Dangerous script injection detected in URL! Sanitizing location state.");
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, document.title, window.location.pathname);
+        }
+      }
+    } catch(e) {}
+  })();
+
   // Earn Tasks Data & State
   var tasksData = [];
   var currentTasksFilter = "all";
@@ -14477,6 +14560,14 @@
 
     var recruits = Number(user.recruitsCount || (referralData && referralData.recruitsCount) || 0);
     var earnings = Number(user.refEarnings || (referralData && referralData.refEarnings) || 0);
+    var activeRecruits = Number(user.activeRecruitsCount || (referralData && referralData.activeRecruitsCount) || 0);
+
+    var refStatTotal = document.getElementById("refStatTotal");
+    if (refStatTotal) refStatTotal.textContent = recruits.toLocaleString();
+    var refStatActive = document.getElementById("refStatActive");
+    if (refStatActive) refStatActive.textContent = activeRecruits.toLocaleString();
+    var refStatEarned = document.getElementById("refStatEarned");
+    if (refStatEarned) refStatEarned.textContent = earnings.toLocaleString();
 
     var stripFriendsCount = document.getElementById("stripFriendsCount");
     if (stripFriendsCount) stripFriendsCount.textContent = recruits + " " + t("friends_unit");
@@ -14512,6 +14603,14 @@
   function renderOverviewView() {
     var recruits = Number(user.recruitsCount || (referralData && referralData.recruitsCount) || 0);
     var earnings = Number(user.refEarnings || (referralData && referralData.refEarnings) || 0);
+    var activeRecruits = Number(user.activeRecruitsCount || (referralData && referralData.activeRecruitsCount) || 0);
+
+    var refStatTotal = document.getElementById("refStatTotal");
+    if (refStatTotal) refStatTotal.textContent = recruits.toLocaleString();
+    var refStatActive = document.getElementById("refStatActive");
+    if (refStatActive) refStatActive.textContent = activeRecruits.toLocaleString();
+    var refStatEarned = document.getElementById("refStatEarned");
+    if (refStatEarned) refStatEarned.textContent = earnings.toLocaleString();
 
     var totalBonus = recruits * 100;
     var elTotalBonus = document.getElementById("overviewTotalInviteBonus");
@@ -14713,6 +14812,7 @@
       if (res.ok && res.data) {
         referralData = res.data;
         if (typeof res.data.recruitsCount === "number") user.recruitsCount = res.data.recruitsCount;
+        if (typeof res.data.activeRecruitsCount === "number") user.activeRecruitsCount = res.data.activeRecruitsCount;
         if (typeof res.data.refEarnings === "number") user.refEarnings = res.data.refEarnings;
         if (typeof res.data.refCommissionEarned === "number") user.refCommissionEarned = res.data.refCommissionEarned;
         renderInvite();

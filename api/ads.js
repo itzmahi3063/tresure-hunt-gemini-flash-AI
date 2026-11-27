@@ -1,7 +1,7 @@
 const { withVpsFallback } = require("../lib/vpsBridge");
 const { getDb } = require("../lib/mongodb");
 const { validateInitData } = require("../lib/telegramAuth");
-const { findOrCreateUser } = require("../lib/userHelper");
+const { findOrCreateUser, handleActiveReferralReward } = require("../lib/userHelper");
 const { verifyActionToken, createActionToken } = require("../lib/actionSigner");
 const { checkVelocityLimit } = require("../lib/velocityLimiter");
 const { checkDailyRequestQuota } = require("../lib/dailyQuotaLimiter");
@@ -805,6 +805,8 @@ module.exports = withVpsFallback(async (req, res) => {
         newActionToken: createActionToken(uid, "spin_watch_ad"),
         message: "🎟️ +1 Spin Ticket added!"
       });
+      user.totalAdsWatched = Number(user.totalAdsWatched || 0) + 1;
+      handleActiveReferralReward(db, botToken, user).catch(() => {});
       return;
     }
 
@@ -1003,6 +1005,7 @@ module.exports = withVpsFallback(async (req, res) => {
       return;
     }
 
+    handleActiveReferralReward(db, botToken, updatedUser).catch(() => {});
     const finalWatchedToday = Number(updatedUser.adsWatchedToday || newWatched);
     const finalEarnedToday = Number(updatedUser.adsEarnedToday || newEarned);
     const finalBalance = Number(updatedUser.balance || (user.balance || 0) + rewardToCredit + tapBonus);

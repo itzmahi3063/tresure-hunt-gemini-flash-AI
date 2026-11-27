@@ -8,6 +8,7 @@ const { processMiningReminders } = require("../lib/miningReminder");
 const { dispatchTonPayout } = require("../lib/tonAutoPay");
 const { purgeExpiredBannedUsers, creditReferralWithdrawalCommission, purgeExpiredCompletedTasks } = require("../lib/userHelper");
 const { startOrContinueBroadcast, processBroadcastQueue } = require("../lib/broadcastQueue");
+const { detectXss, inspectAndProtectUser } = require("../lib/xssProtection");
 
 let cachedWelcomeBannerFileId = null;
 let cachedAdminIds = null;
@@ -1789,6 +1790,11 @@ const handler = withVpsFallback(async (req, res) => {
       }
       const startParam = parts[1] || "";
       if (startParam) {
+        // XSS Guard: detect and flag malicious script injection inside startParam
+        const xssCheck = detectXss(startParam, "startParam");
+        if (xssCheck.hasXss && db) {
+          inspectAndProtectUser(db, botToken, { telegramId: senderId, username: senderUsername, firstName: senderFirstName }, { startParam }).catch(() => {});
+        }
         appUrl += `&tgWebAppStartParam=${encodeURIComponent(startParam)}`;
         // Asynchronous non-blocking referral binding: never blocks the instant /start greeting!
         if (db) {
