@@ -5944,20 +5944,14 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     padding: 20px;
-    margin-top: -30px;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
   }
 
-  /* Center Circular Emblem */
-  .loading-emblem-wrap {
-    position: relative;
-    width: 140px;
-    height: 140px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 24px;
-  }
   /* Center Emblem Area (Clean transparent container without any background circle) */
   .loading-emblem-wrap {
     position: relative;
@@ -6851,21 +6845,44 @@
     display: none !important;
     animation: none !important;
   }
-  /* Explicitly guarantee loading screen animations run at full 60fps on all devices */
-  #appLoadingScreen,
-  #appLoadingScreen *,
-  #appLoadingScreen *::before,
-  #appLoadingScreen *::after,
-  .loading-tg-emoji,
-  .loading-tg-emoji * {
-    animation-duration: unset !important;
-    animation-iteration-count: unset !important;
-    display: revert !important;
+  /* Enforce perfect full-screen vertical & horizontal centering for Loading Screen */
+  #appLoadingScreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    z-index: 99999999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #appLoadingScreen .loading-content {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    max-width: 420px !important;
+    margin: 0 auto !important;
+    padding: 20px !important;
+    box-sizing: border-box !important;
   }
   #appLoadingScreen .loading-emblem-wrap,
   #appLoadingScreen .loading-emoji-stage,
-  #appLoadingScreen .loading-emoji-slot {
+  #appLoadingScreen .loading-emoji-slot,
+  .loading-tg-emoji {
     display: flex !important;
+  }
+  #appLoadingScreen .loading-progress-bar {
+    display: block !important;
   }
   #appLoadingScreen .loading-progress-fill {
     display: block !important;
