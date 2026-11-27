@@ -6824,13 +6824,10 @@
 
   #identityVerifyModal, #secModal { display: none !important; pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }
 
-  /* Low-End Devices (< 4GB RAM) Optimization: disable lag-causing blurs, heavy shadows, and animations */
-  .low-end-device *,
-  .low-end-device *::before,
-  .low-end-device *::after {
-    animation-duration: 0.001s !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.05s !important;
+  /* Low-End Devices (<= 4GB RAM) Optimization: Keep Loading Screen animation running, turn off heavy continuous loop animations and filters */
+  .low-end-device *:not(#appLoadingScreen):not(#appLoadingScreen *),
+  .low-end-device *:not(#appLoadingScreen):not(#appLoadingScreen *)::before,
+  .low-end-device *:not(#appLoadingScreen):not(#appLoadingScreen *)::after {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     text-shadow: none !important;
@@ -6841,9 +6838,37 @@
   .low-end-device .sec-sparkle,
   .low-end-device .pulse-glow,
   .low-end-device .mine-glow-ring,
-  .low-end-device .shine-effect {
+  .low-end-device .shine-effect,
+  .low-end-device .vault-hero-card::after,
+  .low-end-device .watch-card::after,
+  .low-end-device .ad-mission-card::after,
+  .low-end-device .live-badge-dot,
+  .low-end-device .aura-glow,
+  .low-end-device .sparkle-twinkle,
+  .low-end-device .shield-pulse,
+  .low-end-device .deposit-pulse,
+  .low-end-device .s2s-pulse-dot {
     display: none !important;
     animation: none !important;
+  }
+  /* Explicitly guarantee loading screen animations run at full 60fps on all devices */
+  #appLoadingScreen,
+  #appLoadingScreen *,
+  #appLoadingScreen *::before,
+  #appLoadingScreen *::after,
+  .loading-tg-emoji,
+  .loading-tg-emoji * {
+    animation-duration: unset !important;
+    animation-iteration-count: unset !important;
+    display: revert !important;
+  }
+  #appLoadingScreen .loading-emblem-wrap,
+  #appLoadingScreen .loading-emoji-stage,
+  #appLoadingScreen .loading-emoji-slot {
+    display: flex !important;
+  }
+  #appLoadingScreen .loading-progress-fill {
+    display: block !important;
   }
 
 </style>
@@ -8674,6 +8699,41 @@
   "use strict";
 
   var APP_BUILD = "20261114_2145";
+
+  // Low-End Device Detection (phones with <= 4GB RAM or low CPU concurrency)
+  function isLowEndDevice() {
+    try {
+      if (typeof window !== "undefined" && window.location && window.location.search && window.location.search.indexOf("low_end=1") !== -1) {
+        return true;
+      }
+      if (typeof navigator !== "undefined") {
+        // navigator.deviceMemory returns approximate RAM in GiB (0.25, 0.5, 1, 2, 4, 8)
+        // 4GB RAM or lower is detected as low-end
+        if (typeof navigator.deviceMemory === "number") {
+          return navigator.deviceMemory <= 4;
+        }
+        // Fallback for browsers that don't expose deviceMemory: CPU cores <= 4
+        if (typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency <= 4) {
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  // Tag document with low-end-device class immediately
+  try {
+    if (isLowEndDevice()) {
+      if (document.documentElement) document.documentElement.classList.add("low-end-device");
+      if (document.body) {
+        document.body.classList.add("low-end-device");
+      } else {
+        document.addEventListener("DOMContentLoaded", function() {
+          if (document.body) document.body.classList.add("low-end-device");
+        });
+      }
+    }
+  } catch(e){}
 
   // Smart Dual-Engine Traffic Router:
   // Primary: Dedicated VPS (0% Vercel quota usage, ultra-fast performance)
@@ -11376,10 +11436,32 @@
       var scope = root || document;
       var els = scope.querySelectorAll(".tg-emoji");
       window._tgEmojiDataCache = window._tgEmojiDataCache || {};
+      var lowEnd = (typeof isLowEndDevice === "function") ? isLowEndDevice() : false;
       for (var i = 0; i < els.length; i++) {
         (function(el) {
           var id = el.getAttribute("data-id");
           if (!id || el.getAttribute("data-rendered") === id) return;
+
+          var isLoadingEmoji = el.classList.contains("loading-tg-emoji") || 
+                               (typeof el.closest === "function" && Boolean(el.closest("#appLoadingScreen"))) ||
+                               el.id === "loadingSlotKey" || 
+                               el.id === "loadingSlotCoin";
+
+          // On low-end / <=4GB RAM devices:
+          // Keep Loading animation running, but skip continuous Lottie animations on other components
+          if (lowEnd && !isLoadingEmoji) {
+            el.setAttribute("data-rendered", id);
+            if (!el.textContent || !el.textContent.trim()) {
+              var staticEmojiFallback = {
+                "5203996991054432397": "🎁",
+                "5280818098960611598": "🤑",
+                "5463154755054349837": "🔥"
+              }[id] || "🎁";
+              el.textContent = staticEmojiFallback;
+            }
+            return;
+          }
+
           el.setAttribute("data-rendered", id);
           var fb = el.textContent || "🎁";
 
