@@ -88,7 +88,7 @@ setInterval(() => {
 
 app.use((req, res, next) => {
   // Telegram webhooks, internal health check, and static assets must NEVER be throttled
-  if (req.path === "/api/health" || req.path === "/api/webhook" || req.path.startsWith("/assets/")) {
+  if (req.path === "/api/health" || req.path === "/api/webhook" || req.path === "/api/emoji" || req.path.startsWith("/assets/")) {
     return next();
   }
 
@@ -124,7 +124,7 @@ app.use((req, res, next) => {
   if (!secret) return next();
 
   // Allow static frontend, assets, health check, and Telegram webhook
-  if (!req.path.startsWith("/api/") || req.path === "/api/health" || req.path === "/api/webhook") {
+  if (!req.path.startsWith("/api/") || req.path === "/api/health" || req.path === "/api/webhook" || req.path === "/api/emoji") {
     return next();
   }
 
@@ -161,6 +161,7 @@ const apiHandlers = {
   captcha: require("./api/captcha"),
   checkin: require("./api/checkin"),
   collect: require("./api/collect"),
+  emoji: require("./api/emoji"),
   referral: require("./api/referral"),
   tasks: require("./api/tasks"),
   upgrade: require("./api/upgrade"),
