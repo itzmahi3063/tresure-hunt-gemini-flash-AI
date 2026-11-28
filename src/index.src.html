@@ -15328,7 +15328,7 @@
       if (vaultPillEl) vaultPillEl.classList.remove("unlocked");
       if (vaultIconEl) vaultIconEl.textContent = "🔒";
       if (vaultTextEl) {
-        vaultTextEl.innerHTML = "<strong>" + t("vault_sealed_status") + "</strong> — " + t("vault_sealed_hint").replace("{x}", formattedRem);
+        vaultTextEl.innerHTML = "<strong>" + t("vault_sealed_status") + "</strong> — " + t("vault_sealed_hint").replace(/\{[rx]\}/g, formattedRem);
       }
       if (withdrawBtnTextEl) withdrawBtnTextEl.textContent = t("vault_sealed_status");
       if (withdrawBtnEl) {
