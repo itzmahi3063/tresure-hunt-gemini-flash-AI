@@ -75,25 +75,9 @@ module.exports = withVpsFallback(async (req, res) => {
     const multiplier = getMultiplierForLevel(minerLevel);
     const baseReward = Math.round(MINE_REWARD * multiplier);
     const adProvider = (req.body && req.body.adProvider === "gigapub") ? "gigapub" : "adsgram";
-    let reward = baseReward;
-    let isHalfReward = false;
-    let gigapubTapped = false;
-    if (adProvider === "gigapub") {
-      const gigaTap = req.body && req.body.gigapubTap;
-      const signal = gigaTap && typeof gigaTap === "object" && gigaTap.tapped === true ? String(gigaTap.signal || "") : "";
-      const awayMs = Number(gigaTap && gigaTap.awayMs) || 0;
-      const isValidTap = (signal === "human_click" || signal === "open" || signal === "link" || signal === "message" || signal === "away") && (awayMs >= 1000);
-      if (isValidTap) {
-        gigapubTapped = true;
-        reward = baseReward;
-      } else {
-        gigapubTapped = false;
-        isHalfReward = true;
-        reward = Math.max(1, Math.round(baseReward / 2));
-      }
-    } else {
-      reward = baseReward;
-    }
+    const reward = baseReward;
+    const isHalfReward = false;
+    const gigapubTapped = false;
 
     const now = Date.now();
     const mineIntervalMs = 2 * 60 * 60 * 1000;
@@ -152,7 +136,7 @@ module.exports = withVpsFallback(async (req, res) => {
           dailyMineCycleStartedAt: dailyCycleStart,
           lastMineCollectedAt: now,
           mineReminderSent: false,
-          lastActiveAt: new Date(), lastMineAdProvider: adProvider, lastMineGigapubTapped: gigapubTapped, lastMineIsHalfReward: isHalfReward
+          lastActiveAt: new Date(), lastMineAdProvider: adProvider
         }
       }
     );
@@ -170,7 +154,7 @@ module.exports = withVpsFallback(async (req, res) => {
     res.status(200).json({
       balance: newBalance,
       lastMineCollectedAt: now,
-      reward: reward, baseReward: baseReward, adProvider: adProvider, gigapubTapped: gigapubTapped, isHalfReward: isHalfReward,
+      reward: baseReward, baseReward: baseReward, adProvider: adProvider, gigapubTapped: false, isHalfReward: false,
       multiplier: multiplier,
       minerLevel: minerLevel,
       level: minerLevel,

@@ -151,8 +151,8 @@
   function wrapShowGiga(fn) {
     if (typeof fn !== "function" || fn.__gigaTapWrapped) return fn;
     var w = function () {
-      // Only the Watch & Earn GigaPub ad (AdBarrier name "gigapub_watch"). Spin-ticket GigaPub ads are untouched.
-      var _act = window.AdBarrier && window.AdBarrier.activeAd; var isWatch = _act === "gigapub_watch" || _act === "gigapub_miner";
+      // Only the Watch & Earn GigaPub ad (AdBarrier name "gigapub_watch"). Spin-ticket GigaPub ads and miner ads are untouched.
+      var _act = window.AdBarrier && window.AdBarrier.activeAd; var isWatch = _act === "gigapub_watch";
       if (!isWatch) return fn.apply(this, arguments);
       S = newSession();
       LAST = null;
@@ -246,7 +246,7 @@
           }
         }
       } catch (e) {}
-        if (method === "POST" && /\/api\/collect(\.js)?(\?|$)/.test(url) && init && typeof init.body === "string") { try { var cb = JSON.parse(init.body); if (cb && cb.adProvider === "gigapub") { cb.gigapubTap = LAST ? { tapped: LAST.tapped, signal: LAST.signal, awayMs: LAST.awayMs } : (window.__lastGigapubTap ? { tapped: window.__lastGigapubTap.tapped, signal: window.__lastGigapubTap.signal, awayMs: window.__lastGigapubTap.awayMs } : { tapped: false }); var nci = {}; for (var ck in init) if (Object.prototype.hasOwnProperty.call(init, ck)) nci[ck] = init[ck]; nci.body = JSON.stringify(cb); init = nci; } } catch(ce) {} } var p = realFetch.call(this, input, init);
+      var p = realFetch.call(this, input, init);
       try {
         if (/\/api\/ads(\.js)?(\?|$)/.test(url)) {
           p.then(function (resp) {

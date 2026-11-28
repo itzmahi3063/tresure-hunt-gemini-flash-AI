@@ -6871,7 +6871,7 @@
     justify-content: center !important;
     width: 100% !important;
     max-width: 420px !important;
-    margin: 0 auto !important;
+    margin: auto !important;
     padding: 20px !important;
     box-sizing: border-box !important;
   }
@@ -10920,7 +10920,7 @@
   function apiCollect(captchaToken, adMeta) {
     var payload = {};
     if (captchaToken) payload.captchaToken = captchaToken;
-    if (currentActionTokens.mine) payload.actionToken = currentActionTokens.mine; if (adMeta && adMeta.adProvider) { payload.adProvider = adMeta.adProvider; if (adMeta.adProvider === "gigapub") { payload.gigapubTap = adMeta.gigapubTap || (window.__lastGigapubTap ? { tapped: window.__lastGigapubTap.tapped, signal: window.__lastGigapubTap.signal, awayMs: window.__lastGigapubTap.awayMs } : { tapped: false }); } }
+    if (currentActionTokens.mine) payload.actionToken = currentActionTokens.mine; if (adMeta && adMeta.adProvider) { payload.adProvider = adMeta.adProvider; }
     return fetch("/api/collect", {
       method: "POST",
       headers: getClientHeaders({ "Content-Type": "application/json" }),
@@ -13243,11 +13243,7 @@
           if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback) {
             try { window.Telegram.WebApp.HapticFeedback.notificationOccurred("success"); } catch(e){}
           }
-          if (res.data.isHalfReward) {
-            showToast("⛏️ +" + res.data.reward + " TREASURE collected! (Ad not tapped: 50% reward. Tap ad next time for full +" + res.data.baseReward + "!)");
-          } else {
-            showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
-          }
+          showToast("🎉 +" + res.data.reward + " TREASURE collected! Mining started.");
           renderAll();
         }).catch(function(err){
           window._isMiningClaimLocked = false;
@@ -13279,8 +13275,7 @@
       }
       showGigaFn().then(function() {
         if (window.AdBarrier) window.AdBarrier.release("gigapub_miner");
-        var tapData = window.__lastGigapubTap || { tapped: false };
-        onAdFinished({ adProvider: "gigapub", gigapubTap: tapData });
+        onAdFinished({ adProvider: "gigapub" });
       }).catch(function(err) {
         if (window.AdBarrier) window.AdBarrier.release("gigapub_miner");
         console.warn("[Miner Gigapub Ad] Closed/failed, falling back to Adsgram:", err);
