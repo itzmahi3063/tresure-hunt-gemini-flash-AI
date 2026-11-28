@@ -1208,14 +1208,14 @@ const paidAgg = await withdrawalsCol.aggregate([
                   : `<b>${tonVal.toFixed(4)} TON</b>`;
 
                 const channelMsg = 
-`🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
-`👤 <b>Miner:</b> ${displayName}\n` +
+`<tg-emoji emoji-id="5461151367559141950">🎉</tg-emoji> <b>New Payout Confirmed!</b> <tg-emoji emoji-id="5461151367559141950">🎉</tg-emoji>\n\n` +
+`<tg-emoji emoji-id="5453957997418004470">👥</tg-emoji> <b>Miner:</b> ${displayName}\n` +
 `💎 <b>Amount Paid:</b> ${displayAmountPaid} (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
-`💵 <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
-`💳 <b>Wallet address:</b>\n` +
+`<tg-emoji emoji-id="5409048419211682843">💵</tg-emoji> <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
+`<tg-emoji emoji-id="5386367538735104399">⌛</tg-emoji> <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
-`🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
-`🤖 <b>Bot:</b> @treasure_hunt12_bot`;
+`<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji> <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
+`<tg-emoji emoji-id="5355051922862653659">🤖</tg-emoji> <b>Bot:</b> @treasure_hunt12_bot`;
 
                 try {
                   const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
@@ -2405,14 +2405,14 @@ const paidAgg = await withdrawalsCol.aggregate([
           : `<b>${tonVal.toFixed(4)} TON</b>`;
 
         const channelMsg = 
-`🎉 <b>New Payout Confirmed!</b> 🎉\n\n` +
-`👤 <b>Miner:</b> ${displayName}\n` +
+`<tg-emoji emoji-id="5461151367559141950">🎉</tg-emoji> <b>New Payout Confirmed!</b> <tg-emoji emoji-id="5461151367559141950">🎉</tg-emoji>\n\n` +
+`<tg-emoji emoji-id="5453957997418004470">👥</tg-emoji> <b>Miner:</b> ${displayName}\n` +
 `💎 <b>Amount Paid:</b> ${displayAmountPaid} (${Number(w.amount).toLocaleString()} TREASURE Coins)\n` +
-`💵 <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
-`💳 <b>Wallet address:</b>\n` +
+`<tg-emoji emoji-id="5409048419211682843">💵</tg-emoji> <b>Value:</b> $${usdtVal.toFixed(2)} USDT\n` +
+`<tg-emoji emoji-id="5386367538735104399">⌛</tg-emoji> <b>Wallet address:</b>\n` +
 `<code>${escapeHtml(w.walletAddress)}</code>\n` +
-`🔗 <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
-`🤖 <b>Bot:</b> @treasure_hunt12_bot`;
+`<tg-emoji emoji-id="5271604874419647061">🔗</tg-emoji> <b>On-Chain Proof:</b> ${txLinkHtml}\n\n` +
+`<tg-emoji emoji-id="5355051922862653659">🤖</tg-emoji> <b>Bot:</b> @treasure_hunt12_bot`;
 
         const chSendRes = await sendTelegramMsg(botToken, channelId, channelMsg, {
           reply_markup: {
